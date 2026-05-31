@@ -265,11 +265,11 @@ async function cmdDeleteEntity(
 
 function deleteArgsFor(kind: string, id: string): string[] | undefined {
   switch (kind) {
-    case "note":      return ["note", "delete", "--id", id];
-    case "tag":       return ["tag", "delete", "--id", id];
-    case "record":    return ["record", "delete", "--id", id];
-    case "relation":  return ["relation", "delete", "--id", id];
-    case "container": return ["container", "delete", "--id", id];
+    case "note":      return ["note", "delete", id];
+    case "tag":       return ["tag", "delete", id];
+    case "record":    return ["record", "delete", id];
+    case "relation":  return ["relation", "delete", id];
+    case "container": return ["container", "delete", id];
     default:          return undefined;
   }
 }
@@ -300,9 +300,7 @@ export async function cmdAddToContainer(
       "container",
       "members",
       "add",
-      "--id",
       cid,
-      "--instance-id",
       node.entityId,
     ]);
     treeProvider.refresh();
@@ -330,9 +328,7 @@ export async function cmdRemoveFromContainer(
       "container",
       "members",
       "remove",
-      "--id",
       cid,
-      "--instance-id",
       node.entityId,
     ]);
     treeProvider.refresh();

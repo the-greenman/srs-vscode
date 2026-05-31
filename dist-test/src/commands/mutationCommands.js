@@ -214,11 +214,11 @@ async function cmdDeleteEntity(cli, repoProvider, treeProvider, node) {
 }
 function deleteArgsFor(kind, id) {
     switch (kind) {
-        case "note": return ["note", "delete", "--id", id];
-        case "tag": return ["tag", "delete", "--id", id];
-        case "record": return ["record", "delete", "--id", id];
-        case "relation": return ["relation", "delete", "--id", id];
-        case "container": return ["container", "delete", "--id", id];
+        case "note": return ["note", "delete", id];
+        case "tag": return ["tag", "delete", id];
+        case "record": return ["record", "delete", id];
+        case "relation": return ["relation", "delete", id];
+        case "container": return ["container", "delete", id];
         default: return undefined;
     }
 }
@@ -240,9 +240,7 @@ async function cmdAddToContainer(cli, repoProvider, attention, treeProvider, nod
             "container",
             "members",
             "add",
-            "--id",
             cid,
-            "--instance-id",
             node.entityId,
         ]);
         treeProvider.refresh();
@@ -266,9 +264,7 @@ async function cmdRemoveFromContainer(cli, repoProvider, attention, treeProvider
             "container",
             "members",
             "remove",
-            "--id",
             cid,
-            "--instance-id",
             node.entityId,
         ]);
         treeProvider.refresh();

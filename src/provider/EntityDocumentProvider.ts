@@ -85,18 +85,18 @@ export class EntityDocumentProvider
 
 function getArgsFor(kind: string, entityId: string): string[] | undefined {
   switch (kind) {
-    case "note":           return ["note", "get", "--id", entityId];
-    case "tag":            return ["tag", "get", "--id", entityId];
-    case "record":         return ["record", "get", "--id", entityId];
-    case "relation":       return ["relation", "get", "--id", entityId];
-    case "container":      return ["container", "get", "--id", entityId];
-    case "field":          return ["field", "get", "--id", entityId];
-    case "type":           return ["type", "get", "--id", entityId];
-    case "extension":      return ["extension", "get", "--id", entityId];
-    case "protocol":       return ["protocol", "get", "--id", entityId];
-    case "view":           return ["view", "get", "--id", entityId];
-    case "document-view":  return ["document-view", "get", "--id", entityId];
-    case "relation-type":  return ["relation-type", "get", "--id", entityId];
+    case "note":           return ["note", "get", entityId];
+    case "tag":            return ["tag", "get", entityId];
+    case "record":         return ["record", "get", entityId];
+    case "relation":       return ["relation", "get", entityId];
+    case "container":      return ["container", "get", entityId];
+    case "field":          return ["field", "get", entityId];
+    case "type":           return ["type", "get", entityId];
+    case "extension":      return ["extension", "get", entityId];
+    case "protocol":       return ["protocol", "get", entityId];
+    case "view":           return ["view", "get", entityId];
+    case "document-view":  return ["document-view", "get", entityId];
+    case "relation-type":  return ["relation-type", "get", entityId];
     default:               return undefined;
   }
 }

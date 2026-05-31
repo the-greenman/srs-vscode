@@ -637,29 +637,29 @@ var EntityDocumentProvider = class {
 function getArgsFor(kind, entityId) {
   switch (kind) {
     case "note":
-      return ["note", "get", "--id", entityId];
+      return ["note", "get", entityId];
     case "tag":
-      return ["tag", "get", "--id", entityId];
+      return ["tag", "get", entityId];
     case "record":
-      return ["record", "get", "--id", entityId];
+      return ["record", "get", entityId];
     case "relation":
-      return ["relation", "get", "--id", entityId];
+      return ["relation", "get", entityId];
     case "container":
-      return ["container", "get", "--id", entityId];
+      return ["container", "get", entityId];
     case "field":
-      return ["field", "get", "--id", entityId];
+      return ["field", "get", entityId];
     case "type":
-      return ["type", "get", "--id", entityId];
+      return ["type", "get", entityId];
     case "extension":
-      return ["extension", "get", "--id", entityId];
+      return ["extension", "get", entityId];
     case "protocol":
-      return ["protocol", "get", "--id", entityId];
+      return ["protocol", "get", entityId];
     case "view":
-      return ["view", "get", "--id", entityId];
+      return ["view", "get", entityId];
     case "document-view":
-      return ["document-view", "get", "--id", entityId];
+      return ["document-view", "get", entityId];
     case "relation-type":
-      return ["relation-type", "get", "--id", entityId];
+      return ["relation-type", "get", entityId];
     default:
       return void 0;
   }
@@ -1156,15 +1156,15 @@ async function cmdDeleteEntity(cli, repoProvider, treeProvider, node) {
 function deleteArgsFor(kind, id) {
   switch (kind) {
     case "note":
-      return ["note", "delete", "--id", id];
+      return ["note", "delete", id];
     case "tag":
-      return ["tag", "delete", "--id", id];
+      return ["tag", "delete", id];
     case "record":
-      return ["record", "delete", "--id", id];
+      return ["record", "delete", id];
     case "relation":
-      return ["relation", "delete", "--id", id];
+      return ["relation", "delete", id];
     case "container":
-      return ["container", "delete", "--id", id];
+      return ["container", "delete", id];
     default:
       return void 0;
   }
