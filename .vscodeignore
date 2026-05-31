@@ -1,0 +1,11 @@
+.vscode/**
+.github/**
+src/**
+test/**
+node_modules/**
+dist-test/**
+*.ts
+tsconfig*.json
+esbuild.js
+plans/**
+docs/**

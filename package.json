@@ -1,0 +1,86 @@
+{
+  "name": "srs-vscode",
+  "displayName": "SRS Repository Browser",
+  "description": "Browse and validate Semantic Record System repositories via the srs CLI",
+  "version": "0.1.0",
+  "publisher": "semanticops",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "activationEvents": [
+    "workspaceContains:.srs",
+    "workspaceContains:manifest.json",
+    "workspaceContains:*.srsj"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "srs.selectRepository",  "title": "SRS: Select Repository" },
+      { "command": "srs.refreshRepository", "title": "SRS: Refresh Repository", "icon": "$(refresh)" },
+      { "command": "srs.validateRepository","title": "SRS: Validate Repository" },
+      { "command": "srs.openRepositoryMap", "title": "SRS: Open Repository Map" }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "srsRepositoryTree",
+          "name": "SRS Repository",
+          "when": "srs.repositoryActive"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "srs.refreshRepository",
+          "when": "view == srsRepositoryTree",
+          "group": "navigation"
+        },
+        {
+          "command": "srs.validateRepository",
+          "when": "view == srsRepositoryTree",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "SRS",
+      "properties": {
+        "srs.cli.path": {
+          "type": "string",
+          "default": "srs",
+          "description": "Path to the srs CLI binary. Defaults to 'srs' (resolved from PATH)."
+        },
+        "srs.repository.path": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Explicit repository root path. When null, the extension auto-detects from workspace folders."
+        },
+        "srs.validate.onSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run srs repo validate after saving any file in the active repository."
+        },
+        "srs.trace.cli": {
+          "type": "boolean",
+          "default": false,
+          "description": "Log every CLI invocation and raw stdout to the SRS output channel."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "node esbuild.js --production",
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "compile-tests": "tsc -p tsconfig.test.json",
+    "test": "npm run compile-tests && node --require ./test/fixtures/register-vscode-mock.js ./dist-test/test/suite/index.js"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.6",
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.20.0",
+    "mocha": "^10.3.0",
+    "typescript": "^5.3.0"
+  }
+}
