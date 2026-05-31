@@ -37,12 +37,14 @@ exports.registerEditCommands = registerEditCommands;
 const vscode = __importStar(require("vscode"));
 const CliClient_1 = require("../cli/CliClient");
 const SrsTreeDataProvider_1 = require("../tree/SrsTreeDataProvider");
+const EntityEditorPanel_1 = require("../webview/EntityEditorPanel");
+const forms_1 = require("../webview/forms");
 // ---- Registration ----
 function registerEditCommands(context, cli, repoProvider, treeProvider) {
-    context.subscriptions.push(vscode.commands.registerCommand("srs.editEntity", (node) => cmdEditEntity(cli, repoProvider, treeProvider, node)), vscode.commands.registerCommand("srs.createRelation", () => cmdCreateRelation(cli, repoProvider, treeProvider)));
+    context.subscriptions.push(vscode.commands.registerCommand("srs.editEntity", (node) => cmdEditEntity(context, cli, repoProvider, treeProvider, node)), vscode.commands.registerCommand("srs.createRelation", () => cmdCreateRelation(cli, repoProvider, treeProvider)));
 }
 // ---- Dispatch ----
-async function cmdEditEntity(cli, repoProvider, treeProvider, node) {
+async function cmdEditEntity(context, cli, repoProvider, treeProvider, node) {
     if (!(node instanceof SrsTreeDataProvider_1.EntityNode)) {
         vscode.window.showWarningMessage("SRS: Select an entity in the SRS tree to edit.");
         return;
@@ -53,13 +55,13 @@ async function cmdEditEntity(cli, repoProvider, treeProvider, node) {
     try {
         switch (node.entityKind) {
             case "note":
-                await editNote(cli, repo.rootPath, node.entityId, treeProvider);
+                await editNote(context, cli, repo.rootPath, node.entityId, treeProvider);
                 break;
             case "tag":
-                await editTag(cli, repo.rootPath, node.entityId, treeProvider);
+                await editTag(context, cli, repo.rootPath, node.entityId, treeProvider);
                 break;
             case "record":
-                await editRecord(cli, repo.rootPath, node.entityId, treeProvider);
+                await editRecord(context, cli, repo.rootPath, node.entityId, treeProvider);
                 break;
             default:
                 vscode.window.showInformationMessage(`SRS: No form editor for '${node.entityKind}'. Open the entity JSON to edit directly.`);
@@ -71,107 +73,60 @@ async function cmdEditEntity(cli, repoProvider, treeProvider, node) {
     }
 }
 // ---- Note editor ----
-async function editNote(cli, repoPath, id, treeProvider) {
+async function editNote(context, cli, repoPath, id, treeProvider) {
     const payload = await cli.runOk(repoPath, ["note", "get", id]);
     const note = payload.note;
-    // --- Title ---
-    const title = await vscode.window.showInputBox({
-        title: "Edit Note (1/3) — Title",
-        value: note.title,
-        prompt: "Note title",
-        validateInput: (v) => (v.trim() ? undefined : "Title is required"),
-    });
-    if (title === undefined)
-        return; // cancelled
-    // --- Tags ---
-    const tagsInput = await vscode.window.showInputBox({
-        title: "Edit Note (2/3) — Tags",
-        value: (note.tags ?? []).join(", "),
-        prompt: "Comma-separated tag slugs (leave blank to clear)",
-    });
-    if (tagsInput === undefined)
-        return;
-    const tags = tagsInput
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean);
-    // --- Sections ---
-    // For each existing section, offer to edit content in a multi-line input box.
-    const sections = note.sections ? [...note.sections] : [];
-    for (let i = 0; i < sections.length; i++) {
-        const s = sections[i];
-        const sectionLabel = s.label ?? s.name;
-        const content = await vscode.window.showInputBox({
-            title: `Edit Note (3/3) — Section: ${sectionLabel}`,
-            value: s.content,
-            prompt: `Content for section "${sectionLabel}" (markdown)`,
-        });
-        if (content === undefined)
-            return; // cancelled
-        sections[i] = { ...s, content };
-    }
-    const updated = {
+    const noteData = {
         instanceId: note.instanceId,
-        title: title.trim(),
-        tags,
-        sections,
+        title: note.title,
+        tags: note.tags,
         createdAt: note.createdAt,
+        sections: note.sections,
     };
-    // Concurrent-change guard: re-fetch and compare title before saving
-    const refetch = await cli.runOk(repoPath, ["note", "get", id]);
-    if (refetch.note.title !== note.title) {
-        const proceed = await vscode.window.showWarningMessage(`SRS: Note was modified since you opened it (title changed to "${refetch.note.title}"). Overwrite?`, { modal: true }, "Overwrite");
-        if (proceed !== "Overwrite")
-            return;
-    }
-    await cli.runOk(repoPath, ["note", "update", id], {
-        stdin: JSON.stringify(updated),
+    const html = (0, forms_1.formWrapHtml)(note.title, (0, forms_1.buildNoteForm)(noteData));
+    EntityEditorPanel_1.EntityEditorPanel.show(context, `note:${id}`, note.title, html, async (data) => {
+        const d = data;
+        // Concurrent-change guard
+        const refetch = await cli.runOk(repoPath, ["note", "get", id]);
+        if (refetch.note.title !== note.title) {
+            const proceed = await vscode.window.showWarningMessage(`SRS: Note was modified since you opened it (title changed to "${refetch.note.title}"). Overwrite?`, { modal: true }, "Overwrite");
+            if (proceed !== "Overwrite")
+                return;
+        }
+        await cli.runOk(repoPath, ["note", "update", id], {
+            stdin: JSON.stringify(d),
+        });
+        treeProvider.refresh();
     });
-    treeProvider.refresh();
-    vscode.window.showInformationMessage(`SRS: Note '${title}' updated.`);
 }
 // ---- Tag editor ----
-async function editTag(cli, repoPath, id, treeProvider) {
+async function editTag(context, cli, repoPath, id, treeProvider) {
     const payload = await cli.runOk(repoPath, ["tag", "get", id]);
     const tag = payload.tagDefinition;
-    const slug = await vscode.window.showInputBox({
-        title: "Edit Tag (1/2) — Slug",
-        value: tag.slug,
-        prompt: "Tag slug (kebab-case)",
-        validateInput: (v) => /^[a-z0-9]+(-[a-z0-9]+)*$/.test(v.trim())
-            ? undefined
-            : "Slug must be kebab-case (e.g. my-tag)",
-    });
-    if (slug === undefined)
-        return;
-    const label = await vscode.window.showInputBox({
-        title: "Edit Tag (2/2) — Label",
-        value: tag.label ?? "",
-        prompt: "Display label (optional)",
-    });
-    if (label === undefined)
-        return;
-    // Concurrent-change guard
-    const refetch = await cli.runOk(repoPath, ["tag", "get", id]);
-    if (refetch.tagDefinition.slug !== tag.slug) {
-        const proceed = await vscode.window.showWarningMessage(`SRS: Tag was modified since you opened it. Overwrite?`, { modal: true }, "Overwrite");
-        if (proceed !== "Overwrite")
-            return;
-    }
-    const updated = {
+    const tagData = {
         instanceId: tag.instanceId,
-        slug: slug.trim(),
-        label: label.trim() || undefined,
+        slug: tag.slug,
+        label: tag.label,
         createdAt: tag.createdAt,
     };
-    await cli.runOk(repoPath, ["tag", "update", id], {
-        stdin: JSON.stringify(updated),
+    const html = (0, forms_1.formWrapHtml)(`Edit Tag: ${tag.slug}`, (0, forms_1.buildTagForm)(tagData));
+    EntityEditorPanel_1.EntityEditorPanel.show(context, `tag:${id}`, `Edit Tag: ${tag.slug}`, html, async (data) => {
+        const d = data;
+        // Concurrent-change guard
+        const refetch = await cli.runOk(repoPath, ["tag", "get", id]);
+        if (refetch.tagDefinition.slug !== tag.slug) {
+            const proceed = await vscode.window.showWarningMessage(`SRS: Tag was modified since you opened it. Overwrite?`, { modal: true }, "Overwrite");
+            if (proceed !== "Overwrite")
+                return;
+        }
+        await cli.runOk(repoPath, ["tag", "update", id], {
+            stdin: JSON.stringify(d),
+        });
+        treeProvider.refresh();
     });
-    treeProvider.refresh();
-    vscode.window.showInformationMessage(`SRS: Tag '${slug}' updated.`);
 }
 // ---- Record editor ----
-async function editRecord(cli, repoPath, id, treeProvider) {
+async function editRecord(context, cli, repoPath, id, treeProvider) {
     const payload = await cli.runOk(repoPath, ["record", "get", id]);
     const record = payload.record;
     // Fetch type to get ordered field definitions with displayLabels
@@ -180,65 +135,41 @@ async function editRecord(cli, repoPath, id, treeProvider) {
         "get",
         record.typeId,
     ]);
-    const typeFields = typePayload.type.fields.slice().sort((a, b) => a.order - b.order);
-    // Build a fieldId → current value map
-    const currentValues = new Map(record.fieldValues.map((fv) => [
-        fv.fieldId,
-        typeof fv.value === "string" ? fv.value : JSON.stringify(fv.value),
-    ]));
-    const typeName = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
-    const updatedValues = [];
-    for (let i = 0; i < typeFields.length; i++) {
-        const f = typeFields[i];
-        const label = f.displayLabel ?? f.fieldId.slice(0, 8);
-        const required = f.required ? " (required)" : "";
-        const current = currentValues.get(f.fieldId) ?? "";
-        const value = await vscode.window.showInputBox({
-            title: `Edit Record (${i + 1}/${typeFields.length}) — ${label}`,
-            value: current,
-            prompt: `${label}${required}  [${typeName}]`,
-            validateInput: f.required
-                ? (v) => (v.trim() ? undefined : `${label} is required`)
-                : undefined,
-        });
-        if (value === undefined)
-            return; // cancelled
-        if (value.trim() || f.required) {
-            updatedValues.push({ fieldId: f.fieldId, value: value.trim() });
-        }
-    }
-    // Concurrent-change guard: compare fieldValues length as a cheap proxy
-    const refetch = await cli.runOk(repoPath, ["record", "get", id]);
-    if (refetch.record.fieldValues.length !== record.fieldValues.length) {
-        const proceed = await vscode.window.showWarningMessage(`SRS: Record was modified since you opened it. Overwrite?`, { modal: true }, "Overwrite");
-        if (proceed !== "Overwrite")
-            return;
-    }
-    const updated = {
+    const typeFields = typePayload.type.fields;
+    const recordData = {
         instanceId: record.instanceId,
         typeId: record.typeId,
         typeName: record.typeName,
         typeNamespace: record.typeNamespace,
         typeVersion: record.typeVersion,
         createdAt: record.createdAt,
-        fieldValues: updatedValues,
+        fieldValues: record.fieldValues,
     };
-    try {
+    const fieldData = typeFields.map((f) => ({
+        fieldId: f.fieldId,
+        displayLabel: f.displayLabel,
+        order: f.order,
+        required: f.required,
+        repeatable: f.repeatable,
+        minItems: f.minItems,
+        maxItems: f.maxItems,
+    }));
+    const panelTitle = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
+    const html = (0, forms_1.formWrapHtml)(panelTitle, (0, forms_1.buildRecordForm)(recordData, fieldData));
+    EntityEditorPanel_1.EntityEditorPanel.show(context, `record:${id}`, panelTitle, html, async (data) => {
+        const d = data;
+        // Concurrent-change guard
+        const refetch = await cli.runOk(repoPath, ["record", "get", id]);
+        if (refetch.record.fieldValues.length !== record.fieldValues.length) {
+            const proceed = await vscode.window.showWarningMessage(`SRS: Record was modified since you opened it. Overwrite?`, { modal: true }, "Overwrite");
+            if (proceed !== "Overwrite")
+                return;
+        }
         await cli.runOk(repoPath, ["record", "update", id], {
-            stdin: JSON.stringify(updated),
+            stdin: JSON.stringify(d),
         });
         treeProvider.refresh();
-        vscode.window.showInformationMessage(`SRS: Record updated.`);
-    }
-    catch (err) {
-        if (err instanceof CliClient_1.CliError) {
-            // Surface CLI validation diagnostics
-            vscode.window.showErrorMessage(`SRS: Record update failed:\n${err.diagnostics.join("\n")}`);
-        }
-        else {
-            throw err;
-        }
-    }
+    });
 }
 // ---- Relation creator ----
 async function cmdCreateRelation(cli, repoProvider, treeProvider) {

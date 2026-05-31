@@ -6,6 +6,9 @@ import { PreviewPanel, wrapHtml, esc } from "../preview/PreviewPanel";
 import type {
   DocumentViewListPayload,
   ContainerListPayload,
+  RelationListPayload,
+  NoteListPayload,
+  RecordListPayload,
 } from "../cli/types";
 
 // ---- Payload shapes (local — only what we need for rendering) ----
@@ -211,17 +214,61 @@ async function previewRecord(
   const payload = await cli.runOk<RecordPayload>(repoPath, ["record", "get", id]);
   const { record } = payload;
 
-  // Fetch type to get displayLabels and repeatability
+  // Fetch type, relations, and entity lists in parallel
   let labelMap = new Map<string, string>();
   let repeatableSet = new Set<string>();
-  try {
-    const typePayload = await cli.runOk<TypePayload>(repoPath, ["type", "get", record.typeId]);
-    for (const f of typePayload.type.fields) {
+  let relatedItems: Array<{ relationId: string; relationType: string; direction: "outgoing" | "incoming"; peerId: string; peerLabel: string; peerKind: string }> = [];
+
+  const [typeResult, relResult, noteResult, recordListResult] = await Promise.allSettled([
+    cli.runOk<TypePayload>(repoPath, ["type", "get", record.typeId]),
+    cli.runOk<RelationListPayload>(repoPath, ["relation", "list"]),
+    cli.runOk<NoteListPayload>(repoPath, ["note", "list"]),
+    cli.runOk<RecordListPayload>(repoPath, ["record", "list"]),
+  ]);
+
+  if (typeResult.status === "fulfilled") {
+    for (const f of typeResult.value.type.fields) {
       labelMap.set(f.fieldId, f.displayLabel ?? f.fieldId.slice(0, 8));
       if (f.repeatable) repeatableSet.add(f.fieldId);
     }
-  } catch {
-    // If type fetch fails, fall back to fieldId
+  }
+
+  if (relResult.status === "fulfilled") {
+    const peerLabelMap = new Map<string, { label: string; kind: string }>();
+    if (noteResult.status === "fulfilled") {
+      for (const n of noteResult.value.notes) {
+        peerLabelMap.set(n.instanceId, { label: n.title, kind: "note" });
+      }
+    }
+    if (recordListResult.status === "fulfilled") {
+      for (const r of recordListResult.value.records) {
+        peerLabelMap.set(r.instanceId, { label: r.typeName, kind: "record" });
+      }
+    }
+
+    for (const rel of relResult.value.relations) {
+      if (rel.sourceId === id) {
+        const peer = peerLabelMap.get(rel.targetId);
+        relatedItems.push({
+          relationId: rel.relationId,
+          relationType: rel.relationType,
+          direction: "outgoing",
+          peerId: rel.targetId,
+          peerLabel: peer?.label ?? rel.targetId.slice(0, 8),
+          peerKind: peer?.kind ?? "note",
+        });
+      } else if (rel.targetId === id) {
+        const peer = peerLabelMap.get(rel.sourceId);
+        relatedItems.push({
+          relationId: rel.relationId,
+          relationType: rel.relationType,
+          direction: "incoming",
+          peerId: rel.sourceId,
+          peerLabel: peer?.label ?? rel.sourceId.slice(0, 8),
+          peerKind: peer?.kind ?? "note",
+        });
+      }
+    }
   }
 
   const title = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
@@ -251,14 +298,45 @@ async function previewRecord(
 
   const meta = record.createdAt ? `Created: ${esc(record.createdAt.slice(0, 10))}` : "";
 
+  const relationsHtml = relatedItems.length === 0
+    ? '<p class="empty">No relations.</p>'
+    : relatedItems.map((r) => {
+        const arrow = r.direction === "outgoing" ? "→" : "←";
+        const dirLabel = r.direction === "outgoing" ? "to" : "from";
+        return `<div class="relation-row">
+          <span class="rel-arrow">${arrow}</span>
+          <span class="rel-type">${esc(r.relationType)}</span>
+          <a class="rel-link" href="#" data-id="${esc(r.peerId)}" data-kind="${esc(r.peerKind)}" title="${esc(r.peerId)}">${esc(r.peerLabel)}</a>
+        </div>`;
+      }).join("");
+
   const html = wrapHtml(title, `
     <h1>${esc(title)}</h1>
     <div class="meta">${esc(record.instanceId.slice(0, 8))}… &nbsp;·&nbsp; ${meta}</div>
     <h2>Fields</h2>
     ${rows || '<p class="empty">No field values.</p>'}
-  `);
+    <h2>Relations</h2>
+    ${relationsHtml}
+    <script>
+      const vscode = acquireVsCodeApi();
+      document.querySelectorAll('.rel-link').forEach(function(el) {
+        el.addEventListener('click', function(ev) {
+          ev.preventDefault();
+          vscode.postMessage({ type: 'openEntity', id: el.dataset.id, kind: el.dataset.kind });
+        });
+      });
+    </script>
+  `, { enableScripts: true });
 
-  PreviewPanel.show(context, `record:${id}`, title, html);
+  PreviewPanel.show(context, `record:${id}`, title, html, {
+    enableScripts: true,
+    onMessage: (msg: unknown) => {
+      const m = msg as { type?: string; id?: string; kind?: string };
+      if (m.type === "openEntity" && m.id && m.kind) {
+        vscode.commands.executeCommand("srs.openEntityById", m.id, m.kind, repoPath);
+      }
+    },
+  });
 }
 
 // ---- Container preview ----

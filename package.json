@@ -28,13 +28,23 @@
       { "command": "srs.previewEntity",        "title": "SRS: Preview Entity" },
       { "command": "srs.previewRender",        "title": "SRS: Render Document View" },
       { "command": "srs.editEntity",           "title": "SRS: Edit Entity" },
-      { "command": "srs.createRelation",       "title": "SRS: Create Relation" }
+      { "command": "srs.createRelation",       "title": "SRS: Create Relation" },
+      { "command": "srs.showRelationGraph",      "title": "SRS: Show Relation Graph", "icon": "$(type-hierarchy)" },
+      { "command": "srs.navigatorRelations",    "title": "SRS Navigator: Relations", "icon": "$(references)" },
+      { "command": "srs.navigatorDocumentViews","title": "SRS Navigator: Document Views", "icon": "$(book)" },
+      { "command": "srs.navigatorContainers",   "title": "SRS Navigator: Containers", "icon": "$(package)" },
+      { "command": "srs.navigatorRefresh",      "title": "SRS Navigator: Refresh", "icon": "$(refresh)" }
     ],
     "views": {
       "explorer": [
         {
           "id": "srsRepositoryTree",
           "name": "SRS Repository",
+          "when": "srs.repositoryActive"
+        },
+        {
+          "id": "srsNavigatorTree",
+          "name": "SRS Navigator",
           "when": "srs.repositoryActive"
         }
       ]
@@ -50,22 +60,47 @@
           "command": "srs.validateRepository",
           "when": "view == srsRepositoryTree",
           "group": "navigation"
+        },
+        {
+          "command": "srs.showRelationGraph",
+          "when": "view == srsRepositoryTree",
+          "group": "navigation"
+        },
+        {
+          "command": "srs.navigatorRefresh",
+          "when": "view == srsNavigatorTree",
+          "group": "navigation@0"
+        },
+        {
+          "command": "srs.navigatorRelations",
+          "when": "view == srsNavigatorTree",
+          "group": "navigation@1"
+        },
+        {
+          "command": "srs.navigatorDocumentViews",
+          "when": "view == srsNavigatorTree",
+          "group": "navigation@2"
+        },
+        {
+          "command": "srs.navigatorContainers",
+          "when": "view == srsNavigatorTree",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
         {
           "command": "srs.previewEntity",
-          "when": "view == srsRepositoryTree && viewItem == srsEntity",
+          "when": "viewItem == srsEntity",
           "group": "srs@1"
         },
         {
           "command": "srs.previewRender",
-          "when": "view == srsRepositoryTree && viewItem == srsEntity",
+          "when": "viewItem == srsEntity",
           "group": "srs@2"
         },
         {
           "command": "srs.editEntity",
-          "when": "view == srsRepositoryTree && viewItem == srsEntity",
+          "when": "viewItem == srsEntity",
           "group": "srs@3"
         },
         {

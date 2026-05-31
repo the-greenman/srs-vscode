@@ -49,6 +49,9 @@ const previewCommands_1 = require("./commands/previewCommands");
 const editCommands_1 = require("./commands/editCommands");
 const containerCommands_1 = require("./commands/containerCommands");
 const mutationCommands_1 = require("./commands/mutationCommands");
+const graphCommands_1 = require("./commands/graphCommands");
+const NavigatorTreeDataProvider_1 = require("./tree/NavigatorTreeDataProvider");
+const navigatorCommands_1 = require("./commands/navigatorCommands");
 async function activate(context) {
     const outputChannel = vscode.window.createOutputChannel("SRS");
     context.subscriptions.push(outputChannel);
@@ -56,16 +59,24 @@ async function activate(context) {
     const repoProvider = new RepositoryProvider_1.RepositoryProvider(cli);
     const attention = new AttentionManager_1.AttentionManager(context.workspaceState, cli);
     const treeProvider = new SrsTreeDataProvider_1.SrsTreeDataProvider(cli, repoProvider, attention);
+    const navigatorProvider = new NavigatorTreeDataProvider_1.NavigatorTreeDataProvider(cli, repoProvider);
     const statusBarItem = new ContainerStatusBarItem_1.ContainerStatusBarItem(attention);
     const schemaProvider = new SchemaProvider_1.SchemaProvider(context.extensionUri);
     const entityDocProvider = new EntityDocumentProvider_1.EntityDocumentProvider(cli, repoProvider);
     const diagnosticsProvider = new DiagnosticsProvider_1.DiagnosticsProvider(cli, repoProvider);
-    context.subscriptions.push(repoProvider, treeProvider, attention, statusBarItem, schemaProvider, entityDocProvider, diagnosticsProvider, vscode.workspace.registerTextDocumentContentProvider(EntityDocumentProvider_1.ENTITY_SCHEME, entityDocProvider));
+    context.subscriptions.push(repoProvider, treeProvider, navigatorProvider, attention, statusBarItem, schemaProvider, entityDocProvider, diagnosticsProvider, vscode.workspace.registerTextDocumentContentProvider(EntityDocumentProvider_1.ENTITY_SCHEME, entityDocProvider));
     const treeView = vscode.window.createTreeView("srsRepositoryTree", {
         treeDataProvider: treeProvider,
         showCollapseAll: true,
     });
     context.subscriptions.push(treeView);
+    const navigatorView = vscode.window.createTreeView("srsNavigatorTree", {
+        treeDataProvider: navigatorProvider,
+        showCollapseAll: true,
+    });
+    context.subscriptions.push(navigatorView);
+    // Initialise context key for mode-sensitive toolbar buttons
+    vscode.commands.executeCommand("setContext", "srs.navigatorMode", "relations");
     // Keep tree view title in sync with active repository name; clear stale diagnostics on change
     repoProvider.onDidChangeActive((repo) => {
         treeView.title = repo ? `SRS: ${repo.title}` : "SRS Repository";
@@ -95,6 +106,8 @@ async function activate(context) {
     (0, mutationCommands_1.registerMutationCommands)(context, cli, repoProvider, attention, treeProvider);
     (0, previewCommands_1.registerPreviewCommands)(context, cli, repoProvider);
     (0, editCommands_1.registerEditCommands)(context, cli, repoProvider, treeProvider);
+    (0, graphCommands_1.registerGraphCommands)(context, cli, repoProvider, entityDocProvider);
+    (0, navigatorCommands_1.registerNavigatorCommands)(context, navigatorProvider);
     // Auto-detect on activation
     await autoDetectRepository(cli, repoProvider);
     // Restore persisted active container once the active repo is known

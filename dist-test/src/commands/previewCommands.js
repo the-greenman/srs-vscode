@@ -137,36 +137,122 @@ async function previewNote(_context, cli, repoPath, id) {
 async function previewRecord(context, cli, repoPath, id) {
     const payload = await cli.runOk(repoPath, ["record", "get", id]);
     const { record } = payload;
-    // Fetch type to get displayLabels
+    // Fetch type, relations, and entity lists in parallel
     let labelMap = new Map();
-    try {
-        const typePayload = await cli.runOk(repoPath, ["type", "get", record.typeId]);
-        for (const f of typePayload.type.fields) {
+    let repeatableSet = new Set();
+    let relatedItems = [];
+    const [typeResult, relResult, noteResult, recordListResult] = await Promise.allSettled([
+        cli.runOk(repoPath, ["type", "get", record.typeId]),
+        cli.runOk(repoPath, ["relation", "list"]),
+        cli.runOk(repoPath, ["note", "list"]),
+        cli.runOk(repoPath, ["record", "list"]),
+    ]);
+    if (typeResult.status === "fulfilled") {
+        for (const f of typeResult.value.type.fields) {
             labelMap.set(f.fieldId, f.displayLabel ?? f.fieldId.slice(0, 8));
+            if (f.repeatable)
+                repeatableSet.add(f.fieldId);
         }
     }
-    catch {
-        // If type fetch fails, fall back to fieldId
+    if (relResult.status === "fulfilled") {
+        const peerLabelMap = new Map();
+        if (noteResult.status === "fulfilled") {
+            for (const n of noteResult.value.notes) {
+                peerLabelMap.set(n.instanceId, { label: n.title, kind: "note" });
+            }
+        }
+        if (recordListResult.status === "fulfilled") {
+            for (const r of recordListResult.value.records) {
+                peerLabelMap.set(r.instanceId, { label: r.typeName, kind: "record" });
+            }
+        }
+        for (const rel of relResult.value.relations) {
+            if (rel.sourceId === id) {
+                const peer = peerLabelMap.get(rel.targetId);
+                relatedItems.push({
+                    relationId: rel.relationId,
+                    relationType: rel.relationType,
+                    direction: "outgoing",
+                    peerId: rel.targetId,
+                    peerLabel: peer?.label ?? rel.targetId.slice(0, 8),
+                    peerKind: peer?.kind ?? "note",
+                });
+            }
+            else if (rel.targetId === id) {
+                const peer = peerLabelMap.get(rel.sourceId);
+                relatedItems.push({
+                    relationId: rel.relationId,
+                    relationType: rel.relationType,
+                    direction: "incoming",
+                    peerId: rel.sourceId,
+                    peerLabel: peer?.label ?? rel.sourceId.slice(0, 8),
+                    peerKind: peer?.kind ?? "note",
+                });
+            }
+        }
     }
     const title = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
     const rows = record.fieldValues
         .map((fv) => {
         const label = labelMap.get(fv.fieldId) ?? fv.fieldId.slice(0, 8);
-        const value = typeof fv.value === "string" ? fv.value : JSON.stringify(fv.value);
+        let valueHtml;
+        if (repeatableSet.has(fv.fieldId) && fv.entries && fv.entries.length > 0) {
+            const items = fv.entries
+                .map((e) => {
+                const v = typeof e.value === "string" ? e.value : JSON.stringify(e.value);
+                return `<li>${(0, PreviewPanel_1.esc)(v)}</li>`;
+            })
+                .join("");
+            valueHtml = `<ul class="repeatable-values">${items}</ul>`;
+        }
+        else {
+            const v = typeof fv.value === "string" ? fv.value : JSON.stringify(fv.value);
+            valueHtml = (0, PreviewPanel_1.esc)(v);
+        }
         return `<div class="field-row">
         <div class="field-label">${(0, PreviewPanel_1.esc)(label)}</div>
-        <div class="field-value">${(0, PreviewPanel_1.esc)(value)}</div>
+        <div class="field-value">${valueHtml}</div>
       </div>`;
     })
         .join("");
     const meta = record.createdAt ? `Created: ${(0, PreviewPanel_1.esc)(record.createdAt.slice(0, 10))}` : "";
+    const relationsHtml = relatedItems.length === 0
+        ? '<p class="empty">No relations.</p>'
+        : relatedItems.map((r) => {
+            const arrow = r.direction === "outgoing" ? "→" : "←";
+            const dirLabel = r.direction === "outgoing" ? "to" : "from";
+            return `<div class="relation-row">
+          <span class="rel-arrow">${arrow}</span>
+          <span class="rel-type">${(0, PreviewPanel_1.esc)(r.relationType)}</span>
+          <a class="rel-link" href="#" data-id="${(0, PreviewPanel_1.esc)(r.peerId)}" data-kind="${(0, PreviewPanel_1.esc)(r.peerKind)}" title="${(0, PreviewPanel_1.esc)(r.peerId)}">${(0, PreviewPanel_1.esc)(r.peerLabel)}</a>
+        </div>`;
+        }).join("");
     const html = (0, PreviewPanel_1.wrapHtml)(title, `
     <h1>${(0, PreviewPanel_1.esc)(title)}</h1>
     <div class="meta">${(0, PreviewPanel_1.esc)(record.instanceId.slice(0, 8))}… &nbsp;·&nbsp; ${meta}</div>
     <h2>Fields</h2>
     ${rows || '<p class="empty">No field values.</p>'}
-  `);
-    PreviewPanel_1.PreviewPanel.show(context, `record:${id}`, title, html);
+    <h2>Relations</h2>
+    ${relationsHtml}
+    <script>
+      const vscode = acquireVsCodeApi();
+      document.querySelectorAll('.rel-link').forEach(function(el) {
+        el.addEventListener('click', function(ev) {
+          ev.preventDefault();
+          vscode.postMessage({ type: 'openEntity', id: el.dataset.id, kind: el.dataset.kind });
+        });
+      });
+    </script>
+  `, { enableScripts: true });
+    PreviewPanel_1.PreviewPanel.show(context, `record:${id}`, title, html, {
+        enableScripts: true,
+        onMessage: (msg) => {
+            const m = msg;
+            if (m.type === "openEntity" && m.id && m.kind) {
+                vscode.commands.executeCommand("srs.openEntityById", m.id, m.kind, repoPath);
+            }
+        },
+    });
 }
 // ---- Container preview ----
 async function previewContainer(context, cli, repoPath, id) {

@@ -93,7 +93,7 @@ const ENTITY_SPECS = {
         listArgs: ["relation", "list"],
         extractItems: (p) => p.relations.map((r) => ({
             id: r.relationId,
-            label: `${r.relationType}: ${r.sourceInstanceId.slice(0, 8)}→${r.targetInstanceId.slice(0, 8)}`,
+            label: `${r.relationType}: ${r.sourceId.slice(0, 8)}→${r.targetId.slice(0, 8)}`,
         })),
         getArgs: (id) => ["relation", "get", id],
     },

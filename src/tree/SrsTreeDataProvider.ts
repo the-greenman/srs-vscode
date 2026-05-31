@@ -100,7 +100,7 @@ const ENTITY_SPECS: Record<EntityKind, EntitySpec> = {
     extractItems: (p) =>
       (p as RelationListPayload).relations.map((r) => ({
         id: r.relationId,
-        label: `${r.relationType}: ${r.sourceInstanceId.slice(0, 8)}→${r.targetInstanceId.slice(0, 8)}`,
+        label: `${r.relationType}: ${r.sourceId.slice(0, 8)}→${r.targetId.slice(0, 8)}`,
       })),
     getArgs: (id) => ["relation", "get", id],
   },

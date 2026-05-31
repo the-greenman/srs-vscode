@@ -43,28 +43,39 @@ const vscode = __importStar(require("vscode"));
  * to the foreground rather than opening a duplicate.
  */
 class PreviewPanel {
-    static show(context, id, title, html) {
+    static show(context, id, title, html, options) {
         const existing = PreviewPanel._panels.get(id);
         if (existing) {
             existing._panel.reveal(vscode.ViewColumn.Active);
             existing._panel.title = title;
             existing._update(html);
+            if (options?.onMessage) {
+                existing._setMessageHandler(options.onMessage);
+            }
             return existing;
         }
-        const panel = new PreviewPanel(context, id, title, html);
+        const panel = new PreviewPanel(context, id, title, html, options);
         PreviewPanel._panels.set(id, panel);
         return panel;
     }
-    constructor(context, _id, title, html) {
+    constructor(context, _id, title, html, options) {
         this._id = _id;
         this._panel = vscode.window.createWebviewPanel("srsPreview", title, { viewColumn: vscode.ViewColumn.Active, preserveFocus: false }, {
-            enableScripts: false,
+            enableScripts: options?.enableScripts ?? false,
             localResourceRoots: [],
         });
         this._update(html);
+        if (options?.onMessage) {
+            this._setMessageHandler(options.onMessage);
+        }
         this._panel.onDidDispose(() => {
+            this._messageDisposable?.dispose();
             PreviewPanel._panels.delete(this._id);
         });
+    }
+    _setMessageHandler(handler) {
+        this._messageDisposable?.dispose();
+        this._messageDisposable = this._panel.webview.onDidReceiveMessage(handler);
     }
     _update(html) {
         this._panel.webview.html = html;
@@ -91,6 +102,8 @@ const CSS = `
     .field-row { display: flex; gap: 1em; margin: 0.4em 0; }
     .field-label { width: 160px; flex-shrink: 0; font-weight: 600; color: var(--vscode-descriptionForeground); font-size: 0.9em; }
     .field-value { flex: 1; word-break: break-word; }
+    .repeatable-values { margin: 0; padding-left: 1.2em; }
+    .repeatable-values li { margin: 0.1em 0; }
     .section { margin-top: 1.2em; }
     .section-name { font-size: 0.8em; font-weight: 600; text-transform: uppercase;
                     letter-spacing: 0.05em; color: var(--vscode-descriptionForeground); margin-bottom: 0.3em; }
@@ -98,10 +111,20 @@ const CSS = `
     pre { background: var(--vscode-textCodeBlock-background); padding: 0.8em; border-radius: 4px;
           overflow-x: auto; font-size: 0.9em; white-space: pre-wrap; }
     .empty { color: var(--vscode-descriptionForeground); font-style: italic; }
+    .relation-row { display: flex; align-items: baseline; gap: 0.6em; padding: 0.3em 0;
+                    border-bottom: 1px solid var(--vscode-panel-border); font-size: 0.9em; }
+    .rel-arrow { color: var(--vscode-descriptionForeground); font-weight: 600; flex-shrink: 0; }
+    .rel-type { color: var(--vscode-badge-foreground); background: var(--vscode-badge-background);
+                border-radius: 3px; padding: 0 5px; font-size: 0.8em; flex-shrink: 0; }
+    .rel-link { color: var(--vscode-textLink-foreground); text-decoration: none; cursor: pointer; }
+    .rel-link:hover { text-decoration: underline; }
   </style>
 `;
-function wrapHtml(title, body) {
-    return `<!DOCTYPE html><html><head><meta charset="UTF-8">${CSS}<title>${esc(title)}</title></head><body>${body}</body></html>`;
+function wrapHtml(title, body, options) {
+    const csp = options?.enableScripts
+        ? `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline';">`
+        : `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';">`;
+    return `<!DOCTYPE html><html><head><meta charset="UTF-8">${csp}${CSS}<title>${esc(title)}</title></head><body>${body}</body></html>`;
 }
 function esc(s) {
     return s

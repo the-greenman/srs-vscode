@@ -12,6 +12,9 @@ import { registerPreviewCommands } from "./commands/previewCommands";
 import { registerEditCommands } from "./commands/editCommands";
 import { registerContainerCommands } from "./commands/containerCommands";
 import { registerMutationCommands } from "./commands/mutationCommands";
+import { registerGraphCommands } from "./commands/graphCommands";
+import { NavigatorTreeDataProvider } from "./tree/NavigatorTreeDataProvider";
+import { registerNavigatorCommands } from "./commands/navigatorCommands";
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -23,6 +26,7 @@ export async function activate(
   const repoProvider = new RepositoryProvider(cli);
   const attention = new AttentionManager(context.workspaceState, cli);
   const treeProvider = new SrsTreeDataProvider(cli, repoProvider, attention);
+  const navigatorProvider = new NavigatorTreeDataProvider(cli, repoProvider);
   const statusBarItem = new ContainerStatusBarItem(attention);
   const schemaProvider = new SchemaProvider(context.extensionUri);
   const entityDocProvider = new EntityDocumentProvider(cli, repoProvider);
@@ -31,6 +35,7 @@ export async function activate(
   context.subscriptions.push(
     repoProvider,
     treeProvider,
+    navigatorProvider,
     attention,
     statusBarItem,
     schemaProvider,
@@ -47,6 +52,15 @@ export async function activate(
     showCollapseAll: true,
   });
   context.subscriptions.push(treeView);
+
+  const navigatorView = vscode.window.createTreeView("srsNavigatorTree", {
+    treeDataProvider: navigatorProvider,
+    showCollapseAll: true,
+  });
+  context.subscriptions.push(navigatorView);
+
+  // Initialise context key for mode-sensitive toolbar buttons
+  vscode.commands.executeCommand("setContext", "srs.navigatorMode", "relations");
 
   // Keep tree view title in sync with active repository name; clear stale diagnostics on change
   repoProvider.onDidChangeActive((repo) => {
@@ -87,6 +101,8 @@ export async function activate(
   registerMutationCommands(context, cli, repoProvider, attention, treeProvider);
   registerPreviewCommands(context, cli, repoProvider);
   registerEditCommands(context, cli, repoProvider, treeProvider);
+  registerGraphCommands(context, cli, repoProvider, entityDocProvider);
+  registerNavigatorCommands(context, navigatorProvider);
 
   // Auto-detect on activation
   await autoDetectRepository(cli, repoProvider);
