@@ -108,6 +108,28 @@ const FORM_CSS = `
       margin-bottom: 1.5em;
     }
     .section-group .field:last-child { margin-bottom: 0; }
+    .section-header {
+      display: flex;
+      gap: 0.5em;
+      margin-bottom: 0.4em;
+      align-items: center;
+    }
+    .section-name-input {
+      flex: 1;
+      font-weight: 600;
+    }
+    .section-label-input { flex: 1; }
+    .btn-remove-section {
+      padding: 2px 8px;
+      background: transparent;
+      color: var(--vscode-errorForeground);
+      border: 1px solid var(--vscode-errorForeground);
+      border-radius: 2px;
+      cursor: pointer;
+      font-size: 0.85em;
+      flex-shrink: 0;
+    }
+    .btn-remove-section:hover { opacity: 0.7; }
     .hint { font-size: 0.8em; color: var(--vscode-descriptionForeground); margin-top: 0.2em; }
     .button-row { display: flex; gap: 0.75em; margin-top: 1.5em; }
     button {
@@ -200,17 +222,17 @@ export function buildNoteForm(note: NoteData): string {
   const sections = note.sections ?? [];
   const tagsValue = (note.tags ?? []).join(", ");
 
-  const sectionHtml = sections.map((s, i) => `
-    <div class="section-group">
+  const sectionHtml = sections.map((s) => `
+    <div class="section-group" data-section>
       <div class="field">
-        <label>${esc(s.label ?? s.name)}</label>
-        <textarea name="section_content_${i}" rows="6">${escText(s.content)}</textarea>
+        <div class="section-header">
+          <input type="text" class="section-name-input" placeholder="Section name (e.g. body)" value="${escAttr(s.name)}" required>
+          <input type="text" class="section-label-input" placeholder="Label (optional)" value="${escAttr(s.label ?? "")}">
+          <button type="button" class="btn-remove-section" title="Remove section">✕</button>
+        </div>
+        <textarea class="section-content-input" rows="6">${escText(s.content)}</textarea>
       </div>
-      <input type="hidden" name="section_name_${i}" value="${escAttr(s.name)}">
-      <input type="hidden" name="section_label_${i}" value="${escAttr(s.label ?? "")}">
     </div>`).join("");
-
-  const sectionCount = sections.length;
 
   const collectJs = `
   <script>
@@ -221,16 +243,45 @@ export function buildNoteForm(note: NoteData): string {
       const tags = tagsRaw.split(',').map(t => t.trim()).filter(Boolean);
       const instanceId = form.querySelector('[name="instanceId"]').value;
       const createdAt = form.querySelector('[name="createdAt"]').value || undefined;
-      const sectionCount = parseInt(form.querySelector('[name="sectionCount"]').value, 10);
       const sections = [];
-      for (let i = 0; i < sectionCount; i++) {
-        const name = form.querySelector('[name="section_name_' + i + '"]').value;
-        const label = form.querySelector('[name="section_label_' + i + '"]').value || undefined;
-        const content = form.querySelector('[name="section_content_' + i + '"]').value;
-        sections.push({ name, label, content });
-      }
+      form.querySelectorAll('[data-section]').forEach(function(group) {
+        const name = group.querySelector('.section-name-input').value.trim();
+        const labelRaw = group.querySelector('.section-label-input').value.trim();
+        const content = group.querySelector('.section-content-input').value;
+        if (name) {
+          sections.push({ name, label: labelRaw || undefined, content });
+        }
+      });
       return { instanceId, title, tags, sections, createdAt };
     }
+
+    function addSection() {
+      const container = document.getElementById('sections-container');
+      const group = document.createElement('div');
+      group.className = 'section-group';
+      group.setAttribute('data-section', '');
+      group.innerHTML =
+        '<div class="field">' +
+          '<div class="section-header">' +
+            '<input type="text" class="section-name-input" placeholder="Section name (e.g. body)" required>' +
+            '<input type="text" class="section-label-input" placeholder="Label (optional)">' +
+            '<button type="button" class="btn-remove-section" title="Remove section">\\u2715</button>' +
+          '</div>' +
+          '<textarea class="section-content-input" rows="6"></textarea>' +
+        '</div>';
+      container.appendChild(group);
+      group.querySelector('.section-name-input').focus();
+      wireRemoveButton(group.querySelector('.btn-remove-section'));
+    }
+
+    function wireRemoveButton(btn) {
+      btn.addEventListener('click', function() {
+        btn.closest('[data-section]').remove();
+      });
+    }
+
+    document.querySelectorAll('.btn-remove-section').forEach(wireRemoveButton);
+    document.getElementById('btn-add-section').addEventListener('click', addSection);
   </script>`;
 
   return `
@@ -243,10 +294,14 @@ export function buildNoteForm(note: NoteData): string {
       <input type="text" name="tags" value="${escAttr(tagsValue)}">
       <div class="hint">Comma-separated slugs, e.g. purpose, origin</div>
     </div>
-    ${sectionHtml}
+    <div id="sections-container">
+      ${sectionHtml}
+    </div>
+    <div class="field">
+      <button type="button" id="btn-add-section">+ Add Section</button>
+    </div>
     <input type="hidden" name="instanceId" value="${escAttr(note.instanceId)}">
     <input type="hidden" name="createdAt" value="${escAttr(note.createdAt ?? "")}">
-    <input type="hidden" name="sectionCount" value="${sectionCount}">
     ${collectJs}`;
 }
 
