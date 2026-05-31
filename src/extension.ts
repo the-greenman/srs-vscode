@@ -9,6 +9,7 @@ import { EntityDocumentProvider, ENTITY_SCHEME } from "./provider/EntityDocument
 import { DiagnosticsProvider } from "./diagnostics/DiagnosticsProvider";
 import { registerRepositoryCommands } from "./commands/repositoryCommands";
 import { registerPreviewCommands } from "./commands/previewCommands";
+import { registerEditCommands } from "./commands/editCommands";
 import { registerContainerCommands } from "./commands/containerCommands";
 import { registerMutationCommands } from "./commands/mutationCommands";
 
@@ -85,6 +86,7 @@ export async function activate(
 
   registerMutationCommands(context, cli, repoProvider, attention, treeProvider);
   registerPreviewCommands(context, cli, repoProvider);
+  registerEditCommands(context, cli, repoProvider, treeProvider);
 
   // Auto-detect on activation
   await autoDetectRepository(cli, repoProvider);

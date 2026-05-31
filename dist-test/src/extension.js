@@ -46,6 +46,7 @@ const EntityDocumentProvider_1 = require("./provider/EntityDocumentProvider");
 const DiagnosticsProvider_1 = require("./diagnostics/DiagnosticsProvider");
 const repositoryCommands_1 = require("./commands/repositoryCommands");
 const previewCommands_1 = require("./commands/previewCommands");
+const editCommands_1 = require("./commands/editCommands");
 const containerCommands_1 = require("./commands/containerCommands");
 const mutationCommands_1 = require("./commands/mutationCommands");
 async function activate(context) {
@@ -93,6 +94,7 @@ async function activate(context) {
     (0, containerCommands_1.registerContainerCommands)(context, cli, repoProvider, attention, treeProvider);
     (0, mutationCommands_1.registerMutationCommands)(context, cli, repoProvider, attention, treeProvider);
     (0, previewCommands_1.registerPreviewCommands)(context, cli, repoProvider);
+    (0, editCommands_1.registerEditCommands)(context, cli, repoProvider, treeProvider);
     // Auto-detect on activation
     await autoDetectRepository(cli, repoProvider);
     // Restore persisted active container once the active repo is known

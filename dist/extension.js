@@ -34,7 +34,7 @@ __export(extension_exports, {
   deactivate: () => deactivate
 });
 module.exports = __toCommonJS(extension_exports);
-var vscode14 = __toESM(require("vscode"));
+var vscode15 = __toESM(require("vscode"));
 
 // src/cli/CliClient.ts
 var cp = __toESM(require("child_process"));
@@ -1137,19 +1137,326 @@ async function openMarkdownPreview(markdown, _title) {
   await vscode11.commands.executeCommand("markdown.showPreview", doc.uri);
 }
 
-// src/commands/containerCommands.ts
+// src/commands/editCommands.ts
 var vscode12 = __toESM(require("vscode"));
-function registerContainerCommands(context, cli, repoProvider, attention, treeProvider) {
+function registerEditCommands(context, cli, repoProvider, treeProvider) {
   context.subscriptions.push(
     vscode12.commands.registerCommand(
+      "srs.editEntity",
+      (node) => cmdEditEntity(cli, repoProvider, treeProvider, node)
+    ),
+    vscode12.commands.registerCommand(
+      "srs.createRelation",
+      () => cmdCreateRelation(cli, repoProvider, treeProvider)
+    )
+  );
+}
+async function cmdEditEntity(cli, repoProvider, treeProvider, node) {
+  if (!(node instanceof EntityNode)) {
+    vscode12.window.showWarningMessage(
+      "SRS: Select an entity in the SRS tree to edit."
+    );
+    return;
+  }
+  const repo = repoProvider.active;
+  if (!repo)
+    return;
+  try {
+    switch (node.entityKind) {
+      case "note":
+        await editNote(cli, repo.rootPath, node.entityId, treeProvider);
+        break;
+      case "tag":
+        await editTag(cli, repo.rootPath, node.entityId, treeProvider);
+        break;
+      case "record":
+        await editRecord(cli, repo.rootPath, node.entityId, treeProvider);
+        break;
+      default:
+        vscode12.window.showInformationMessage(
+          `SRS: No form editor for '${node.entityKind}'. Open the entity JSON to edit directly.`
+        );
+    }
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode12.window.showErrorMessage(`SRS: Edit failed: ${msg}`);
+  }
+}
+async function editNote(cli, repoPath, id, treeProvider) {
+  const payload = await cli.runOk(repoPath, ["note", "get", id]);
+  const note = payload.note;
+  const title = await vscode12.window.showInputBox({
+    title: "Edit Note (1/3) \u2014 Title",
+    value: note.title,
+    prompt: "Note title",
+    validateInput: (v) => v.trim() ? void 0 : "Title is required"
+  });
+  if (title === void 0)
+    return;
+  const tagsInput = await vscode12.window.showInputBox({
+    title: "Edit Note (2/3) \u2014 Tags",
+    value: (note.tags ?? []).join(", "),
+    prompt: "Comma-separated tag slugs (leave blank to clear)"
+  });
+  if (tagsInput === void 0)
+    return;
+  const tags = tagsInput.split(",").map((t) => t.trim()).filter(Boolean);
+  const sections = note.sections ? [...note.sections] : [];
+  for (let i = 0; i < sections.length; i++) {
+    const s = sections[i];
+    const sectionLabel = s.label ?? s.name;
+    const content = await vscode12.window.showInputBox({
+      title: `Edit Note (3/3) \u2014 Section: ${sectionLabel}`,
+      value: s.content,
+      prompt: `Content for section "${sectionLabel}" (markdown)`
+    });
+    if (content === void 0)
+      return;
+    sections[i] = { ...s, content };
+  }
+  const updated = {
+    instanceId: note.instanceId,
+    title: title.trim(),
+    tags,
+    sections,
+    createdAt: note.createdAt
+  };
+  const refetch = await cli.runOk(repoPath, ["note", "get", id]);
+  if (refetch.note.title !== note.title) {
+    const proceed = await vscode12.window.showWarningMessage(
+      `SRS: Note was modified since you opened it (title changed to "${refetch.note.title}"). Overwrite?`,
+      { modal: true },
+      "Overwrite"
+    );
+    if (proceed !== "Overwrite")
+      return;
+  }
+  await cli.runOk(repoPath, ["note", "update", id], {
+    stdin: JSON.stringify(updated)
+  });
+  treeProvider.refresh();
+  vscode12.window.showInformationMessage(`SRS: Note '${title}' updated.`);
+}
+async function editTag(cli, repoPath, id, treeProvider) {
+  const payload = await cli.runOk(repoPath, ["tag", "get", id]);
+  const tag = payload.tagDefinition;
+  const slug = await vscode12.window.showInputBox({
+    title: "Edit Tag (1/2) \u2014 Slug",
+    value: tag.slug,
+    prompt: "Tag slug (kebab-case)",
+    validateInput: (v) => /^[a-z0-9]+(-[a-z0-9]+)*$/.test(v.trim()) ? void 0 : "Slug must be kebab-case (e.g. my-tag)"
+  });
+  if (slug === void 0)
+    return;
+  const label = await vscode12.window.showInputBox({
+    title: "Edit Tag (2/2) \u2014 Label",
+    value: tag.label ?? "",
+    prompt: "Display label (optional)"
+  });
+  if (label === void 0)
+    return;
+  const refetch = await cli.runOk(repoPath, ["tag", "get", id]);
+  if (refetch.tagDefinition.slug !== tag.slug) {
+    const proceed = await vscode12.window.showWarningMessage(
+      `SRS: Tag was modified since you opened it. Overwrite?`,
+      { modal: true },
+      "Overwrite"
+    );
+    if (proceed !== "Overwrite")
+      return;
+  }
+  const updated = {
+    instanceId: tag.instanceId,
+    slug: slug.trim(),
+    label: label.trim() || void 0,
+    createdAt: tag.createdAt
+  };
+  await cli.runOk(repoPath, ["tag", "update", id], {
+    stdin: JSON.stringify(updated)
+  });
+  treeProvider.refresh();
+  vscode12.window.showInformationMessage(`SRS: Tag '${slug}' updated.`);
+}
+async function editRecord(cli, repoPath, id, treeProvider) {
+  const payload = await cli.runOk(repoPath, ["record", "get", id]);
+  const record = payload.record;
+  const typePayload = await cli.runOk(repoPath, [
+    "type",
+    "get",
+    record.typeId
+  ]);
+  const typeFields = typePayload.type.fields.slice().sort((a, b) => a.order - b.order);
+  const currentValues = new Map(
+    record.fieldValues.map((fv) => [
+      fv.fieldId,
+      typeof fv.value === "string" ? fv.value : JSON.stringify(fv.value)
+    ])
+  );
+  const typeName = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
+  const updatedValues = [];
+  for (let i = 0; i < typeFields.length; i++) {
+    const f = typeFields[i];
+    const label = f.displayLabel ?? f.fieldId.slice(0, 8);
+    const required = f.required ? " (required)" : "";
+    const current = currentValues.get(f.fieldId) ?? "";
+    const value = await vscode12.window.showInputBox({
+      title: `Edit Record (${i + 1}/${typeFields.length}) \u2014 ${label}`,
+      value: current,
+      prompt: `${label}${required}  [${typeName}]`,
+      validateInput: f.required ? (v) => v.trim() ? void 0 : `${label} is required` : void 0
+    });
+    if (value === void 0)
+      return;
+    if (value.trim() || f.required) {
+      updatedValues.push({ fieldId: f.fieldId, value: value.trim() });
+    }
+  }
+  const refetch = await cli.runOk(repoPath, ["record", "get", id]);
+  if (refetch.record.fieldValues.length !== record.fieldValues.length) {
+    const proceed = await vscode12.window.showWarningMessage(
+      `SRS: Record was modified since you opened it. Overwrite?`,
+      { modal: true },
+      "Overwrite"
+    );
+    if (proceed !== "Overwrite")
+      return;
+  }
+  const updated = {
+    instanceId: record.instanceId,
+    typeId: record.typeId,
+    typeName: record.typeName,
+    typeNamespace: record.typeNamespace,
+    typeVersion: record.typeVersion,
+    createdAt: record.createdAt,
+    fieldValues: updatedValues
+  };
+  try {
+    await cli.runOk(repoPath, ["record", "update", id], {
+      stdin: JSON.stringify(updated)
+    });
+    treeProvider.refresh();
+    vscode12.window.showInformationMessage(`SRS: Record updated.`);
+  } catch (err) {
+    if (err instanceof CliError) {
+      vscode12.window.showErrorMessage(
+        `SRS: Record update failed:
+${err.diagnostics.join("\n")}`
+      );
+    } else {
+      throw err;
+    }
+  }
+}
+async function cmdCreateRelation(cli, repoProvider, treeProvider) {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode12.window.showWarningMessage("SRS: No active repository.");
+    return;
+  }
+  let relationTypes = [];
+  try {
+    const payload = await cli.runOk(repo.rootPath, [
+      "relation-type",
+      "list"
+    ]);
+    relationTypes = payload.relationTypeDefinitions;
+  } catch {
+  }
+  const CANONICAL_TYPES = [
+    "contains",
+    "depends-on",
+    "supersedes",
+    "refines",
+    "derived-from",
+    "evidences",
+    "precedes"
+  ];
+  const typeItems = relationTypes.length > 0 ? relationTypes.map((rt) => ({
+    label: rt.label,
+    description: rt.relationType,
+    value: rt.relationType
+  })) : CANONICAL_TYPES.map((t) => ({ label: t, description: "", value: t }));
+  const pickedType = await vscode12.window.showQuickPick(typeItems, {
+    placeHolder: "Select relation type"
+  });
+  if (!pickedType)
+    return;
+  const instanceItems = await buildInstanceItems(cli, repo.rootPath);
+  if (instanceItems.length === 0) {
+    vscode12.window.showWarningMessage(
+      "SRS: No instances found to relate. Create some notes or records first."
+    );
+    return;
+  }
+  const source = await vscode12.window.showQuickPick(instanceItems, {
+    placeHolder: "Select source instance",
+    matchOnDescription: true
+  });
+  if (!source)
+    return;
+  const target = await vscode12.window.showQuickPick(
+    instanceItems.filter((i) => i.id !== source.id),
+    { placeHolder: "Select target instance", matchOnDescription: true }
+  );
+  if (!target)
+    return;
+  const { randomUUID } = await import("crypto");
+  const relationJson = JSON.stringify({
+    relationId: randomUUID(),
+    relationType: pickedType.value,
+    sourceInstanceId: source.id,
+    targetInstanceId: target.id,
+    createdAt: (/* @__PURE__ */ new Date()).toISOString()
+  });
+  try {
+    await cli.runOk(repo.rootPath, ["relation", "create"], {
+      stdin: relationJson
+    });
+    treeProvider.refresh();
+    vscode12.window.showInformationMessage(
+      `SRS: Relation '${pickedType.value}' created.`
+    );
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode12.window.showErrorMessage(`SRS: Failed to create relation: ${msg}`);
+  }
+}
+async function buildInstanceItems(cli, repoPath) {
+  const items = [];
+  try {
+    const notes = await cli.runOk(repoPath, ["note", "list"]);
+    for (const n of notes.notes) {
+      items.push({ label: n.title, description: `note \xB7 ${n.instanceId.slice(0, 8)}`, id: n.instanceId });
+    }
+  } catch {
+  }
+  try {
+    const records = await cli.runOk(repoPath, ["record", "list"]);
+    for (const r of records.records) {
+      items.push({
+        label: `${r.typeNamespace}/${r.typeName}`,
+        description: `record \xB7 ${r.instanceId.slice(0, 8)}`,
+        id: r.instanceId
+      });
+    }
+  } catch {
+  }
+  return items;
+}
+
+// src/commands/containerCommands.ts
+var vscode13 = __toESM(require("vscode"));
+function registerContainerCommands(context, cli, repoProvider, attention, treeProvider) {
+  context.subscriptions.push(
+    vscode13.commands.registerCommand(
       "srs.setActiveContainer",
       () => cmdSetActiveContainer(cli, repoProvider, attention)
     ),
-    vscode12.commands.registerCommand(
+    vscode13.commands.registerCommand(
       "srs.clearActiveContainer",
       () => cmdClearActiveContainer(attention, treeProvider)
     ),
-    vscode12.commands.registerCommand(
+    vscode13.commands.registerCommand(
       "srs.createContainer",
       () => cmdCreateContainer(cli, repoProvider, attention, treeProvider)
     )
@@ -1158,7 +1465,7 @@ function registerContainerCommands(context, cli, repoProvider, attention, treePr
 async function cmdSetActiveContainer(cli, repoProvider, attention) {
   const repo = repoProvider.active;
   if (!repo) {
-    vscode12.window.showWarningMessage(
+    vscode13.window.showWarningMessage(
       "SRS: No active repository. Run 'SRS: Select Repository' first."
     );
     return;
@@ -1172,17 +1479,17 @@ async function cmdSetActiveContainer(cli, repoProvider, attention) {
     containers = payload.containers;
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
-    vscode12.window.showErrorMessage(`SRS: Failed to list containers: ${msg}`);
+    vscode13.window.showErrorMessage(`SRS: Failed to list containers: ${msg}`);
     return;
   }
   if (containers.length === 0) {
     const action = "Create Container";
-    const choice = await vscode12.window.showInformationMessage(
+    const choice = await vscode13.window.showInformationMessage(
       "SRS: No containers found in the active repository.",
       action
     );
     if (choice === action) {
-      vscode12.commands.executeCommand("srs.createContainer");
+      vscode13.commands.executeCommand("srs.createContainer");
     }
     return;
   }
@@ -1198,7 +1505,7 @@ async function cmdSetActiveContainer(cli, repoProvider, attention) {
     detail: "",
     container: null
   };
-  const picked = await vscode12.window.showQuickPick(
+  const picked = await vscode13.window.showQuickPick(
     [CLEAR_ITEM, ...items],
     { placeHolder: "Select a container to set as active" }
   );
@@ -1216,7 +1523,7 @@ async function cmdSetActiveContainer(cli, repoProvider, attention) {
     );
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
-    vscode12.window.showErrorMessage(`SRS: Failed to set active container: ${msg}`);
+    vscode13.window.showErrorMessage(`SRS: Failed to set active container: ${msg}`);
   }
 }
 async function cmdClearActiveContainer(attention, treeProvider) {
@@ -1226,12 +1533,12 @@ async function cmdClearActiveContainer(attention, treeProvider) {
 async function cmdCreateContainer(cli, repoProvider, attention, treeProvider) {
   const repo = repoProvider.active;
   if (!repo) {
-    vscode12.window.showWarningMessage(
+    vscode13.window.showWarningMessage(
       "SRS: No active repository. Run 'SRS: Select Repository' first."
     );
     return;
   }
-  const title = await vscode12.window.showInputBox({
+  const title = await vscode13.window.showInputBox({
     title: "SRS: Create Container",
     prompt: "Container title",
     placeHolder: "e.g. Sprint 42",
@@ -1240,7 +1547,7 @@ async function cmdCreateContainer(cli, repoProvider, attention, treeProvider) {
   if (!title) {
     return;
   }
-  const containerType = await vscode12.window.showInputBox({
+  const containerType = await vscode13.window.showInputBox({
     title: "SRS: Create Container",
     prompt: "Container type (optional)",
     placeHolder: "e.g. sprint, milestone, epic"
@@ -1262,7 +1569,7 @@ async function cmdCreateContainer(cli, repoProvider, attention, treeProvider) {
     });
     treeProvider.refresh();
     const setActive = "Set as Active";
-    const choice = await vscode12.window.showInformationMessage(
+    const choice = await vscode13.window.showInformationMessage(
       `SRS: Container '${title}' created.`,
       setActive
     );
@@ -1271,27 +1578,27 @@ async function cmdCreateContainer(cli, repoProvider, attention, treeProvider) {
     }
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
-    vscode12.window.showErrorMessage(`SRS: Failed to create container: ${msg}`);
+    vscode13.window.showErrorMessage(`SRS: Failed to create container: ${msg}`);
   }
 }
 
 // src/commands/mutationCommands.ts
-var vscode13 = __toESM(require("vscode"));
+var vscode14 = __toESM(require("vscode"));
 function registerMutationCommands(context, cli, repoProvider, attention, treeProvider) {
   context.subscriptions.push(
-    vscode13.commands.registerCommand(
+    vscode14.commands.registerCommand(
       "srs.createNote",
       () => cmdCreateNote(cli, repoProvider, attention, treeProvider)
     ),
-    vscode13.commands.registerCommand(
+    vscode14.commands.registerCommand(
       "srs.createTag",
       () => cmdCreateTag(cli, repoProvider, treeProvider)
     ),
-    vscode13.commands.registerCommand(
+    vscode14.commands.registerCommand(
       "srs.createRecord",
       () => cmdCreateRecord(cli, repoProvider, attention, treeProvider)
     ),
-    vscode13.commands.registerCommand(
+    vscode14.commands.registerCommand(
       "srs.deleteEntity",
       (node) => cmdDeleteEntity(cli, repoProvider, treeProvider, node)
     )
@@ -1300,7 +1607,7 @@ function registerMutationCommands(context, cli, repoProvider, attention, treePro
 function requireActiveRepo(repoProvider) {
   const repo = repoProvider.active;
   if (!repo) {
-    vscode13.window.showWarningMessage(
+    vscode14.window.showWarningMessage(
       "SRS: No active repository. Run 'SRS: Select Repository' first."
     );
     return void 0;
@@ -1314,7 +1621,7 @@ async function cmdCreateNote(cli, repoProvider, attention, treeProvider) {
   const repo = requireActiveRepo(repoProvider);
   if (!repo)
     return;
-  const title = await vscode13.window.showInputBox({
+  const title = await vscode14.window.showInputBox({
     title: "SRS: Create Note",
     prompt: "Note title",
     placeHolder: "e.g. Architecture Decision: Use CLI bridge",
@@ -1339,17 +1646,17 @@ async function cmdCreateNote(cli, repoProvider, attention, treeProvider) {
       containerId: cid
     });
     treeProvider.refresh();
-    vscode13.window.showInformationMessage(`SRS: Note '${title}' created.`);
+    vscode14.window.showInformationMessage(`SRS: Note '${title}' created.`);
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
-    vscode13.window.showErrorMessage(`SRS: Failed to create note: ${msg}`);
+    vscode14.window.showErrorMessage(`SRS: Failed to create note: ${msg}`);
   }
 }
 async function cmdCreateTag(cli, repoProvider, treeProvider) {
   const repo = requireActiveRepo(repoProvider);
   if (!repo)
     return;
-  const slug = await vscode13.window.showInputBox({
+  const slug = await vscode14.window.showInputBox({
     title: "SRS: Create Tag",
     prompt: "Tag slug (kebab-case identifier)",
     placeHolder: "e.g. needs-review",
@@ -1357,7 +1664,7 @@ async function cmdCreateTag(cli, repoProvider, treeProvider) {
   });
   if (!slug)
     return;
-  const label = await vscode13.window.showInputBox({
+  const label = await vscode14.window.showInputBox({
     title: "SRS: Create Tag",
     prompt: "Display label (optional)",
     placeHolder: "e.g. Needs Review"
@@ -1376,10 +1683,10 @@ async function cmdCreateTag(cli, repoProvider, treeProvider) {
       stdin: tagJson
     });
     treeProvider.refresh();
-    vscode13.window.showInformationMessage(`SRS: Tag '${slug}' created.`);
+    vscode14.window.showInformationMessage(`SRS: Tag '${slug}' created.`);
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
-    vscode13.window.showErrorMessage(`SRS: Failed to create tag: ${msg}`);
+    vscode14.window.showErrorMessage(`SRS: Failed to create tag: ${msg}`);
   }
 }
 async function cmdCreateRecord(cli, repoProvider, attention, treeProvider) {
@@ -1395,11 +1702,11 @@ async function cmdCreateRecord(cli, repoProvider, attention, treeProvider) {
     types = payload.types;
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
-    vscode13.window.showErrorMessage(`SRS: Failed to list types: ${msg}`);
+    vscode14.window.showErrorMessage(`SRS: Failed to list types: ${msg}`);
     return;
   }
   if (types.length === 0) {
-    vscode13.window.showWarningMessage(
+    vscode14.window.showWarningMessage(
       "SRS: No types defined in the active repository."
     );
     return;
@@ -1410,7 +1717,7 @@ async function cmdCreateRecord(cli, repoProvider, attention, treeProvider) {
     detail: t.id,
     type: t
   }));
-  const picked = await vscode13.window.showQuickPick(typeItems, {
+  const picked = await vscode14.window.showQuickPick(typeItems, {
     placeHolder: "Select a type for the new record",
     matchOnDescription: true,
     matchOnDetail: true
@@ -1429,17 +1736,17 @@ async function cmdCreateRecord(cli, repoProvider, attention, treeProvider) {
       }
     );
     treeProvider.refresh();
-    vscode13.window.showInformationMessage(
+    vscode14.window.showInformationMessage(
       `SRS: Record of type '${typeName}' created.`
     );
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
-    vscode13.window.showErrorMessage(`SRS: Failed to create record: ${msg}`);
+    vscode14.window.showErrorMessage(`SRS: Failed to create record: ${msg}`);
   }
 }
 async function cmdDeleteEntity(cli, repoProvider, treeProvider, node) {
   if (!(node instanceof EntityNode)) {
-    vscode13.window.showWarningMessage(
+    vscode14.window.showWarningMessage(
       "SRS: Select an entity in the SRS tree to delete."
     );
     return;
@@ -1447,7 +1754,7 @@ async function cmdDeleteEntity(cli, repoProvider, treeProvider, node) {
   const repo = repoProvider.active;
   if (!repo)
     return;
-  const confirmed = await vscode13.window.showWarningMessage(
+  const confirmed = await vscode14.window.showWarningMessage(
     `SRS: Delete ${node.entityKind} '${node.label}'?`,
     { modal: true },
     "Delete"
@@ -1456,7 +1763,7 @@ async function cmdDeleteEntity(cli, repoProvider, treeProvider, node) {
     return;
   const deleteArgs = deleteArgsFor(node.entityKind, node.entityId);
   if (!deleteArgs) {
-    vscode13.window.showErrorMessage(
+    vscode14.window.showErrorMessage(
       `SRS: Delete not supported for '${node.entityKind}'.`
     );
     return;
@@ -1464,12 +1771,12 @@ async function cmdDeleteEntity(cli, repoProvider, treeProvider, node) {
   try {
     await cli.runOk(repo.rootPath, deleteArgs);
     treeProvider.refresh();
-    vscode13.window.showInformationMessage(
+    vscode14.window.showInformationMessage(
       `SRS: ${node.entityKind} deleted.`
     );
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
-    vscode13.window.showErrorMessage(`SRS: Failed to delete entity: ${msg}`);
+    vscode14.window.showErrorMessage(`SRS: Failed to delete entity: ${msg}`);
   }
 }
 function deleteArgsFor(kind, id) {
@@ -1491,7 +1798,7 @@ function deleteArgsFor(kind, id) {
 
 // src/extension.ts
 async function activate(context) {
-  const outputChannel = vscode14.window.createOutputChannel("SRS");
+  const outputChannel = vscode15.window.createOutputChannel("SRS");
   context.subscriptions.push(outputChannel);
   const cli = new CliClient(outputChannel);
   const repoProvider = new RepositoryProvider(cli);
@@ -1509,12 +1816,12 @@ async function activate(context) {
     schemaProvider,
     entityDocProvider,
     diagnosticsProvider,
-    vscode14.workspace.registerTextDocumentContentProvider(
+    vscode15.workspace.registerTextDocumentContentProvider(
       ENTITY_SCHEME,
       entityDocProvider
     )
   );
-  const treeView = vscode14.window.createTreeView("srsRepositoryTree", {
+  const treeView = vscode15.window.createTreeView("srsRepositoryTree", {
     treeDataProvider: treeProvider,
     showCollapseAll: true
   });
@@ -1529,11 +1836,11 @@ async function activate(context) {
     }
   });
   context.subscriptions.push(
-    vscode14.workspace.onDidSaveTextDocument((doc) => {
+    vscode15.workspace.onDidSaveTextDocument((doc) => {
       const repo = repoProvider.active;
       if (!repo)
         return;
-      const config = vscode14.workspace.getConfiguration("srs");
+      const config = vscode15.workspace.getConfiguration("srs");
       if (!config.get("validate.onSave", true))
         return;
       if (!doc.uri.fsPath.startsWith(repo.rootPath))
@@ -1553,6 +1860,7 @@ async function activate(context) {
   registerContainerCommands(context, cli, repoProvider, attention, treeProvider);
   registerMutationCommands(context, cli, repoProvider, attention, treeProvider);
   registerPreviewCommands(context, cli, repoProvider);
+  registerEditCommands(context, cli, repoProvider, treeProvider);
   await autoDetectRepository(cli, repoProvider);
   const activeRepo = repoProvider.active;
   if (activeRepo) {
@@ -1561,7 +1869,7 @@ async function activate(context) {
   }
 }
 async function autoDetectRepository(cli, repoProvider) {
-  const config = vscode14.workspace.getConfiguration("srs");
+  const config = vscode15.workspace.getConfiguration("srs");
   const configuredPath = config.get("repository.path", null);
   if (configuredPath) {
     const repo = await repoProvider.probe(configuredPath);
@@ -1569,12 +1877,12 @@ async function autoDetectRepository(cli, repoProvider) {
       repoProvider.setActive(repo);
     } else {
       const action = "Open Settings";
-      const choice = await vscode14.window.showWarningMessage(
+      const choice = await vscode15.window.showWarningMessage(
         `SRS: Configured path '${configuredPath}' is not a valid SRS repository.`,
         action
       );
       if (choice === action) {
-        vscode14.commands.executeCommand(
+        vscode15.commands.executeCommand(
           "workbench.action.openSettings",
           "srs.repository.path"
         );
@@ -1586,7 +1894,7 @@ async function autoDetectRepository(cli, repoProvider) {
   if (discovered.length === 1) {
     repoProvider.setActive(discovered[0]);
   } else if (discovered.length > 1) {
-    vscode14.window.showInformationMessage(
+    vscode15.window.showInformationMessage(
       `SRS: Found ${discovered.length} repositories in workspace. Use 'SRS: Select Repository' to choose one.`
     );
   }
