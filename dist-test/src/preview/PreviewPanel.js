@@ -36,7 +36,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.PreviewPanel = void 0;
 exports.wrapHtml = wrapHtml;
 exports.esc = esc;
-exports.markdownToHtml = markdownToHtml;
 const vscode = __importStar(require("vscode"));
 /**
  * A single, reusable webview panel keyed by a stable string id.
@@ -47,7 +46,7 @@ class PreviewPanel {
     static show(context, id, title, html) {
         const existing = PreviewPanel._panels.get(id);
         if (existing) {
-            existing._panel.reveal(vscode.ViewColumn.Beside);
+            existing._panel.reveal(vscode.ViewColumn.Active);
             existing._panel.title = title;
             existing._update(html);
             return existing;
@@ -58,7 +57,7 @@ class PreviewPanel {
     }
     constructor(context, _id, title, html) {
         this._id = _id;
-        this._panel = vscode.window.createWebviewPanel("srsPreview", title, { viewColumn: vscode.ViewColumn.Beside, preserveFocus: false }, {
+        this._panel = vscode.window.createWebviewPanel("srsPreview", title, { viewColumn: vscode.ViewColumn.Active, preserveFocus: false }, {
             enableScripts: false,
             localResourceRoots: [],
         });
@@ -99,10 +98,6 @@ const CSS = `
     pre { background: var(--vscode-textCodeBlock-background); padding: 0.8em; border-radius: 4px;
           overflow-x: auto; font-size: 0.9em; white-space: pre-wrap; }
     .empty { color: var(--vscode-descriptionForeground); font-style: italic; }
-    .rendered-markdown h1 { font-size: 1.6em; }
-    .rendered-markdown h2 { font-size: 1.3em; }
-    .rendered-markdown h3 { font-size: 1.1em; }
-    .rendered-markdown code { background: var(--vscode-textCodeBlock-background); padding: 0 4px; border-radius: 3px; }
   </style>
 `;
 function wrapHtml(title, body) {
@@ -114,52 +109,5 @@ function esc(s) {
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;");
-}
-/** Convert markdown to very basic HTML (headings, bold, code, paragraphs).
- *  Full markdown parsing is out of scope — this covers what SRS renders produce. */
-function markdownToHtml(md) {
-    const lines = md.split("\n");
-    const out = [];
-    let inPre = false;
-    for (const raw of lines) {
-        if (raw.startsWith("```")) {
-            if (inPre) {
-                out.push("</pre>");
-                inPre = false;
-            }
-            else {
-                out.push("<pre>");
-                inPre = true;
-            }
-            continue;
-        }
-        if (inPre) {
-            out.push(esc(raw));
-            continue;
-        }
-        let line = raw;
-        const h = line.match(/^(#{1,6})\s+(.*)/);
-        if (h) {
-            const level = h[1].length;
-            out.push(`<h${level}>${inlineMarkdown(h[2])}</h${level}>`);
-            continue;
-        }
-        if (line.startsWith("- ") || line.startsWith("* ")) {
-            out.push(`<li>${inlineMarkdown(line.slice(2))}</li>`);
-            continue;
-        }
-        if (line.trim() === "") {
-            out.push("<br>");
-            continue;
-        }
-        out.push(`<p>${inlineMarkdown(line)}</p>`);
-    }
-    return out.join("\n");
-}
-function inlineMarkdown(s) {
-    return esc(s)
-        .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-        .replace(/\*(.+?)\*/g, "<em>$1</em>")
-        .replace(/`(.+?)`/g, "<code>$1</code>");
 }
 //# sourceMappingURL=PreviewPanel.js.map

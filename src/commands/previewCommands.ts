@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { CliClient, CliError } from "../cli/CliClient";
 import { RepositoryProvider } from "../repository/RepositoryProvider";
 import { SrsTreeDataProvider, EntityNode } from "../tree/SrsTreeDataProvider";
-import { PreviewPanel, wrapHtml, esc, markdownToHtml } from "../preview/PreviewPanel";
+import { PreviewPanel, wrapHtml, esc } from "../preview/PreviewPanel";
 import type {
   DocumentViewListPayload,
   ContainerListPayload,
@@ -154,13 +154,7 @@ async function cmdPreviewRender(
       viewId,
     ]);
 
-    const html = wrapHtml(
-      viewLabel ?? viewId,
-      `<h1>${esc(viewLabel ?? viewId)}</h1>
-       <div class="rendered-markdown">${markdownToHtml(payload.rendered)}</div>`,
-    );
-
-    PreviewPanel.show(context, `render:${viewId}`, viewLabel ?? viewId, html);
+    await openMarkdownPreview(payload.rendered, viewLabel ?? viewId);
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
     vscode.window.showErrorMessage(`SRS: Render failed: ${msg}`);
@@ -170,7 +164,7 @@ async function cmdPreviewRender(
 // ---- Note preview ----
 
 async function previewNote(
-  context: vscode.ExtensionContext,
+  _context: vscode.ExtensionContext,
   cli: CliClient,
   repoPath: string,
   id: string,
@@ -178,25 +172,22 @@ async function previewNote(
   const payload = await cli.runOk<NotePayload>(repoPath, ["note", "get", id]);
   const { note } = payload;
 
-  const tags = (note.tags ?? []).map((t) => `<span class="tag">${esc(t)}</span>`).join(" ");
-  const meta = [
-    note.createdAt ? `Created: ${esc(note.createdAt.slice(0, 10))}` : "",
-    tags,
-  ].filter(Boolean).join(" &nbsp;·&nbsp; ");
+  // Build a markdown document: title as h1, metadata, then sections
+  const tagLine = (note.tags ?? []).map((t) => `\`${t}\``).join(" ");
+  const metaLine = [
+    note.createdAt ? `*${note.createdAt.slice(0, 10)}*` : "",
+    tagLine,
+  ].filter(Boolean).join("  ·  ");
 
-  const sections = (note.sections ?? []).map((s) => `
-    <div class="section">
-      <div class="section-name">${esc(s.label ?? s.name)}</div>
-      <div>${markdownToHtml(s.content)}</div>
-    </div>`).join("");
+  const sectionsMd = (note.sections ?? [])
+    .map((s) => `## ${s.label ?? s.name}\n\n${s.content}`)
+    .join("\n\n---\n\n");
 
-  const html = wrapHtml(note.title, `
-    <h1>${esc(note.title)}</h1>
-    <div class="meta">${meta}</div>
-    ${sections || '<p class="empty">No sections.</p>'}
-  `);
+  const md = [`# ${note.title}`, metaLine, sectionsMd || "*No sections.*"]
+    .filter(Boolean)
+    .join("\n\n");
 
-  PreviewPanel.show(context, `note:${id}`, note.title, html);
+  await openMarkdownPreview(md, note.title);
 }
 
 // ---- Record preview ----
@@ -284,4 +275,27 @@ async function previewContainer(
   `);
 
   PreviewPanel.show(context, `container:${id}`, title, html);
+}
+
+// ---- Markdown helper ----
+
+/**
+ * Open markdown content in VS Code's built-in markdown preview.
+ * Creates an untitled document with language "markdown" then calls
+ * markdown.showPreview so the full VS Code markdown renderer handles it —
+ * syntax-highlighted code blocks, proper heading structure, tables, etc.
+ */
+async function openMarkdownPreview(markdown: string, _title: string): Promise<void> {
+  const doc = await vscode.workspace.openTextDocument({
+    content: markdown,
+    language: "markdown",
+  });
+  // Show the source document first (needed so showPreview has a URI to work with)
+  await vscode.window.showTextDocument(doc, {
+    viewColumn: vscode.ViewColumn.Active,
+    preview: true,
+    preserveFocus: false,
+  });
+  // Open the built-in markdown preview for this document
+  await vscode.commands.executeCommand("markdown.showPreview", doc.uri);
 }

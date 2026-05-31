@@ -961,10 +961,6 @@ var CSS = `
     pre { background: var(--vscode-textCodeBlock-background); padding: 0.8em; border-radius: 4px;
           overflow-x: auto; font-size: 0.9em; white-space: pre-wrap; }
     .empty { color: var(--vscode-descriptionForeground); font-style: italic; }
-    .rendered-markdown h1 { font-size: 1.6em; }
-    .rendered-markdown h2 { font-size: 1.3em; }
-    .rendered-markdown h3 { font-size: 1.1em; }
-    .rendered-markdown code { background: var(--vscode-textCodeBlock-background); padding: 0 4px; border-radius: 3px; }
   </style>
 `;
 function wrapHtml(title, body) {
@@ -972,47 +968,6 @@ function wrapHtml(title, body) {
 }
 function esc(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-function markdownToHtml(md) {
-  const lines = md.split("\n");
-  const out = [];
-  let inPre = false;
-  for (const raw of lines) {
-    if (raw.startsWith("```")) {
-      if (inPre) {
-        out.push("</pre>");
-        inPre = false;
-      } else {
-        out.push("<pre>");
-        inPre = true;
-      }
-      continue;
-    }
-    if (inPre) {
-      out.push(esc(raw));
-      continue;
-    }
-    let line = raw;
-    const h = line.match(/^(#{1,6})\s+(.*)/);
-    if (h) {
-      const level = h[1].length;
-      out.push(`<h${level}>${inlineMarkdown(h[2])}</h${level}>`);
-      continue;
-    }
-    if (line.startsWith("- ") || line.startsWith("* ")) {
-      out.push(`<li>${inlineMarkdown(line.slice(2))}</li>`);
-      continue;
-    }
-    if (line.trim() === "") {
-      out.push("<br>");
-      continue;
-    }
-    out.push(`<p>${inlineMarkdown(line)}</p>`);
-  }
-  return out.join("\n");
-}
-function inlineMarkdown(s) {
-  return esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\*(.+?)\*/g, "<em>$1</em>").replace(/`(.+?)`/g, "<code>$1</code>");
 }
 
 // src/commands/previewCommands.ts
@@ -1096,36 +1051,25 @@ async function cmdPreviewRender(context, cli, repoProvider, node) {
       "--view",
       viewId
     ]);
-    const html = wrapHtml(
-      viewLabel ?? viewId,
-      `<h1>${esc(viewLabel ?? viewId)}</h1>
-       <div class="rendered-markdown">${markdownToHtml(payload.rendered)}</div>`
-    );
-    PreviewPanel.show(context, `render:${viewId}`, viewLabel ?? viewId, html);
+    await openMarkdownPreview(payload.rendered, viewLabel ?? viewId);
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
     vscode11.window.showErrorMessage(`SRS: Render failed: ${msg}`);
   }
 }
-async function previewNote(context, cli, repoPath, id) {
+async function previewNote(_context, cli, repoPath, id) {
   const payload = await cli.runOk(repoPath, ["note", "get", id]);
   const { note } = payload;
-  const tags = (note.tags ?? []).map((t) => `<span class="tag">${esc(t)}</span>`).join(" ");
-  const meta = [
-    note.createdAt ? `Created: ${esc(note.createdAt.slice(0, 10))}` : "",
-    tags
-  ].filter(Boolean).join(" &nbsp;\xB7&nbsp; ");
-  const sections = (note.sections ?? []).map((s) => `
-    <div class="section">
-      <div class="section-name">${esc(s.label ?? s.name)}</div>
-      <div>${markdownToHtml(s.content)}</div>
-    </div>`).join("");
-  const html = wrapHtml(note.title, `
-    <h1>${esc(note.title)}</h1>
-    <div class="meta">${meta}</div>
-    ${sections || '<p class="empty">No sections.</p>'}
-  `);
-  PreviewPanel.show(context, `note:${id}`, note.title, html);
+  const tagLine = (note.tags ?? []).map((t) => `\`${t}\``).join(" ");
+  const metaLine = [
+    note.createdAt ? `*${note.createdAt.slice(0, 10)}*` : "",
+    tagLine
+  ].filter(Boolean).join("  \xB7  ");
+  const sectionsMd = (note.sections ?? []).map((s) => `## ${s.label ?? s.name}
+
+${s.content}`).join("\n\n---\n\n");
+  const md = [`# ${note.title}`, metaLine, sectionsMd || "*No sections.*"].filter(Boolean).join("\n\n");
+  await openMarkdownPreview(md, note.title);
 }
 async function previewRecord(context, cli, repoPath, id) {
   const payload = await cli.runOk(repoPath, ["record", "get", id]);
@@ -1179,6 +1123,18 @@ async function previewContainer(context, cli, repoPath, id) {
     ${rows || '<p class="empty">No members.</p>'}
   `);
   PreviewPanel.show(context, `container:${id}`, title, html);
+}
+async function openMarkdownPreview(markdown, _title) {
+  const doc = await vscode11.workspace.openTextDocument({
+    content: markdown,
+    language: "markdown"
+  });
+  await vscode11.window.showTextDocument(doc, {
+    viewColumn: vscode11.ViewColumn.Active,
+    preview: true,
+    preserveFocus: false
+  });
+  await vscode11.commands.executeCommand("markdown.showPreview", doc.uri);
 }
 
 // src/commands/containerCommands.ts
