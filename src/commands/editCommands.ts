@@ -61,6 +61,16 @@ interface TypePayload {
   };
 }
 
+interface FieldPayload {
+  field: {
+    id: string;
+    name: string;
+    namespace: string;
+    version: number;
+    valueType: string;
+  };
+}
+
 // ---- Registration ----
 
 export function registerEditCommands(
@@ -238,6 +248,11 @@ async function editRecord(
   ]);
   const typeFields = typePayload.type.fields;
 
+  // Fetch field definitions in parallel to use field name as fallback label
+  const fieldResults = await Promise.allSettled(
+    typeFields.map((f) => cli.runOk<FieldPayload>(repoPath, ["field", "get", f.fieldId]))
+  );
+
   const recordData = {
     instanceId: record.instanceId,
     typeId: record.typeId,
@@ -248,15 +263,19 @@ async function editRecord(
     fieldValues: record.fieldValues,
   };
 
-  const fieldData = typeFields.map((f) => ({
-    fieldId: f.fieldId,
-    displayLabel: f.displayLabel,
-    order: f.order,
-    required: f.required,
-    repeatable: f.repeatable,
-    minItems: f.minItems,
-    maxItems: f.maxItems,
-  }));
+  const fieldData = typeFields.map((f, i) => {
+    const fr = fieldResults[i];
+    const fieldName = fr.status === "fulfilled" ? fr.value.field.name : undefined;
+    return {
+      fieldId: f.fieldId,
+      displayLabel: f.displayLabel ?? fieldName,
+      order: f.order,
+      required: f.required,
+      repeatable: f.repeatable,
+      minItems: f.minItems,
+      maxItems: f.maxItems,
+    };
+  });
 
   const panelTitle = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
   const html = formWrapHtml(panelTitle, buildRecordForm(recordData, fieldData));

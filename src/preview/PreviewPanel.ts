@@ -112,6 +112,21 @@ const CSS = `
                 border-radius: 3px; padding: 0 5px; font-size: 0.8em; flex-shrink: 0; }
     .rel-link { color: var(--vscode-textLink-foreground); text-decoration: none; cursor: pointer; }
     .rel-link:hover { text-decoration: underline; }
+    .field-row--text { flex-direction: column; gap: 0.3em; }
+    .field-row--text .field-label { width: auto; }
+    .markdown-value h3, .markdown-value h4, .markdown-value h5, .markdown-value h6
+      { margin: 0.6em 0 0.2em; font-size: 1em; font-weight: 600; }
+    .markdown-value p { margin: 0.4em 0; }
+    .markdown-value ul, .markdown-value ol { margin: 0.3em 0; padding-left: 1.4em; }
+    .markdown-value li { margin: 0.1em 0; }
+    .markdown-value code { background: var(--vscode-textCodeBlock-background);
+      padding: 0 3px; border-radius: 2px; font-family: var(--vscode-editor-font-family); font-size: 0.9em; }
+    .markdown-value pre { background: var(--vscode-textCodeBlock-background);
+      padding: 0.6em 0.8em; border-radius: 4px; overflow-x: auto; margin: 0.4em 0; }
+    .markdown-value pre code { background: none; padding: 0; }
+    .markdown-value hr { border: none; border-top: 1px solid var(--vscode-panel-border); margin: 0.6em 0; }
+    .markdown-value strong { font-weight: 600; }
+    .markdown-value em { font-style: italic; }
   </style>
 `;
 

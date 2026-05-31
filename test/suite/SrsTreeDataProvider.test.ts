@@ -60,9 +60,9 @@ describe("EntityNode", () => {
     assert.deepStrictEqual(node.getArgs, ["container", "get", "cont-001"]);
   });
 
-  it("command triggers srs.openEntity with self as argument", () => {
+  it("command triggers srs.openEntityDefault with self as argument", () => {
     const node = new EntityNode("id", "record", "Label", ["record", "get", "id"]);
-    assert.strictEqual(node.command?.command, "srs.openEntity");
+    assert.strictEqual(node.command?.command, "srs.openEntityDefault");
     assert.deepStrictEqual(node.command?.arguments, [node]);
   });
 

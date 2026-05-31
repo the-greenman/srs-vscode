@@ -31,6 +31,9 @@ export function registerRepositoryCommands(
     vscode.commands.registerCommand("srs.openEntity", (node: unknown) =>
       cmdOpenEntity(repoProvider, entityProvider, node),
     ),
+    vscode.commands.registerCommand("srs.openEntityDefault", (node: unknown) =>
+      cmdOpenEntityDefault(repoProvider, entityProvider, node),
+    ),
   );
 }
 
@@ -166,6 +169,26 @@ async function cmdOpenRepositoryMap(
     outputChannel.appendLine(`Error: ${msg}`);
     vscode.window.showErrorMessage(`SRS: ${msg}`);
   }
+}
+
+// Kinds with a rich preview webview
+const PREVIEW_KINDS = new Set(["note", "record", "container"]);
+// Kinds with a form editor
+const EDIT_KINDS = new Set(["note", "tag", "record"]);
+
+async function cmdOpenEntityDefault(
+  repoProvider: RepositoryProvider,
+  entityProvider: EntityDocumentProvider,
+  node: unknown,
+): Promise<void> {
+  if (!(node instanceof EntityNode)) return;
+  if (PREVIEW_KINDS.has(node.entityKind)) {
+    return vscode.commands.executeCommand("srs.previewEntity", node);
+  }
+  if (EDIT_KINDS.has(node.entityKind)) {
+    return vscode.commands.executeCommand("srs.editEntity", node);
+  }
+  return cmdOpenEntity(repoProvider, entityProvider, node);
 }
 
 async function cmdOpenEntity(

@@ -262,8 +262,8 @@ var EntityNode = class extends vscode3.TreeItem {
     this.tooltip = `${entityKind}: ${entityId}`;
     this.description = entityId.slice(0, 8);
     this.command = {
-      command: "srs.openEntity",
-      title: "Open Entity",
+      command: "srs.openEntityDefault",
+      title: "Open",
       arguments: [this]
     };
   }
@@ -765,6 +765,10 @@ function registerRepositoryCommands(context, cli, repoProvider, treeProvider, ou
     vscode9.commands.registerCommand(
       "srs.openEntity",
       (node) => cmdOpenEntity(repoProvider, entityProvider, node)
+    ),
+    vscode9.commands.registerCommand(
+      "srs.openEntityDefault",
+      (node) => cmdOpenEntityDefault(repoProvider, entityProvider, node)
     )
   );
 }
@@ -872,6 +876,19 @@ async function cmdOpenRepositoryMap(cli, repoProvider, outputChannel) {
     outputChannel.appendLine(`Error: ${msg}`);
     vscode9.window.showErrorMessage(`SRS: ${msg}`);
   }
+}
+var PREVIEW_KINDS = /* @__PURE__ */ new Set(["note", "record", "container"]);
+var EDIT_KINDS = /* @__PURE__ */ new Set(["note", "tag", "record"]);
+async function cmdOpenEntityDefault(repoProvider, entityProvider, node) {
+  if (!(node instanceof EntityNode))
+    return;
+  if (PREVIEW_KINDS.has(node.entityKind)) {
+    return vscode9.commands.executeCommand("srs.previewEntity", node);
+  }
+  if (EDIT_KINDS.has(node.entityKind)) {
+    return vscode9.commands.executeCommand("srs.editEntity", node);
+  }
+  return cmdOpenEntity(repoProvider, entityProvider, node);
 }
 async function cmdOpenEntity(repoProvider, entityProvider, node) {
   if (!(node instanceof EntityNode)) {
@@ -981,6 +998,21 @@ var CSS = `
                 border-radius: 3px; padding: 0 5px; font-size: 0.8em; flex-shrink: 0; }
     .rel-link { color: var(--vscode-textLink-foreground); text-decoration: none; cursor: pointer; }
     .rel-link:hover { text-decoration: underline; }
+    .field-row--text { flex-direction: column; gap: 0.3em; }
+    .field-row--text .field-label { width: auto; }
+    .markdown-value h3, .markdown-value h4, .markdown-value h5, .markdown-value h6
+      { margin: 0.6em 0 0.2em; font-size: 1em; font-weight: 600; }
+    .markdown-value p { margin: 0.4em 0; }
+    .markdown-value ul, .markdown-value ol { margin: 0.3em 0; padding-left: 1.4em; }
+    .markdown-value li { margin: 0.1em 0; }
+    .markdown-value code { background: var(--vscode-textCodeBlock-background);
+      padding: 0 3px; border-radius: 2px; font-family: var(--vscode-editor-font-family); font-size: 0.9em; }
+    .markdown-value pre { background: var(--vscode-textCodeBlock-background);
+      padding: 0.6em 0.8em; border-radius: 4px; overflow-x: auto; margin: 0.4em 0; }
+    .markdown-value pre code { background: none; padding: 0; }
+    .markdown-value hr { border: none; border-top: 1px solid var(--vscode-panel-border); margin: 0.6em 0; }
+    .markdown-value strong { font-weight: 600; }
+    .markdown-value em { font-style: italic; }
   </style>
 `;
 function wrapHtml(title, body, options) {
@@ -1097,6 +1129,7 @@ async function previewRecord(context, cli, repoPath, id) {
   const { record } = payload;
   let labelMap = /* @__PURE__ */ new Map();
   let repeatableSet = /* @__PURE__ */ new Set();
+  let textFieldSet = /* @__PURE__ */ new Set();
   let relatedItems = [];
   const [typeResult, relResult, noteResult, recordListResult] = await Promise.allSettled([
     cli.runOk(repoPath, ["type", "get", record.typeId]),
@@ -1105,10 +1138,22 @@ async function previewRecord(context, cli, repoPath, id) {
     cli.runOk(repoPath, ["record", "list"])
   ]);
   if (typeResult.status === "fulfilled") {
-    for (const f of typeResult.value.type.fields) {
-      labelMap.set(f.fieldId, f.displayLabel ?? f.fieldId.slice(0, 8));
+    const typeFields = typeResult.value.type.fields;
+    for (const f of typeFields) {
       if (f.repeatable)
         repeatableSet.add(f.fieldId);
+    }
+    const fieldResults = await Promise.allSettled(
+      typeFields.map((f) => cli.runOk(repoPath, ["field", "get", f.fieldId]))
+    );
+    for (let i = 0; i < typeFields.length; i++) {
+      const f = typeFields[i];
+      const fr = fieldResults[i];
+      const fieldName = fr.status === "fulfilled" ? fr.value.field.name : void 0;
+      labelMap.set(f.fieldId, f.displayLabel ?? fieldName ?? f.fieldId.slice(0, 8));
+      if (fr.status === "fulfilled" && fr.value.field.valueType === "text") {
+        textFieldSet.add(fr.value.field.id);
+      }
     }
   }
   if (relResult.status === "fulfilled") {
@@ -1150,18 +1195,20 @@ async function previewRecord(context, cli, repoPath, id) {
   const title = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
   const rows = record.fieldValues.map((fv) => {
     const label = labelMap.get(fv.fieldId) ?? fv.fieldId.slice(0, 8);
+    const isText = textFieldSet.has(fv.fieldId);
     let valueHtml;
     if (repeatableSet.has(fv.fieldId) && fv.entries && fv.entries.length > 0) {
       const items = fv.entries.map((e) => {
         const v = typeof e.value === "string" ? e.value : JSON.stringify(e.value);
-        return `<li>${esc(v)}</li>`;
+        return isText ? `<li class="markdown-value" data-md="${esc(v)}"></li>` : `<li>${esc(v)}</li>`;
       }).join("");
       valueHtml = `<ul class="repeatable-values">${items}</ul>`;
     } else {
       const v = typeof fv.value === "string" ? fv.value : JSON.stringify(fv.value);
-      valueHtml = esc(v);
+      valueHtml = isText ? `<div class="markdown-value" data-md="${esc(v)}"></div>` : esc(v);
     }
-    return `<div class="field-row">
+    const rowClass = isText ? "field-row field-row--text" : "field-row";
+    return `<div class="${rowClass}">
         <div class="field-label">${esc(label)}</div>
         <div class="field-value">${valueHtml}</div>
       </div>`;
@@ -1184,6 +1231,10 @@ async function previewRecord(context, cli, repoPath, id) {
     <h2>Relations</h2>
     ${relationsHtml}
     <script>
+      ${markdownRendererScript()}
+      document.querySelectorAll('.markdown-value').forEach(function(el) {
+        el.innerHTML = renderMarkdown(el.dataset.md || '');
+      });
       const vscode = acquireVsCodeApi();
       document.querySelectorAll('.rel-link').forEach(function(el) {
         el.addEventListener('click', function(ev) {
@@ -1238,6 +1289,36 @@ async function openMarkdownPreview(markdown, _title) {
     preserveFocus: false
   });
   await vscode11.commands.executeCommand("markdown.showPreview", doc.uri);
+}
+function markdownRendererScript() {
+  return [
+    "function renderMarkdown(md) {",
+    "  if (!md) return '';",
+    "  var h = md.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');",
+    "  h = h.replace(/```[\\w]*\\n([\\s\\S]*?)```/g, function(_,c){ return '<pre><code>'+c+'</code></pre>'; });",
+    "  h = h.replace(/^#{6}\\s+(.+)$/mg,'<h6>$1</h6>');",
+    "  h = h.replace(/^#{5}\\s+(.+)$/mg,'<h5>$1</h5>');",
+    "  h = h.replace(/^#{4}\\s+(.+)$/mg,'<h4>$1</h4>');",
+    "  h = h.replace(/^#{3}\\s+(.+)$/mg,'<h3>$1</h3>');",
+    "  h = h.replace(/^#{2}\\s+(.+)$/mg,'<h4>$1</h4>');",
+    "  h = h.replace(/^#\\s+(.+)$/mg,'<h5>$1</h5>');",
+    "  h = h.replace(/^---+$/mg,'<hr>');",
+    "  h = h.replace(/`([^`]+)`/g,'<code>$1</code>');",
+    "  h = h.replace(/\\*\\*\\*(.+?)\\*\\*\\*/g,'<strong><em>$1</em></strong>');",
+    "  h = h.replace(/\\*\\*(.+?)\\*\\*/g,'<strong>$1</strong>');",
+    "  h = h.replace(/\\*([^*]+)\\*/g,'<em>$1</em>');",
+    "  h = h.replace(/((?:^[*-]\\s+.+$\\n?)+)/mg, function(b){",
+    "    return '<ul>'+b.trim().split('\\n').map(function(l){return '<li>'+l.replace(/^[*-]\\s+/,'')+' </li>';}).join('')+'</ul>';",
+    "  });",
+    "  h = h.replace(/((?:^\\d+\\.\\s+.+$\\n?)+)/mg, function(b){",
+    "    return '<ol>'+b.trim().split('\\n').map(function(l){return '<li>'+l.replace(/^\\d+\\.\\s+/,'')+' </li>';}).join('')+'</ol>';",
+    "  });",
+    "  h = h.replace(/(?:^(?!<)\\S[^\\n]*$\\n?)+/mg, function(b){",
+    "    var t=b.trim(); return t ? '<p>'+t.replace(/\\n/g,' ')+'</p>' : '';",
+    "  });",
+    "  return h;",
+    "}"
+  ].join("\n");
 }
 
 // src/commands/editCommands.ts
@@ -1827,6 +1908,9 @@ async function editRecord(context, cli, repoPath, id, treeProvider) {
     record.typeId
   ]);
   const typeFields = typePayload.type.fields;
+  const fieldResults = await Promise.allSettled(
+    typeFields.map((f) => cli.runOk(repoPath, ["field", "get", f.fieldId]))
+  );
   const recordData = {
     instanceId: record.instanceId,
     typeId: record.typeId,
@@ -1836,15 +1920,19 @@ async function editRecord(context, cli, repoPath, id, treeProvider) {
     createdAt: record.createdAt,
     fieldValues: record.fieldValues
   };
-  const fieldData = typeFields.map((f) => ({
-    fieldId: f.fieldId,
-    displayLabel: f.displayLabel,
-    order: f.order,
-    required: f.required,
-    repeatable: f.repeatable,
-    minItems: f.minItems,
-    maxItems: f.maxItems
-  }));
+  const fieldData = typeFields.map((f, i) => {
+    const fr = fieldResults[i];
+    const fieldName = fr.status === "fulfilled" ? fr.value.field.name : void 0;
+    return {
+      fieldId: f.fieldId,
+      displayLabel: f.displayLabel ?? fieldName,
+      order: f.order,
+      required: f.required,
+      repeatable: f.repeatable,
+      minItems: f.minItems,
+      maxItems: f.maxItems
+    };
+  });
   const panelTitle = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
   const html = formWrapHtml(panelTitle, buildRecordForm(recordData, fieldData));
   EntityEditorPanel.show(context, `record:${id}`, panelTitle, html, async (data) => {

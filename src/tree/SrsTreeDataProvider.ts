@@ -48,8 +48,8 @@ export class EntityNode extends vscode.TreeItem {
     this.tooltip = `${entityKind}: ${entityId}`;
     this.description = entityId.slice(0, 8);
     this.command = {
-      command: "srs.openEntity",
-      title: "Open Entity",
+      command: "srs.openEntityDefault",
+      title: "Open",
       arguments: [this],
     };
   }

@@ -71,9 +71,9 @@ describe("EntityNode", () => {
         const node = new SrsTreeDataProvider_1.EntityNode("cont-001", "container", "Sprint 1", ["container", "get", "cont-001"]);
         assert.deepStrictEqual(node.getArgs, ["container", "get", "cont-001"]);
     });
-    it("command triggers srs.openEntity with self as argument", () => {
+    it("command triggers srs.openEntityDefault with self as argument", () => {
         const node = new SrsTreeDataProvider_1.EntityNode("id", "record", "Label", ["record", "get", "id"]);
-        assert.strictEqual(node.command?.command, "srs.openEntity");
+        assert.strictEqual(node.command?.command, "srs.openEntityDefault");
         assert.deepStrictEqual(node.command?.arguments, [node]);
     });
     it("description shows first 8 chars of id", () => {

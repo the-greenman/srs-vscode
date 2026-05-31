@@ -39,7 +39,7 @@ const CliClient_1 = require("../cli/CliClient");
 const SrsTreeDataProvider_1 = require("../tree/SrsTreeDataProvider");
 const EntityDocumentProvider_1 = require("../provider/EntityDocumentProvider");
 function registerRepositoryCommands(context, cli, repoProvider, treeProvider, outputChannel, entityProvider, diagnosticsProvider) {
-    context.subscriptions.push(vscode.commands.registerCommand("srs.selectRepository", () => cmdSelectRepository(cli, repoProvider)), vscode.commands.registerCommand("srs.refreshRepository", () => cmdRefreshRepository(repoProvider, treeProvider)), vscode.commands.registerCommand("srs.validateRepository", () => cmdValidateRepository(cli, repoProvider, outputChannel, diagnosticsProvider)), vscode.commands.registerCommand("srs.openRepositoryMap", () => cmdOpenRepositoryMap(cli, repoProvider, outputChannel)), vscode.commands.registerCommand("srs.openEntity", (node) => cmdOpenEntity(repoProvider, entityProvider, node)));
+    context.subscriptions.push(vscode.commands.registerCommand("srs.selectRepository", () => cmdSelectRepository(cli, repoProvider)), vscode.commands.registerCommand("srs.refreshRepository", () => cmdRefreshRepository(repoProvider, treeProvider)), vscode.commands.registerCommand("srs.validateRepository", () => cmdValidateRepository(cli, repoProvider, outputChannel, diagnosticsProvider)), vscode.commands.registerCommand("srs.openRepositoryMap", () => cmdOpenRepositoryMap(cli, repoProvider, outputChannel)), vscode.commands.registerCommand("srs.openEntity", (node) => cmdOpenEntity(repoProvider, entityProvider, node)), vscode.commands.registerCommand("srs.openEntityDefault", (node) => cmdOpenEntityDefault(repoProvider, entityProvider, node)));
 }
 async function cmdSelectRepository(cli, repoProvider) {
     const discovered = await vscode.window.withProgress({
@@ -131,6 +131,21 @@ async function cmdOpenRepositoryMap(cli, repoProvider, outputChannel) {
         outputChannel.appendLine(`Error: ${msg}`);
         vscode.window.showErrorMessage(`SRS: ${msg}`);
     }
+}
+// Kinds with a rich preview webview
+const PREVIEW_KINDS = new Set(["note", "record", "container"]);
+// Kinds with a form editor
+const EDIT_KINDS = new Set(["note", "tag", "record"]);
+async function cmdOpenEntityDefault(repoProvider, entityProvider, node) {
+    if (!(node instanceof SrsTreeDataProvider_1.EntityNode))
+        return;
+    if (PREVIEW_KINDS.has(node.entityKind)) {
+        return vscode.commands.executeCommand("srs.previewEntity", node);
+    }
+    if (EDIT_KINDS.has(node.entityKind)) {
+        return vscode.commands.executeCommand("srs.editEntity", node);
+    }
+    return cmdOpenEntity(repoProvider, entityProvider, node);
 }
 async function cmdOpenEntity(repoProvider, entityProvider, node) {
     if (!(node instanceof SrsTreeDataProvider_1.EntityNode)) {

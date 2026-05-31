@@ -140,6 +140,7 @@ async function previewRecord(context, cli, repoPath, id) {
     // Fetch type, relations, and entity lists in parallel
     let labelMap = new Map();
     let repeatableSet = new Set();
+    let textFieldSet = new Set();
     let relatedItems = [];
     const [typeResult, relResult, noteResult, recordListResult] = await Promise.allSettled([
         cli.runOk(repoPath, ["type", "get", record.typeId]),
@@ -148,10 +149,18 @@ async function previewRecord(context, cli, repoPath, id) {
         cli.runOk(repoPath, ["record", "list"]),
     ]);
     if (typeResult.status === "fulfilled") {
-        for (const f of typeResult.value.type.fields) {
+        const typeFields = typeResult.value.type.fields;
+        for (const f of typeFields) {
             labelMap.set(f.fieldId, f.displayLabel ?? f.fieldId.slice(0, 8));
             if (f.repeatable)
                 repeatableSet.add(f.fieldId);
+        }
+        // Fetch field definitions in parallel to get valueType
+        const fieldResults = await Promise.allSettled(typeFields.map((f) => cli.runOk(repoPath, ["field", "get", f.fieldId])));
+        for (const fr of fieldResults) {
+            if (fr.status === "fulfilled" && fr.value.field.valueType === "text") {
+                textFieldSet.add(fr.value.field.id);
+            }
         }
     }
     if (relResult.status === "fulfilled") {
@@ -195,21 +204,27 @@ async function previewRecord(context, cli, repoPath, id) {
     const rows = record.fieldValues
         .map((fv) => {
         const label = labelMap.get(fv.fieldId) ?? fv.fieldId.slice(0, 8);
+        const isText = textFieldSet.has(fv.fieldId);
         let valueHtml;
         if (repeatableSet.has(fv.fieldId) && fv.entries && fv.entries.length > 0) {
             const items = fv.entries
                 .map((e) => {
                 const v = typeof e.value === "string" ? e.value : JSON.stringify(e.value);
-                return `<li>${(0, PreviewPanel_1.esc)(v)}</li>`;
+                return isText
+                    ? `<li class="markdown-value" data-md="${(0, PreviewPanel_1.esc)(v)}"></li>`
+                    : `<li>${(0, PreviewPanel_1.esc)(v)}</li>`;
             })
                 .join("");
             valueHtml = `<ul class="repeatable-values">${items}</ul>`;
         }
         else {
             const v = typeof fv.value === "string" ? fv.value : JSON.stringify(fv.value);
-            valueHtml = (0, PreviewPanel_1.esc)(v);
+            valueHtml = isText
+                ? `<div class="markdown-value" data-md="${(0, PreviewPanel_1.esc)(v)}"></div>`
+                : (0, PreviewPanel_1.esc)(v);
         }
-        return `<div class="field-row">
+        const rowClass = isText ? "field-row field-row--text" : "field-row";
+        return `<div class="${rowClass}">
         <div class="field-label">${(0, PreviewPanel_1.esc)(label)}</div>
         <div class="field-value">${valueHtml}</div>
       </div>`;
@@ -235,6 +250,10 @@ async function previewRecord(context, cli, repoPath, id) {
     <h2>Relations</h2>
     ${relationsHtml}
     <script>
+      ${markdownRendererScript()}
+      document.querySelectorAll('.markdown-value').forEach(function(el) {
+        el.innerHTML = renderMarkdown(el.dataset.md || '');
+      });
       const vscode = acquireVsCodeApi();
       document.querySelectorAll('.rel-link').forEach(function(el) {
         el.addEventListener('click', function(ev) {
@@ -304,5 +323,37 @@ async function openMarkdownPreview(markdown, _title) {
     });
     // Open the built-in markdown preview for this document
     await vscode.commands.executeCommand("markdown.showPreview", doc.uri);
+}
+// ---- Inline markdown renderer (injected into record preview webview) ----
+// Returned as a string so it avoids TypeScript template-literal escape issues.
+function markdownRendererScript() {
+    return [
+        "function renderMarkdown(md) {",
+        "  if (!md) return '';",
+        "  var h = md.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');",
+        "  h = h.replace(/```[\\w]*\\n([\\s\\S]*?)```/g, function(_,c){ return '<pre><code>'+c+'</code></pre>'; });",
+        "  h = h.replace(/^#{6}\\s+(.+)$/mg,'<h6>$1</h6>');",
+        "  h = h.replace(/^#{5}\\s+(.+)$/mg,'<h5>$1</h5>');",
+        "  h = h.replace(/^#{4}\\s+(.+)$/mg,'<h4>$1</h4>');",
+        "  h = h.replace(/^#{3}\\s+(.+)$/mg,'<h3>$1</h3>');",
+        "  h = h.replace(/^#{2}\\s+(.+)$/mg,'<h4>$1</h4>');",
+        "  h = h.replace(/^#\\s+(.+)$/mg,'<h5>$1</h5>');",
+        "  h = h.replace(/^---+$/mg,'<hr>');",
+        "  h = h.replace(/`([^`]+)`/g,'<code>$1</code>');",
+        "  h = h.replace(/\\*\\*\\*(.+?)\\*\\*\\*/g,'<strong><em>$1</em></strong>');",
+        "  h = h.replace(/\\*\\*(.+?)\\*\\*/g,'<strong>$1</strong>');",
+        "  h = h.replace(/\\*([^*]+)\\*/g,'<em>$1</em>');",
+        "  h = h.replace(/((?:^[*-]\\s+.+$\\n?)+)/mg, function(b){",
+        "    return '<ul>'+b.trim().split('\\n').map(function(l){return '<li>'+l.replace(/^[*-]\\s+/,'')+' </li>';}).join('')+'</ul>';",
+        "  });",
+        "  h = h.replace(/((?:^\\d+\\.\\s+.+$\\n?)+)/mg, function(b){",
+        "    return '<ol>'+b.trim().split('\\n').map(function(l){return '<li>'+l.replace(/^\\d+\\.\\s+/,'')+' </li>';}).join('')+'</ol>';",
+        "  });",
+        "  h = h.replace(/(?:^(?!<)\\S[^\\n]*$\\n?)+/mg, function(b){",
+        "    var t=b.trim(); return t ? '<p>'+t.replace(/\\n/g,' ')+'</p>' : '';",
+        "  });",
+        "  return h;",
+        "}",
+    ].join("\n");
 }
 //# sourceMappingURL=previewCommands.js.map

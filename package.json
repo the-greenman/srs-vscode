@@ -4,8 +4,12 @@
   "description": "Browse and validate Semantic Record System repositories via the srs CLI",
   "version": "0.1.0",
   "publisher": "semanticops",
-  "engines": { "vscode": "^1.85.0" },
-  "categories": ["Other"],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
   "activationEvents": [
     "workspaceContains:.srs",
     "workspaceContains:manifest.json",
@@ -14,26 +18,101 @@
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
-      { "command": "srs.selectRepository",     "title": "SRS: Select Repository" },
-      { "command": "srs.refreshRepository",    "title": "SRS: Refresh Repository", "icon": "$(refresh)" },
-      { "command": "srs.validateRepository",   "title": "SRS: Validate Repository" },
-      { "command": "srs.openRepositoryMap",    "title": "SRS: Open Repository Map" },
-      { "command": "srs.setActiveContainer",   "title": "SRS: Set Active Container" },
-      { "command": "srs.clearActiveContainer", "title": "SRS: Clear Active Container" },
-      { "command": "srs.createContainer",      "title": "SRS: Create Container" },
-      { "command": "srs.createNote",           "title": "SRS: Create Note" },
-      { "command": "srs.createTag",            "title": "SRS: Create Tag Definition" },
-      { "command": "srs.createRecord",         "title": "SRS: Create Record" },
-      { "command": "srs.deleteEntity",         "title": "SRS: Delete Entity", "icon": "$(trash)" },
-      { "command": "srs.previewEntity",        "title": "SRS: Preview Entity" },
-      { "command": "srs.previewRender",        "title": "SRS: Render Document View" },
-      { "command": "srs.editEntity",           "title": "SRS: Edit Entity" },
-      { "command": "srs.createRelation",       "title": "SRS: Create Relation" },
-      { "command": "srs.showRelationGraph",      "title": "SRS: Show Relation Graph", "icon": "$(type-hierarchy)" },
-      { "command": "srs.navigatorRelations",    "title": "SRS Navigator: Relations", "icon": "$(references)" },
-      { "command": "srs.navigatorDocumentViews","title": "SRS Navigator: Document Views", "icon": "$(book)" },
-      { "command": "srs.navigatorContainers",   "title": "SRS Navigator: Containers", "icon": "$(package)" },
-      { "command": "srs.navigatorRefresh",      "title": "SRS Navigator: Refresh", "icon": "$(refresh)" }
+      {
+        "command": "srs.selectRepository",
+        "title": "SRS: Select Repository"
+      },
+      {
+        "command": "srs.refreshRepository",
+        "title": "SRS: Refresh Repository",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "srs.validateRepository",
+        "title": "SRS: Validate Repository"
+      },
+      {
+        "command": "srs.openRepositoryMap",
+        "title": "SRS: Open Repository Map"
+      },
+      {
+        "command": "srs.setActiveContainer",
+        "title": "SRS: Set Active Container"
+      },
+      {
+        "command": "srs.clearActiveContainer",
+        "title": "SRS: Clear Active Container"
+      },
+      {
+        "command": "srs.createContainer",
+        "title": "SRS: Create Container"
+      },
+      {
+        "command": "srs.createNote",
+        "title": "SRS: Create Note"
+      },
+      {
+        "command": "srs.createTag",
+        "title": "SRS: Create Tag Definition"
+      },
+      {
+        "command": "srs.createRecord",
+        "title": "SRS: Create Record"
+      },
+      {
+        "command": "srs.deleteEntity",
+        "title": "SRS: Delete Entity",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "srs.openEntityDefault",
+        "title": "SRS: Open"
+      },
+      {
+        "command": "srs.openEntity",
+        "title": "SRS: Open Raw JSON"
+      },
+      {
+        "command": "srs.previewEntity",
+        "title": "SRS: Preview Entity"
+      },
+      {
+        "command": "srs.previewRender",
+        "title": "SRS: Render Document View"
+      },
+      {
+        "command": "srs.editEntity",
+        "title": "SRS: Edit Entity"
+      },
+      {
+        "command": "srs.createRelation",
+        "title": "SRS: Create Relation"
+      },
+      {
+        "command": "srs.showRelationGraph",
+        "title": "SRS: Show Relation Graph",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "srs.navigatorRelations",
+        "title": "SRS Navigator: Relations",
+        "icon": "$(references)"
+      },
+      {
+        "command": "srs.navigatorDocumentViews",
+        "title": "SRS Navigator: Document Views",
+        "icon": "$(book)"
+      },
+      {
+        "command": "srs.navigatorContainers",
+        "title": "SRS Navigator: Containers",
+        "icon": "$(package)"
+      },
+      {
+        "command": "srs.navigatorRefresh",
+        "title": "SRS Navigator: Refresh",
+        "icon": "$(refresh)"
+      }
     ],
     "views": {
       "explorer": [
@@ -94,6 +173,11 @@
           "group": "srs@1"
         },
         {
+          "command": "srs.openEntity",
+          "when": "viewItem == srsEntity",
+          "group": "srs@1"
+        },
+        {
           "command": "srs.previewRender",
           "when": "viewItem == srsEntity",
           "group": "srs@2"
@@ -119,7 +203,10 @@
           "description": "Path to the srs CLI binary. Defaults to 'srs' (resolved from PATH)."
         },
         "srs.repository.path": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "default": null,
           "description": "Explicit repository root path. When null, the extension auto-detects from workspace folders."
         },
@@ -147,6 +234,7 @@
     "@types/mocha": "^10.0.6",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
+    "ajv": "^8.20.0",
     "esbuild": "^0.20.0",
     "mocha": "^10.3.0",
     "typescript": "^5.3.0"
