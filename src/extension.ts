@@ -8,6 +8,7 @@ import { SchemaProvider } from "./schema/SchemaProvider";
 import { EntityDocumentProvider, ENTITY_SCHEME } from "./provider/EntityDocumentProvider";
 import { DiagnosticsProvider } from "./diagnostics/DiagnosticsProvider";
 import { registerRepositoryCommands } from "./commands/repositoryCommands";
+import { registerPreviewCommands } from "./commands/previewCommands";
 import { registerContainerCommands } from "./commands/containerCommands";
 import { registerMutationCommands } from "./commands/mutationCommands";
 
@@ -83,6 +84,7 @@ export async function activate(
   registerContainerCommands(context, cli, repoProvider, attention, treeProvider);
 
   registerMutationCommands(context, cli, repoProvider, attention, treeProvider);
+  registerPreviewCommands(context, cli, repoProvider);
 
   // Auto-detect on activation
   await autoDetectRepository(cli, repoProvider);

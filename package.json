@@ -24,7 +24,9 @@
       { "command": "srs.createNote",           "title": "SRS: Create Note" },
       { "command": "srs.createTag",            "title": "SRS: Create Tag Definition" },
       { "command": "srs.createRecord",         "title": "SRS: Create Record" },
-      { "command": "srs.deleteEntity",         "title": "SRS: Delete Entity", "icon": "$(trash)" }
+      { "command": "srs.deleteEntity",         "title": "SRS: Delete Entity", "icon": "$(trash)" },
+      { "command": "srs.previewEntity",        "title": "SRS: Preview Entity" },
+      { "command": "srs.previewRender",        "title": "SRS: Render Document View" }
     ],
     "views": {
       "explorer": [
@@ -50,9 +52,19 @@
       ],
       "view/item/context": [
         {
-          "command": "srs.deleteEntity",
+          "command": "srs.previewEntity",
           "when": "view == srsRepositoryTree && viewItem == srsEntity",
           "group": "srs@1"
+        },
+        {
+          "command": "srs.previewRender",
+          "when": "view == srsRepositoryTree && viewItem == srsEntity",
+          "group": "srs@2"
+        },
+        {
+          "command": "srs.deleteEntity",
+          "when": "view == srsRepositoryTree && viewItem == srsEntity",
+          "group": "srs@9"
         }
       ]
     },
