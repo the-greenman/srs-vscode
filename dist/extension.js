@@ -886,7 +886,7 @@ async function cmdOpenEntity(repoProvider, entityProvider, node) {
     const doc = await vscode9.workspace.openTextDocument(uri);
     await vscode9.window.showTextDocument(doc, {
       preview: true,
-      viewColumn: vscode9.ViewColumn.Beside,
+      viewColumn: vscode9.ViewColumn.Active,
       preserveFocus: false
     });
   } catch (err) {
@@ -906,7 +906,7 @@ var PreviewPanel = class _PreviewPanel {
     this._panel = vscode10.window.createWebviewPanel(
       "srsPreview",
       title,
-      { viewColumn: vscode10.ViewColumn.Beside, preserveFocus: false },
+      { viewColumn: vscode10.ViewColumn.Active, preserveFocus: false },
       {
         enableScripts: false,
         localResourceRoots: []
@@ -923,7 +923,7 @@ var PreviewPanel = class _PreviewPanel {
   static show(context, id, title, html) {
     const existing = _PreviewPanel._panels.get(id);
     if (existing) {
-      existing._panel.reveal(vscode10.ViewColumn.Beside);
+      existing._panel.reveal(vscode10.ViewColumn.Active);
       existing._panel.title = title;
       existing._update(html);
       return existing;

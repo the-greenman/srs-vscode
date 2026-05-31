@@ -187,7 +187,7 @@ async function cmdOpenEntity(
     const doc = await vscode.workspace.openTextDocument(uri);
     await vscode.window.showTextDocument(doc, {
       preview: true,
-      viewColumn: vscode.ViewColumn.Beside,
+      viewColumn: vscode.ViewColumn.Active,
       preserveFocus: false,
     });
   } catch (err) {

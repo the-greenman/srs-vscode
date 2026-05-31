@@ -16,7 +16,7 @@ export class PreviewPanel implements vscode.Disposable {
   ): PreviewPanel {
     const existing = PreviewPanel._panels.get(id);
     if (existing) {
-      existing._panel.reveal(vscode.ViewColumn.Beside);
+      existing._panel.reveal(vscode.ViewColumn.Active);
       existing._panel.title = title;
       existing._update(html);
       return existing;
@@ -37,7 +37,7 @@ export class PreviewPanel implements vscode.Disposable {
     this._panel = vscode.window.createWebviewPanel(
       "srsPreview",
       title,
-      { viewColumn: vscode.ViewColumn.Beside, preserveFocus: false },
+      { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
       {
         enableScripts: false,
         localResourceRoots: [],
