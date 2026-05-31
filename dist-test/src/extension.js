@@ -43,6 +43,7 @@ const AttentionManager_1 = require("./container/AttentionManager");
 const ContainerStatusBarItem_1 = require("./container/ContainerStatusBarItem");
 const SchemaProvider_1 = require("./schema/SchemaProvider");
 const EntityDocumentProvider_1 = require("./provider/EntityDocumentProvider");
+const DiagnosticsProvider_1 = require("./diagnostics/DiagnosticsProvider");
 const repositoryCommands_1 = require("./commands/repositoryCommands");
 const containerCommands_1 = require("./commands/containerCommands");
 const mutationCommands_1 = require("./commands/mutationCommands");
@@ -56,13 +57,14 @@ async function activate(context) {
     const statusBarItem = new ContainerStatusBarItem_1.ContainerStatusBarItem(attention);
     const schemaProvider = new SchemaProvider_1.SchemaProvider(context.extensionUri);
     const entityDocProvider = new EntityDocumentProvider_1.EntityDocumentProvider(cli, repoProvider);
-    context.subscriptions.push(repoProvider, treeProvider, attention, statusBarItem, schemaProvider, entityDocProvider, vscode.workspace.registerTextDocumentContentProvider(EntityDocumentProvider_1.ENTITY_SCHEME, entityDocProvider));
+    const diagnosticsProvider = new DiagnosticsProvider_1.DiagnosticsProvider(cli, repoProvider);
+    context.subscriptions.push(repoProvider, treeProvider, attention, statusBarItem, schemaProvider, entityDocProvider, diagnosticsProvider, vscode.workspace.registerTextDocumentContentProvider(EntityDocumentProvider_1.ENTITY_SCHEME, entityDocProvider));
     const treeView = vscode.window.createTreeView("srsRepositoryTree", {
         treeDataProvider: treeProvider,
         showCollapseAll: true,
     });
     context.subscriptions.push(treeView);
-    // Keep tree view title in sync with active repository name
+    // Keep tree view title in sync with active repository name; clear stale diagnostics on change
     repoProvider.onDidChangeActive((repo) => {
         treeView.title = repo ? `SRS: ${repo.title}` : "SRS Repository";
         if (repo) {
@@ -70,9 +72,23 @@ async function activate(context) {
         }
         else {
             statusBarItem.hide();
+            diagnosticsProvider.clear();
         }
     });
-    (0, repositoryCommands_1.registerRepositoryCommands)(context, cli, repoProvider, treeProvider, outputChannel, entityDocProvider);
+    // Validate on save when srs.validate.onSave is enabled
+    context.subscriptions.push(vscode.workspace.onDidSaveTextDocument((doc) => {
+        const repo = repoProvider.active;
+        if (!repo)
+            return;
+        const config = vscode.workspace.getConfiguration("srs");
+        if (!config.get("validate.onSave", true))
+            return;
+        // Only trigger for files inside the active repository root
+        if (!doc.uri.fsPath.startsWith(repo.rootPath))
+            return;
+        diagnosticsProvider.validate();
+    }));
+    (0, repositoryCommands_1.registerRepositoryCommands)(context, cli, repoProvider, treeProvider, outputChannel, entityDocProvider, diagnosticsProvider);
     (0, containerCommands_1.registerContainerCommands)(context, cli, repoProvider, attention, treeProvider);
     (0, mutationCommands_1.registerMutationCommands)(context, cli, repoProvider, attention, treeProvider);
     // Auto-detect on activation

@@ -21,14 +21,15 @@ export interface RepoMapPayload {
 }
 
 // repo validate
+export interface RepoValidateDiagnostic {
+  severity: "Error" | "Warning" | "Info";
+  relative_path: string;
+  message: string;
+}
+
 export interface RepoValidatePayload {
   summary: { checked: number; errors: number; warnings: number };
-  diagnostics: Array<{
-    severity?: string;
-    message: string;
-    relativePath?: string;
-    instanceId?: string;
-  }>;
+  diagnostics: RepoValidateDiagnostic[];
 }
 
 // note list  → payload.notes

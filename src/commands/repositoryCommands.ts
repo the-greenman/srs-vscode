@@ -3,6 +3,7 @@ import { CliClient, CliError } from "../cli/CliClient";
 import { RepositoryProvider } from "../repository/RepositoryProvider";
 import { SrsTreeDataProvider, EntityNode } from "../tree/SrsTreeDataProvider";
 import { EntityDocumentProvider, entityUri } from "../provider/EntityDocumentProvider";
+import { DiagnosticsProvider } from "../diagnostics/DiagnosticsProvider";
 import type { RepoValidatePayload } from "../cli/types";
 
 export function registerRepositoryCommands(
@@ -12,6 +13,7 @@ export function registerRepositoryCommands(
   treeProvider: SrsTreeDataProvider,
   outputChannel: vscode.OutputChannel,
   entityProvider: EntityDocumentProvider,
+  diagnosticsProvider: DiagnosticsProvider,
 ): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("srs.selectRepository", () =>
@@ -21,7 +23,7 @@ export function registerRepositoryCommands(
       cmdRefreshRepository(repoProvider, treeProvider),
     ),
     vscode.commands.registerCommand("srs.validateRepository", () =>
-      cmdValidateRepository(cli, repoProvider, outputChannel),
+      cmdValidateRepository(cli, repoProvider, outputChannel, diagnosticsProvider),
     ),
     vscode.commands.registerCommand("srs.openRepositoryMap", () =>
       cmdOpenRepositoryMap(cli, repoProvider, outputChannel),
@@ -88,6 +90,7 @@ async function cmdValidateRepository(
   cli: CliClient,
   repoProvider: RepositoryProvider,
   outputChannel: vscode.OutputChannel,
+  diagnosticsProvider: DiagnosticsProvider,
 ): Promise<void> {
   const repo = repoProvider.active;
   if (!repo) {
@@ -115,10 +118,9 @@ async function cmdValidateRepository(
         outputChannel.appendLine("✓ No issues found.");
       } else {
         for (const d of diagnostics) {
-          const sev = (d.severity ?? "info").toUpperCase().padEnd(7);
-          const loc = d.relativePath ? ` [${d.relativePath}]` : "";
-          const id = d.instanceId ? ` (${d.instanceId})` : "";
-          outputChannel.appendLine(`  ${sev}${loc}${id}: ${d.message}`);
+          const sev = (d.severity ?? "Info").toUpperCase().padEnd(7);
+          const loc = d.relative_path ? ` [${d.relative_path}]` : "";
+          outputChannel.appendLine(`  ${sev}${loc}: ${d.message}`);
         }
       }
     } else {
@@ -132,6 +134,9 @@ async function cmdValidateRepository(
     outputChannel.appendLine(`Error: ${msg}`);
     vscode.window.showErrorMessage(`SRS validation error: ${msg}`);
   }
+
+  // Also populate the Problems panel
+  await diagnosticsProvider.validate();
 }
 
 async function cmdOpenRepositoryMap(

@@ -6,6 +6,7 @@ import { AttentionManager } from "./container/AttentionManager";
 import { ContainerStatusBarItem } from "./container/ContainerStatusBarItem";
 import { SchemaProvider } from "./schema/SchemaProvider";
 import { EntityDocumentProvider, ENTITY_SCHEME } from "./provider/EntityDocumentProvider";
+import { DiagnosticsProvider } from "./diagnostics/DiagnosticsProvider";
 import { registerRepositoryCommands } from "./commands/repositoryCommands";
 import { registerContainerCommands } from "./commands/containerCommands";
 import { registerMutationCommands } from "./commands/mutationCommands";
@@ -23,6 +24,7 @@ export async function activate(
   const statusBarItem = new ContainerStatusBarItem(attention);
   const schemaProvider = new SchemaProvider(context.extensionUri);
   const entityDocProvider = new EntityDocumentProvider(cli, repoProvider);
+  const diagnosticsProvider = new DiagnosticsProvider(cli, repoProvider);
 
   context.subscriptions.push(
     repoProvider,
@@ -31,6 +33,7 @@ export async function activate(
     statusBarItem,
     schemaProvider,
     entityDocProvider,
+    diagnosticsProvider,
     vscode.workspace.registerTextDocumentContentProvider(
       ENTITY_SCHEME,
       entityDocProvider,
@@ -43,15 +46,29 @@ export async function activate(
   });
   context.subscriptions.push(treeView);
 
-  // Keep tree view title in sync with active repository name
+  // Keep tree view title in sync with active repository name; clear stale diagnostics on change
   repoProvider.onDidChangeActive((repo) => {
     treeView.title = repo ? `SRS: ${repo.title}` : "SRS Repository";
     if (repo) {
       statusBarItem.show();
     } else {
       statusBarItem.hide();
+      diagnosticsProvider.clear();
     }
   });
+
+  // Validate on save when srs.validate.onSave is enabled
+  context.subscriptions.push(
+    vscode.workspace.onDidSaveTextDocument((doc) => {
+      const repo = repoProvider.active;
+      if (!repo) return;
+      const config = vscode.workspace.getConfiguration("srs");
+      if (!config.get<boolean>("validate.onSave", true)) return;
+      // Only trigger for files inside the active repository root
+      if (!doc.uri.fsPath.startsWith(repo.rootPath)) return;
+      diagnosticsProvider.validate();
+    }),
+  );
 
   registerRepositoryCommands(
     context,
@@ -60,6 +77,7 @@ export async function activate(
     treeProvider,
     outputChannel,
     entityDocProvider,
+    diagnosticsProvider,
   );
 
   registerContainerCommands(context, cli, repoProvider, attention, treeProvider);

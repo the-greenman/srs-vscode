@@ -38,8 +38,8 @@ const vscode = __importStar(require("vscode"));
 const CliClient_1 = require("../cli/CliClient");
 const SrsTreeDataProvider_1 = require("../tree/SrsTreeDataProvider");
 const EntityDocumentProvider_1 = require("../provider/EntityDocumentProvider");
-function registerRepositoryCommands(context, cli, repoProvider, treeProvider, outputChannel, entityProvider) {
-    context.subscriptions.push(vscode.commands.registerCommand("srs.selectRepository", () => cmdSelectRepository(cli, repoProvider)), vscode.commands.registerCommand("srs.refreshRepository", () => cmdRefreshRepository(repoProvider, treeProvider)), vscode.commands.registerCommand("srs.validateRepository", () => cmdValidateRepository(cli, repoProvider, outputChannel)), vscode.commands.registerCommand("srs.openRepositoryMap", () => cmdOpenRepositoryMap(cli, repoProvider, outputChannel)), vscode.commands.registerCommand("srs.openEntity", (node) => cmdOpenEntity(repoProvider, entityProvider, node)));
+function registerRepositoryCommands(context, cli, repoProvider, treeProvider, outputChannel, entityProvider, diagnosticsProvider) {
+    context.subscriptions.push(vscode.commands.registerCommand("srs.selectRepository", () => cmdSelectRepository(cli, repoProvider)), vscode.commands.registerCommand("srs.refreshRepository", () => cmdRefreshRepository(repoProvider, treeProvider)), vscode.commands.registerCommand("srs.validateRepository", () => cmdValidateRepository(cli, repoProvider, outputChannel, diagnosticsProvider)), vscode.commands.registerCommand("srs.openRepositoryMap", () => cmdOpenRepositoryMap(cli, repoProvider, outputChannel)), vscode.commands.registerCommand("srs.openEntity", (node) => cmdOpenEntity(repoProvider, entityProvider, node)));
 }
 async function cmdSelectRepository(cli, repoProvider) {
     const discovered = await vscode.window.withProgress({
@@ -72,7 +72,7 @@ async function cmdRefreshRepository(repoProvider, treeProvider) {
     await repoProvider.refresh();
     treeProvider.refresh();
 }
-async function cmdValidateRepository(cli, repoProvider, outputChannel) {
+async function cmdValidateRepository(cli, repoProvider, outputChannel, diagnosticsProvider) {
     const repo = repoProvider.active;
     if (!repo) {
         vscode.window.showWarningMessage("SRS: No active repository. Run 'SRS: Select Repository' first.");
@@ -90,10 +90,9 @@ async function cmdValidateRepository(cli, repoProvider, outputChannel) {
             }
             else {
                 for (const d of diagnostics) {
-                    const sev = (d.severity ?? "info").toUpperCase().padEnd(7);
-                    const loc = d.relativePath ? ` [${d.relativePath}]` : "";
-                    const id = d.instanceId ? ` (${d.instanceId})` : "";
-                    outputChannel.appendLine(`  ${sev}${loc}${id}: ${d.message}`);
+                    const sev = (d.severity ?? "Info").toUpperCase().padEnd(7);
+                    const loc = d.relative_path ? ` [${d.relative_path}]` : "";
+                    outputChannel.appendLine(`  ${sev}${loc}: ${d.message}`);
                 }
             }
         }
@@ -109,6 +108,8 @@ async function cmdValidateRepository(cli, repoProvider, outputChannel) {
         outputChannel.appendLine(`Error: ${msg}`);
         vscode.window.showErrorMessage(`SRS validation error: ${msg}`);
     }
+    // Also populate the Problems panel
+    await diagnosticsProvider.validate();
 }
 async function cmdOpenRepositoryMap(cli, repoProvider, outputChannel) {
     const repo = repoProvider.active;
