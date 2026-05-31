@@ -77,6 +77,8 @@ const CSS = `
     .field-row { display: flex; gap: 1em; margin: 0.4em 0; }
     .field-label { width: 160px; flex-shrink: 0; font-weight: 600; color: var(--vscode-descriptionForeground); font-size: 0.9em; }
     .field-value { flex: 1; word-break: break-word; }
+    .repeatable-values { margin: 0; padding-left: 1.2em; }
+    .repeatable-values li { margin: 0.1em 0; }
     .section { margin-top: 1.2em; }
     .section-name { font-size: 0.8em; font-weight: 600; text-transform: uppercase;
                     letter-spacing: 0.05em; color: var(--vscode-descriptionForeground); margin-bottom: 0.3em; }

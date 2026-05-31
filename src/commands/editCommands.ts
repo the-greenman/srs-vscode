@@ -39,7 +39,7 @@ interface RecordPayload {
     typeNamespace: string;
     typeVersion: number;
     createdAt?: string;
-    fieldValues: Array<{ fieldId: string; value: unknown }>;
+    fieldValues: Array<{ fieldId: string; value: unknown; entries?: Array<{ value: unknown }> }>;
   };
 }
 
@@ -54,6 +54,9 @@ interface TypePayload {
       displayLabel?: string;
       order: number;
       required: boolean;
+      repeatable?: boolean;
+      minItems?: number;
+      maxItems?: number;
     }>;
   };
 }
@@ -250,6 +253,9 @@ async function editRecord(
     displayLabel: f.displayLabel,
     order: f.order,
     required: f.required,
+    repeatable: f.repeatable,
+    minItems: f.minItems,
+    maxItems: f.maxItems,
   }));
 
   const panelTitle = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;

@@ -32,7 +32,7 @@ export interface RecordData {
   typeNamespace: string;
   typeVersion: number;
   createdAt?: string;
-  fieldValues: Array<{ fieldId: string; value: unknown }>;
+  fieldValues: Array<{ fieldId: string; value: unknown; entries?: Array<{ value: unknown }> }>;
 }
 
 export interface TypeFieldData {
@@ -40,6 +40,9 @@ export interface TypeFieldData {
   displayLabel?: string;
   order: number;
   required: boolean;
+  repeatable?: boolean;
+  minItems?: number;
+  maxItems?: number;
 }
 
 // ---- HTML escape ----
@@ -130,6 +133,31 @@ const FORM_CSS = `
       flex-shrink: 0;
     }
     .btn-remove-section:hover { opacity: 0.7; }
+    .repeat-list { display: flex; flex-direction: column; gap: 0.4em; margin-bottom: 0.4em; }
+    .repeat-entry { display: flex; gap: 0.5em; align-items: flex-start; }
+    .repeat-entry .repeat-value { flex: 1; }
+    .btn-remove-entry {
+      padding: 2px 8px;
+      background: transparent;
+      color: var(--vscode-errorForeground);
+      border: 1px solid var(--vscode-errorForeground);
+      border-radius: 2px;
+      cursor: pointer;
+      font-size: 0.85em;
+      flex-shrink: 0;
+      margin-top: 4px;
+    }
+    .btn-remove-entry:hover { opacity: 0.7; }
+    .btn-add-entry {
+      padding: 3px 10px;
+      background: transparent;
+      color: var(--vscode-foreground);
+      border: 1px solid var(--vscode-panel-border);
+      border-radius: 2px;
+      cursor: pointer;
+      font-size: 0.85em;
+    }
+    .btn-add-entry:hover { border-color: var(--vscode-focusBorder); }
     .hint { font-size: 0.8em; color: var(--vscode-descriptionForeground); margin-top: 0.2em; }
     .button-row { display: flex; gap: 0.75em; margin-top: 1.5em; }
     button {
@@ -343,51 +371,123 @@ export function buildRecordForm(
   fields: TypeFieldData[],
 ): string {
   const sorted = [...fields].sort((a, b) => a.order - b.order);
-  const currentValues = new Map<string, string>(
-    record.fieldValues.map((fv) => [
-      fv.fieldId,
-      typeof fv.value === "string" ? fv.value : JSON.stringify(fv.value),
-    ]),
-  );
+
+  // Build maps for scalar values and entries arrays from current fieldValues
+  const currentScalar = new Map<string, string>();
+  const currentEntries = new Map<string, string[]>();
+  for (const fv of record.fieldValues) {
+    if (fv.entries && fv.entries.length > 0) {
+      currentEntries.set(
+        fv.fieldId,
+        fv.entries.map((e) => (typeof e.value === "string" ? e.value : JSON.stringify(e.value))),
+      );
+    } else {
+      currentScalar.set(
+        fv.fieldId,
+        typeof fv.value === "string" ? fv.value : JSON.stringify(fv.value),
+      );
+    }
+  }
 
   const fieldHtml = sorted.map((f, i) => {
     const label = f.displayLabel ?? f.fieldId.slice(0, 8);
-    const value = currentValues.get(f.fieldId) ?? "";
-    const required = f.required ? ` required` : "";
-    const requiredMark = f.required
-      ? ` <span class="required-mark">*</span>`
-      : "";
-    return `
-    <div class="field">
+    const requiredMark = f.required ? ` <span class="required-mark">*</span>` : "";
+    const minHint = f.minItems != null ? ` min ${f.minItems}` : "";
+    const maxHint = f.maxItems != null ? ` max ${f.maxItems}` : "";
+    const repeatHint = (minHint || maxHint) ? `<div class="hint">Repeatable${minHint}${maxHint}</div>` : "";
+
+    if (f.repeatable) {
+      const entries = currentEntries.get(f.fieldId) ?? (currentScalar.has(f.fieldId) ? [currentScalar.get(f.fieldId)!] : [""]);
+      const entryInputs = entries.map((v) => `
+        <div class="repeat-entry" data-repeat-entry>
+          <textarea class="repeat-value" rows="2">${escText(v)}</textarea>
+          <button type="button" class="btn-remove-entry" title="Remove">✕</button>
+        </div>`).join("");
+      return `
+    <div class="field" data-field-index="${i}" data-repeatable>
+      <label>${esc(label)}${requiredMark}</label>
+      <div class="repeat-list" id="repeat-list-${i}">${entryInputs}</div>
+      <button type="button" class="btn-add-entry" data-target="repeat-list-${i}">+ Add value</button>
+      ${repeatHint}
+      <input type="hidden" name="field_id_${i}" value="${escAttr(f.fieldId)}">
+    </div>`;
+    } else {
+      const value = currentScalar.get(f.fieldId) ?? "";
+      const required = f.required ? ` required` : "";
+      return `
+    <div class="field" data-field-index="${i}">
       <label>${esc(label)}${requiredMark}</label>
       <textarea name="field_value_${i}" rows="2"${required}>${escText(value)}</textarea>
       <input type="hidden" name="field_id_${i}" value="${escAttr(f.fieldId)}">
     </div>`;
+    }
   }).join("");
 
   const fieldCount = sorted.length;
+  // Encode which field indices are repeatable so collectFormData can branch
+  const repeatableIndices = sorted
+    .map((f, i) => (f.repeatable ? i : -1))
+    .filter((i) => i >= 0);
 
   const collectJs = `
   <script>
+    var repeatableIndices = ${JSON.stringify(repeatableIndices)};
+
     function collectFormData() {
-      const form = document.getElementById('editor-form');
-      const instanceId = form.querySelector('[name="instanceId"]').value;
-      const typeId = form.querySelector('[name="typeId"]').value;
-      const typeName = form.querySelector('[name="typeName"]').value;
-      const typeNamespace = form.querySelector('[name="typeNamespace"]').value;
-      const typeVersion = parseInt(form.querySelector('[name="typeVersion"]').value, 10);
-      const createdAt = form.querySelector('[name="createdAt"]').value || undefined;
-      const fieldCount = parseInt(form.querySelector('[name="fieldCount"]').value, 10);
-      const fieldValues = [];
-      for (let i = 0; i < fieldCount; i++) {
-        const fieldId = form.querySelector('[name="field_id_' + i + '"]').value;
-        const value = form.querySelector('[name="field_value_' + i + '"]').value;
-        if (value.trim()) {
-          fieldValues.push({ fieldId, value: value.trim() });
+      var form = document.getElementById('editor-form');
+      var instanceId = form.querySelector('[name="instanceId"]').value;
+      var typeId = form.querySelector('[name="typeId"]').value;
+      var typeName = form.querySelector('[name="typeName"]').value;
+      var typeNamespace = form.querySelector('[name="typeNamespace"]').value;
+      var typeVersion = parseInt(form.querySelector('[name="typeVersion"]').value, 10);
+      var createdAt = form.querySelector('[name="createdAt"]').value || undefined;
+      var fieldCount = parseInt(form.querySelector('[name="fieldCount"]').value, 10);
+      var fieldValues = [];
+      for (var i = 0; i < fieldCount; i++) {
+        var fieldId = form.querySelector('[name="field_id_' + i + '"]').value;
+        if (repeatableIndices.indexOf(i) >= 0) {
+          var list = form.querySelector('#repeat-list-' + i);
+          var entries = [];
+          list.querySelectorAll('[data-repeat-entry] .repeat-value').forEach(function(ta) {
+            var v = ta.value.trim();
+            if (v) entries.push({ value: v });
+          });
+          // Always include repeatable fields (even if empty, for min-items validation)
+          fieldValues.push({ fieldId: fieldId, value: '', entries: entries });
+        } else {
+          var value = form.querySelector('[name="field_value_' + i + '"]').value;
+          if (value.trim()) {
+            fieldValues.push({ fieldId: fieldId, value: value.trim() });
+          }
         }
       }
-      return { instanceId, typeId, typeName, typeNamespace, typeVersion, createdAt, fieldValues };
+      return { instanceId: instanceId, typeId: typeId, typeName: typeName,
+               typeNamespace: typeNamespace, typeVersion: typeVersion,
+               createdAt: createdAt, fieldValues: fieldValues };
     }
+
+    function wireRemoveEntry(btn) {
+      btn.addEventListener('click', function() {
+        btn.closest('[data-repeat-entry]').remove();
+      });
+    }
+
+    function addEntry(listId) {
+      var list = document.getElementById(listId);
+      var entry = document.createElement('div');
+      entry.className = 'repeat-entry';
+      entry.setAttribute('data-repeat-entry', '');
+      entry.innerHTML = '<textarea class="repeat-value" rows="2"></textarea>' +
+        '<button type="button" class="btn-remove-entry" title="Remove">\\u2715</button>';
+      list.appendChild(entry);
+      entry.querySelector('.repeat-value').focus();
+      wireRemoveEntry(entry.querySelector('.btn-remove-entry'));
+    }
+
+    document.querySelectorAll('.btn-remove-entry').forEach(wireRemoveEntry);
+    document.querySelectorAll('.btn-add-entry').forEach(function(btn) {
+      btn.addEventListener('click', function() { addEntry(btn.getAttribute('data-target')); });
+    });
   </script>`;
 
   return `

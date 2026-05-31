@@ -28,7 +28,11 @@ interface RecordPayload {
     typeNamespace: string;
     typeVersion: number;
     createdAt?: string;
-    fieldValues: Array<{ fieldId: string; value: unknown }>;
+    fieldValues: Array<{
+      fieldId: string;
+      value: unknown;
+      entries?: Array<{ value: unknown }>;
+    }>;
   };
 }
 
@@ -38,7 +42,13 @@ interface TypePayload {
     name: string;
     namespace: string;
     version: number;
-    fields: Array<{ fieldId: string; displayLabel?: string; order: number; required: boolean }>;
+    fields: Array<{
+      fieldId: string;
+      displayLabel?: string;
+      order: number;
+      required: boolean;
+      repeatable?: boolean;
+    }>;
   };
 }
 
@@ -201,12 +211,14 @@ async function previewRecord(
   const payload = await cli.runOk<RecordPayload>(repoPath, ["record", "get", id]);
   const { record } = payload;
 
-  // Fetch type to get displayLabels
+  // Fetch type to get displayLabels and repeatability
   let labelMap = new Map<string, string>();
+  let repeatableSet = new Set<string>();
   try {
     const typePayload = await cli.runOk<TypePayload>(repoPath, ["type", "get", record.typeId]);
     for (const f of typePayload.type.fields) {
       labelMap.set(f.fieldId, f.displayLabel ?? f.fieldId.slice(0, 8));
+      if (f.repeatable) repeatableSet.add(f.fieldId);
     }
   } catch {
     // If type fetch fails, fall back to fieldId
@@ -217,10 +229,22 @@ async function previewRecord(
   const rows = record.fieldValues
     .map((fv) => {
       const label = labelMap.get(fv.fieldId) ?? fv.fieldId.slice(0, 8);
-      const value = typeof fv.value === "string" ? fv.value : JSON.stringify(fv.value);
+      let valueHtml: string;
+      if (repeatableSet.has(fv.fieldId) && fv.entries && fv.entries.length > 0) {
+        const items = fv.entries
+          .map((e) => {
+            const v = typeof e.value === "string" ? e.value : JSON.stringify(e.value);
+            return `<li>${esc(v)}</li>`;
+          })
+          .join("");
+        valueHtml = `<ul class="repeatable-values">${items}</ul>`;
+      } else {
+        const v = typeof fv.value === "string" ? fv.value : JSON.stringify(fv.value);
+        valueHtml = esc(v);
+      }
       return `<div class="field-row">
         <div class="field-label">${esc(label)}</div>
-        <div class="field-value">${esc(value)}</div>
+        <div class="field-value">${valueHtml}</div>
       </div>`;
     })
     .join("");
