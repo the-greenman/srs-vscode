@@ -37,8 +37,9 @@ exports.registerRepositoryCommands = registerRepositoryCommands;
 const vscode = __importStar(require("vscode"));
 const CliClient_1 = require("../cli/CliClient");
 const SrsTreeDataProvider_1 = require("../tree/SrsTreeDataProvider");
-function registerRepositoryCommands(context, cli, repoProvider, treeProvider, outputChannel) {
-    context.subscriptions.push(vscode.commands.registerCommand("srs.selectRepository", () => cmdSelectRepository(cli, repoProvider)), vscode.commands.registerCommand("srs.refreshRepository", () => cmdRefreshRepository(repoProvider, treeProvider)), vscode.commands.registerCommand("srs.validateRepository", () => cmdValidateRepository(cli, repoProvider, outputChannel)), vscode.commands.registerCommand("srs.openRepositoryMap", () => cmdOpenRepositoryMap(cli, repoProvider, outputChannel)), vscode.commands.registerCommand("srs.openEntity", (node) => cmdOpenEntity(cli, repoProvider, node)));
+const EntityDocumentProvider_1 = require("../provider/EntityDocumentProvider");
+function registerRepositoryCommands(context, cli, repoProvider, treeProvider, outputChannel, entityProvider) {
+    context.subscriptions.push(vscode.commands.registerCommand("srs.selectRepository", () => cmdSelectRepository(cli, repoProvider)), vscode.commands.registerCommand("srs.refreshRepository", () => cmdRefreshRepository(repoProvider, treeProvider)), vscode.commands.registerCommand("srs.validateRepository", () => cmdValidateRepository(cli, repoProvider, outputChannel)), vscode.commands.registerCommand("srs.openRepositoryMap", () => cmdOpenRepositoryMap(cli, repoProvider, outputChannel)), vscode.commands.registerCommand("srs.openEntity", (node) => cmdOpenEntity(repoProvider, entityProvider, node)));
 }
 async function cmdSelectRepository(cli, repoProvider) {
     const discovered = await vscode.window.withProgress({
@@ -130,7 +131,7 @@ async function cmdOpenRepositoryMap(cli, repoProvider, outputChannel) {
         vscode.window.showErrorMessage(`SRS: ${msg}`);
     }
 }
-async function cmdOpenEntity(cli, repoProvider, node) {
+async function cmdOpenEntity(repoProvider, entityProvider, node) {
     if (!(node instanceof SrsTreeDataProvider_1.EntityNode)) {
         return;
     }
@@ -139,18 +140,12 @@ async function cmdOpenEntity(cli, repoProvider, node) {
         return;
     }
     try {
-        const payload = await cli.runOk(repo.rootPath, node.getArgs, {
-            pretty: true,
-        });
-        const content = JSON.stringify(payload, null, 2);
-        // Open as an in-memory untitled JSON document (read-only from repo perspective)
-        const doc = await vscode.workspace.openTextDocument({
-            content,
-            language: "json",
-        });
+        const uri = (0, EntityDocumentProvider_1.entityUri)(repo.repositoryId, node.entityKind, node.entityId);
+        const doc = await vscode.workspace.openTextDocument(uri);
         await vscode.window.showTextDocument(doc, {
             preview: true,
             viewColumn: vscode.ViewColumn.Beside,
+            preserveFocus: false,
         });
     }
     catch (err) {

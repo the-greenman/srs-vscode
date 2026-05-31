@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { CliClient, CliError } from "../cli/CliClient";
 import { RepositoryProvider } from "../repository/RepositoryProvider";
 import { SrsTreeDataProvider, EntityNode } from "../tree/SrsTreeDataProvider";
+import { EntityDocumentProvider, entityUri } from "../provider/EntityDocumentProvider";
 import type { RepoValidatePayload } from "../cli/types";
 
 export function registerRepositoryCommands(
@@ -10,6 +11,7 @@ export function registerRepositoryCommands(
   repoProvider: RepositoryProvider,
   treeProvider: SrsTreeDataProvider,
   outputChannel: vscode.OutputChannel,
+  entityProvider: EntityDocumentProvider,
 ): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("srs.selectRepository", () =>
@@ -25,7 +27,7 @@ export function registerRepositoryCommands(
       cmdOpenRepositoryMap(cli, repoProvider, outputChannel),
     ),
     vscode.commands.registerCommand("srs.openEntity", (node: unknown) =>
-      cmdOpenEntity(cli, repoProvider, node),
+      cmdOpenEntity(repoProvider, entityProvider, node),
     ),
   );
 }
@@ -162,8 +164,8 @@ async function cmdOpenRepositoryMap(
 }
 
 async function cmdOpenEntity(
-  cli: CliClient,
   repoProvider: RepositoryProvider,
+  entityProvider: EntityDocumentProvider,
   node: unknown,
 ): Promise<void> {
   if (!(node instanceof EntityNode)) {
@@ -176,19 +178,12 @@ async function cmdOpenEntity(
   }
 
   try {
-    const payload = await cli.runOk<unknown>(repo.rootPath, node.getArgs, {
-      pretty: true,
-    });
-    const content = JSON.stringify(payload, null, 2);
-
-    // Open as an in-memory untitled JSON document (read-only from repo perspective)
-    const doc = await vscode.workspace.openTextDocument({
-      content,
-      language: "json",
-    });
+    const uri = entityUri(repo.repositoryId, node.entityKind, node.entityId);
+    const doc = await vscode.workspace.openTextDocument(uri);
     await vscode.window.showTextDocument(doc, {
       preview: true,
       viewColumn: vscode.ViewColumn.Beside,
+      preserveFocus: false,
     });
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);

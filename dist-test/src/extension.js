@@ -42,6 +42,7 @@ const SrsTreeDataProvider_1 = require("./tree/SrsTreeDataProvider");
 const AttentionManager_1 = require("./container/AttentionManager");
 const ContainerStatusBarItem_1 = require("./container/ContainerStatusBarItem");
 const SchemaProvider_1 = require("./schema/SchemaProvider");
+const EntityDocumentProvider_1 = require("./provider/EntityDocumentProvider");
 const repositoryCommands_1 = require("./commands/repositoryCommands");
 const containerCommands_1 = require("./commands/containerCommands");
 const mutationCommands_1 = require("./commands/mutationCommands");
@@ -54,7 +55,8 @@ async function activate(context) {
     const treeProvider = new SrsTreeDataProvider_1.SrsTreeDataProvider(cli, repoProvider, attention);
     const statusBarItem = new ContainerStatusBarItem_1.ContainerStatusBarItem(attention);
     const schemaProvider = new SchemaProvider_1.SchemaProvider(context.extensionUri);
-    context.subscriptions.push(repoProvider, treeProvider, attention, statusBarItem, schemaProvider);
+    const entityDocProvider = new EntityDocumentProvider_1.EntityDocumentProvider(cli, repoProvider);
+    context.subscriptions.push(repoProvider, treeProvider, attention, statusBarItem, schemaProvider, entityDocProvider, vscode.workspace.registerTextDocumentContentProvider(EntityDocumentProvider_1.ENTITY_SCHEME, entityDocProvider));
     const treeView = vscode.window.createTreeView("srsRepositoryTree", {
         treeDataProvider: treeProvider,
         showCollapseAll: true,
@@ -70,7 +72,7 @@ async function activate(context) {
             statusBarItem.hide();
         }
     });
-    (0, repositoryCommands_1.registerRepositoryCommands)(context, cli, repoProvider, treeProvider, outputChannel);
+    (0, repositoryCommands_1.registerRepositoryCommands)(context, cli, repoProvider, treeProvider, outputChannel, entityDocProvider);
     (0, containerCommands_1.registerContainerCommands)(context, cli, repoProvider, attention, treeProvider);
     (0, mutationCommands_1.registerMutationCommands)(context, cli, repoProvider, attention, treeProvider);
     // Auto-detect on activation

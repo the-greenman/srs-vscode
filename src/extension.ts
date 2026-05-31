@@ -5,6 +5,7 @@ import { SrsTreeDataProvider } from "./tree/SrsTreeDataProvider";
 import { AttentionManager } from "./container/AttentionManager";
 import { ContainerStatusBarItem } from "./container/ContainerStatusBarItem";
 import { SchemaProvider } from "./schema/SchemaProvider";
+import { EntityDocumentProvider, ENTITY_SCHEME } from "./provider/EntityDocumentProvider";
 import { registerRepositoryCommands } from "./commands/repositoryCommands";
 import { registerContainerCommands } from "./commands/containerCommands";
 import { registerMutationCommands } from "./commands/mutationCommands";
@@ -21,6 +22,7 @@ export async function activate(
   const treeProvider = new SrsTreeDataProvider(cli, repoProvider, attention);
   const statusBarItem = new ContainerStatusBarItem(attention);
   const schemaProvider = new SchemaProvider(context.extensionUri);
+  const entityDocProvider = new EntityDocumentProvider(cli, repoProvider);
 
   context.subscriptions.push(
     repoProvider,
@@ -28,6 +30,11 @@ export async function activate(
     attention,
     statusBarItem,
     schemaProvider,
+    entityDocProvider,
+    vscode.workspace.registerTextDocumentContentProvider(
+      ENTITY_SCHEME,
+      entityDocProvider,
+    ),
   );
 
   const treeView = vscode.window.createTreeView("srsRepositoryTree", {
@@ -52,6 +59,7 @@ export async function activate(
     repoProvider,
     treeProvider,
     outputChannel,
+    entityDocProvider,
   );
 
   registerContainerCommands(context, cli, repoProvider, attention, treeProvider);
