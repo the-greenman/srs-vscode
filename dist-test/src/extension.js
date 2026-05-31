@@ -39,14 +39,22 @@ const vscode = __importStar(require("vscode"));
 const CliClient_1 = require("./cli/CliClient");
 const RepositoryProvider_1 = require("./repository/RepositoryProvider");
 const SrsTreeDataProvider_1 = require("./tree/SrsTreeDataProvider");
+const AttentionManager_1 = require("./container/AttentionManager");
+const ContainerStatusBarItem_1 = require("./container/ContainerStatusBarItem");
+const SchemaProvider_1 = require("./schema/SchemaProvider");
 const repositoryCommands_1 = require("./commands/repositoryCommands");
+const containerCommands_1 = require("./commands/containerCommands");
+const mutationCommands_1 = require("./commands/mutationCommands");
 async function activate(context) {
     const outputChannel = vscode.window.createOutputChannel("SRS");
     context.subscriptions.push(outputChannel);
     const cli = new CliClient_1.CliClient(outputChannel);
     const repoProvider = new RepositoryProvider_1.RepositoryProvider(cli);
-    const treeProvider = new SrsTreeDataProvider_1.SrsTreeDataProvider(cli, repoProvider);
-    context.subscriptions.push(repoProvider, treeProvider);
+    const attention = new AttentionManager_1.AttentionManager(context.workspaceState, cli);
+    const treeProvider = new SrsTreeDataProvider_1.SrsTreeDataProvider(cli, repoProvider, attention);
+    const statusBarItem = new ContainerStatusBarItem_1.ContainerStatusBarItem(attention);
+    const schemaProvider = new SchemaProvider_1.SchemaProvider(context.extensionUri);
+    context.subscriptions.push(repoProvider, treeProvider, attention, statusBarItem, schemaProvider);
     const treeView = vscode.window.createTreeView("srsRepositoryTree", {
         treeDataProvider: treeProvider,
         showCollapseAll: true,
@@ -55,10 +63,24 @@ async function activate(context) {
     // Keep tree view title in sync with active repository name
     repoProvider.onDidChangeActive((repo) => {
         treeView.title = repo ? `SRS: ${repo.title}` : "SRS Repository";
+        if (repo) {
+            statusBarItem.show();
+        }
+        else {
+            statusBarItem.hide();
+        }
     });
     (0, repositoryCommands_1.registerRepositoryCommands)(context, cli, repoProvider, treeProvider, outputChannel);
+    (0, containerCommands_1.registerContainerCommands)(context, cli, repoProvider, attention, treeProvider);
+    (0, mutationCommands_1.registerMutationCommands)(context, cli, repoProvider, attention, treeProvider);
     // Auto-detect on activation
     await autoDetectRepository(cli, repoProvider);
+    // Restore persisted active container once the active repo is known
+    const activeRepo = repoProvider.active;
+    if (activeRepo) {
+        await attention.restore(activeRepo.rootPath);
+        statusBarItem.show();
+    }
 }
 async function autoDetectRepository(cli, repoProvider) {
     const config = vscode.workspace.getConfiguration("srs");

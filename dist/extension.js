@@ -34,7 +34,7 @@ __export(extension_exports, {
   deactivate: () => deactivate
 });
 module.exports = __toCommonJS(extension_exports);
-var vscode5 = __toESM(require("vscode"));
+var vscode10 = __toESM(require("vscode"));
 
 // src/cli/CliClient.ts
 var cp = __toESM(require("child_process"));
@@ -381,15 +381,19 @@ var GROUP_ORDER = [
   ["relation-type", "Relation Types"]
 ];
 var SrsTreeDataProvider = class {
-  constructor(cli, repoProvider) {
+  constructor(cli, repoProvider, attention) {
     this.cli = cli;
     this.repoProvider = repoProvider;
+    this.attention = attention;
     this._onDidChangeTreeData = new vscode3.EventEmitter();
     this.onDidChangeTreeData = this._onDidChangeTreeData.event;
     this._disposables = [];
     this._disposables.push(
       repoProvider.onDidChangeActive(() => this.refresh())
     );
+    if (attention) {
+      this._disposables.push(attention.onDidChange(() => this.refresh()));
+    }
   }
   refresh() {
     this._onDidChangeTreeData.fire();
@@ -423,8 +427,11 @@ var SrsTreeDataProvider = class {
   }
   async loadGroupChildren(kind, repoPath) {
     const spec = ENTITY_SPECS[kind];
+    const containerId2 = this.attention?.active?.containerId;
     try {
-      const payload = await this.cli.runOk(repoPath, spec.listArgs);
+      const payload = await this.cli.runOk(repoPath, spec.listArgs, {
+        containerId: containerId2
+      });
       const items = spec.extractItems(payload);
       return items.map(
         (item) => new EntityNode(item.id, kind, item.label, spec.getArgs(item.id))
@@ -439,48 +446,182 @@ var SrsTreeDataProvider = class {
   }
 };
 
-// src/commands/repositoryCommands.ts
+// src/container/AttentionManager.ts
 var vscode4 = __toESM(require("vscode"));
+var STORAGE_KEY = "srs.activeContainer";
+var AttentionManager = class {
+  constructor(workspaceState, cli) {
+    this.workspaceState = workspaceState;
+    this.cli = cli;
+    this._onDidChange = new vscode4.EventEmitter();
+    this.onDidChange = this._onDidChange.event;
+  }
+  get active() {
+    return this._active;
+  }
+  // Load persisted container from workspaceState and verify it still exists.
+  // Call once on activation after the active repository is known.
+  async restore(repoPath) {
+    const stored = this.workspaceState.get(STORAGE_KEY);
+    if (!stored) {
+      return;
+    }
+    try {
+      await this.cli.runOk(repoPath, ["container", "get", stored.containerId]);
+      this._active = stored;
+      this._onDidChange.fire(this._active);
+    } catch {
+      await this.workspaceState.update(STORAGE_KEY, void 0);
+    }
+  }
+  async set(container, repoPath) {
+    await this.cli.runOk(repoPath, [
+      "container",
+      "get",
+      container.containerId
+    ]);
+    this._active = container;
+    await this.workspaceState.update(STORAGE_KEY, container);
+    this._onDidChange.fire(this._active);
+  }
+  async clear() {
+    this._active = void 0;
+    await this.workspaceState.update(STORAGE_KEY, void 0);
+    this._onDidChange.fire(void 0);
+  }
+  dispose() {
+    this._onDidChange.dispose();
+  }
+};
+
+// src/container/ContainerStatusBarItem.ts
+var vscode5 = __toESM(require("vscode"));
+var ContainerStatusBarItem = class {
+  constructor(attention) {
+    this.attention = attention;
+    this._disposables = [];
+    this._item = vscode5.window.createStatusBarItem(
+      vscode5.StatusBarAlignment.Left,
+      100
+    );
+    this._item.command = "srs.setActiveContainer";
+    this._item.tooltip = "SRS: Click to set active container";
+    this._disposables.push(this._item);
+    this._disposables.push(
+      attention.onDidChange(() => this._update())
+    );
+    this._update();
+  }
+  show() {
+    this._item.show();
+  }
+  hide() {
+    this._item.hide();
+  }
+  _update() {
+    const active = this.attention.active;
+    if (active) {
+      this._item.text = `$(package) ${active.title}`;
+      this._item.tooltip = `SRS Container: ${active.title}
+Click to change`;
+    } else {
+      this._item.text = `$(package) No container`;
+      this._item.tooltip = "SRS: No active container. Click to set one.";
+    }
+  }
+  dispose() {
+    this._disposables.forEach((d) => d.dispose());
+  }
+};
+
+// src/schema/SchemaProvider.ts
+var vscode6 = __toESM(require("vscode"));
+var SCHEMA_ASSOCIATIONS = [
+  { glob: "**/manifest.json", schema: "schemas/2.0/manifest.json" },
+  { glob: "**/records/*.json", schema: "schemas/2.0/record.json" },
+  { glob: "**/records/*.srsj", schema: "schemas/2.0/record.json" },
+  { glob: "**/notes/*.json", schema: "schemas/2.0/note.json" },
+  { glob: "**/notes/*.srsj", schema: "schemas/2.0/note.json" },
+  { glob: "**/typed-records/*.json", schema: "schemas/2.0/typed-record.json" },
+  { glob: "**/package/fields/*.json", schema: "schemas/2.0/field.json" },
+  { glob: "**/package/types/*.json", schema: "schemas/2.0/type.json" },
+  { glob: "**/package/views/*.json", schema: "schemas/2.0/view.json" },
+  { glob: "**/package/document-views/*.json", schema: "schemas/2.0/document-view.json" },
+  { glob: "**/package/package.json", schema: "schemas/2.0/package-manifest.json" },
+  { glob: "**/relations/relations.json", schema: "schemas/2.0/relations-collection.json" },
+  { glob: "**/containers/*.json", schema: "schemas/2.0/container.json" },
+  { glob: "**/*.meta.json", schema: "schemas/2.0/source-document-meta.json" }
+];
+var SchemaProvider = class {
+  constructor(extensionUri) {
+    this.extensionUri = extensionUri;
+    this._disposables = [];
+    this._register();
+  }
+  _register() {
+    const jsonConfig = vscode6.workspace.getConfiguration("json");
+    const existing = jsonConfig.get("schemas") ?? [];
+    const toAdd = SCHEMA_ASSOCIATIONS.filter(
+      (assoc) => !existing.some((e) => e.fileMatch.includes(assoc.glob))
+    ).map((assoc) => ({
+      fileMatch: [assoc.glob],
+      url: vscode6.Uri.joinPath(this.extensionUri, assoc.schema).toString()
+    }));
+    if (toAdd.length === 0)
+      return;
+    jsonConfig.update(
+      "schemas",
+      [...existing, ...toAdd],
+      vscode6.ConfigurationTarget.Workspace
+    );
+  }
+  dispose() {
+    this._disposables.forEach((d) => d.dispose());
+  }
+};
+
+// src/commands/repositoryCommands.ts
+var vscode7 = __toESM(require("vscode"));
 function registerRepositoryCommands(context, cli, repoProvider, treeProvider, outputChannel) {
   context.subscriptions.push(
-    vscode4.commands.registerCommand(
+    vscode7.commands.registerCommand(
       "srs.selectRepository",
       () => cmdSelectRepository(cli, repoProvider)
     ),
-    vscode4.commands.registerCommand(
+    vscode7.commands.registerCommand(
       "srs.refreshRepository",
       () => cmdRefreshRepository(repoProvider, treeProvider)
     ),
-    vscode4.commands.registerCommand(
+    vscode7.commands.registerCommand(
       "srs.validateRepository",
       () => cmdValidateRepository(cli, repoProvider, outputChannel)
     ),
-    vscode4.commands.registerCommand(
+    vscode7.commands.registerCommand(
       "srs.openRepositoryMap",
       () => cmdOpenRepositoryMap(cli, repoProvider, outputChannel)
     ),
-    vscode4.commands.registerCommand(
+    vscode7.commands.registerCommand(
       "srs.openEntity",
       (node) => cmdOpenEntity(cli, repoProvider, node)
     )
   );
 }
 async function cmdSelectRepository(cli, repoProvider) {
-  const discovered = await vscode4.window.withProgress(
+  const discovered = await vscode7.window.withProgress(
     {
-      location: vscode4.ProgressLocation.Window,
+      location: vscode7.ProgressLocation.Window,
       title: "SRS: Scanning workspace for repositories\u2026"
     },
     () => repoProvider.discoverAll()
   );
   if (discovered.length === 0) {
     const action = "Open Settings";
-    const choice = await vscode4.window.showWarningMessage(
+    const choice = await vscode7.window.showWarningMessage(
       "No SRS repositories found. Check that srs is installed and srs.cli.path is set correctly.",
       action
     );
     if (choice === action) {
-      vscode4.commands.executeCommand(
+      vscode7.commands.executeCommand(
         "workbench.action.openSettings",
         "srs.cli.path"
       );
@@ -493,7 +634,7 @@ async function cmdSelectRepository(cli, repoProvider) {
     detail: `${r.counts.notes} notes \xB7 ${r.counts.records} records \xB7 ${r.counts.totalInstances} total`,
     repo: r
   }));
-  const picked = await vscode4.window.showQuickPick(items, {
+  const picked = await vscode7.window.showQuickPick(items, {
     placeHolder: "Select an SRS repository",
     matchOnDescription: true
   });
@@ -508,7 +649,7 @@ async function cmdRefreshRepository(repoProvider, treeProvider) {
 async function cmdValidateRepository(cli, repoProvider, outputChannel) {
   const repo = repoProvider.active;
   if (!repo) {
-    vscode4.window.showWarningMessage(
+    vscode7.window.showWarningMessage(
       "SRS: No active repository. Run 'SRS: Select Repository' first."
     );
     return;
@@ -545,13 +686,13 @@ async function cmdValidateRepository(cli, repoProvider, outputChannel) {
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
     outputChannel.appendLine(`Error: ${msg}`);
-    vscode4.window.showErrorMessage(`SRS validation error: ${msg}`);
+    vscode7.window.showErrorMessage(`SRS validation error: ${msg}`);
   }
 }
 async function cmdOpenRepositoryMap(cli, repoProvider, outputChannel) {
   const repo = repoProvider.active;
   if (!repo) {
-    vscode4.window.showWarningMessage(
+    vscode7.window.showWarningMessage(
       "SRS: No active repository. Run 'SRS: Select Repository' first."
     );
     return;
@@ -567,7 +708,7 @@ async function cmdOpenRepositoryMap(cli, repoProvider, outputChannel) {
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
     outputChannel.appendLine(`Error: ${msg}`);
-    vscode4.window.showErrorMessage(`SRS: ${msg}`);
+    vscode7.window.showErrorMessage(`SRS: ${msg}`);
   }
 }
 async function cmdOpenEntity(cli, repoProvider, node) {
@@ -583,35 +724,401 @@ async function cmdOpenEntity(cli, repoProvider, node) {
       pretty: true
     });
     const content = JSON.stringify(payload, null, 2);
-    const doc = await vscode4.workspace.openTextDocument({
+    const doc = await vscode7.workspace.openTextDocument({
       content,
       language: "json"
     });
-    await vscode4.window.showTextDocument(doc, {
+    await vscode7.window.showTextDocument(doc, {
       preview: true,
-      viewColumn: vscode4.ViewColumn.Beside
+      viewColumn: vscode7.ViewColumn.Beside
     });
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
-    vscode4.window.showErrorMessage(`SRS: Failed to open entity: ${msg}`);
+    vscode7.window.showErrorMessage(`SRS: Failed to open entity: ${msg}`);
+  }
+}
+
+// src/commands/containerCommands.ts
+var vscode8 = __toESM(require("vscode"));
+function registerContainerCommands(context, cli, repoProvider, attention, treeProvider) {
+  context.subscriptions.push(
+    vscode8.commands.registerCommand(
+      "srs.setActiveContainer",
+      () => cmdSetActiveContainer(cli, repoProvider, attention)
+    ),
+    vscode8.commands.registerCommand(
+      "srs.clearActiveContainer",
+      () => cmdClearActiveContainer(attention, treeProvider)
+    ),
+    vscode8.commands.registerCommand(
+      "srs.createContainer",
+      () => cmdCreateContainer(cli, repoProvider, attention, treeProvider)
+    )
+  );
+}
+async function cmdSetActiveContainer(cli, repoProvider, attention) {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode8.window.showWarningMessage(
+      "SRS: No active repository. Run 'SRS: Select Repository' first."
+    );
+    return;
+  }
+  let containers;
+  try {
+    const payload = await cli.runOk(repo.rootPath, [
+      "container",
+      "list"
+    ]);
+    containers = payload.containers;
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode8.window.showErrorMessage(`SRS: Failed to list containers: ${msg}`);
+    return;
+  }
+  if (containers.length === 0) {
+    const action = "Create Container";
+    const choice = await vscode8.window.showInformationMessage(
+      "SRS: No containers found in the active repository.",
+      action
+    );
+    if (choice === action) {
+      vscode8.commands.executeCommand("srs.createContainer");
+    }
+    return;
+  }
+  const items = containers.map((c) => ({
+    label: c.title,
+    description: c.containerType,
+    detail: c.containerId,
+    container: c
+  }));
+  const CLEAR_ITEM = {
+    label: "$(circle-slash) Clear active container",
+    description: "",
+    detail: "",
+    container: null
+  };
+  const picked = await vscode8.window.showQuickPick(
+    [CLEAR_ITEM, ...items],
+    { placeHolder: "Select a container to set as active" }
+  );
+  if (!picked) {
+    return;
+  }
+  if (picked.container === null) {
+    await attention.clear();
+    return;
+  }
+  try {
+    await attention.set(
+      { containerId: picked.container.containerId, title: picked.container.title },
+      repo.rootPath
+    );
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode8.window.showErrorMessage(`SRS: Failed to set active container: ${msg}`);
+  }
+}
+async function cmdClearActiveContainer(attention, treeProvider) {
+  await attention.clear();
+  treeProvider.refresh();
+}
+async function cmdCreateContainer(cli, repoProvider, attention, treeProvider) {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode8.window.showWarningMessage(
+      "SRS: No active repository. Run 'SRS: Select Repository' first."
+    );
+    return;
+  }
+  const title = await vscode8.window.showInputBox({
+    title: "SRS: Create Container",
+    prompt: "Container title",
+    placeHolder: "e.g. Sprint 42",
+    validateInput: (v) => v.trim() ? void 0 : "Title is required"
+  });
+  if (!title) {
+    return;
+  }
+  const containerType = await vscode8.window.showInputBox({
+    title: "SRS: Create Container",
+    prompt: "Container type (optional)",
+    placeHolder: "e.g. sprint, milestone, epic"
+  });
+  const { randomUUID } = await import("crypto");
+  const containerId2 = randomUUID();
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const containerJson = JSON.stringify({
+    containerId: containerId2,
+    title: title.trim(),
+    containerType: containerType?.trim() || void 0,
+    memberInstanceIds: [],
+    rootInstanceIds: [],
+    createdAt: now
+  });
+  try {
+    await cli.runOk(repo.rootPath, ["container", "create"], {
+      stdin: containerJson
+    });
+    treeProvider.refresh();
+    const setActive = "Set as Active";
+    const choice = await vscode8.window.showInformationMessage(
+      `SRS: Container '${title}' created.`,
+      setActive
+    );
+    if (choice === setActive) {
+      await attention.set({ containerId: containerId2, title: title.trim() }, repo.rootPath);
+    }
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode8.window.showErrorMessage(`SRS: Failed to create container: ${msg}`);
+  }
+}
+
+// src/commands/mutationCommands.ts
+var vscode9 = __toESM(require("vscode"));
+function registerMutationCommands(context, cli, repoProvider, attention, treeProvider) {
+  context.subscriptions.push(
+    vscode9.commands.registerCommand(
+      "srs.createNote",
+      () => cmdCreateNote(cli, repoProvider, attention, treeProvider)
+    ),
+    vscode9.commands.registerCommand(
+      "srs.createTag",
+      () => cmdCreateTag(cli, repoProvider, treeProvider)
+    ),
+    vscode9.commands.registerCommand(
+      "srs.createRecord",
+      () => cmdCreateRecord(cli, repoProvider, attention, treeProvider)
+    ),
+    vscode9.commands.registerCommand(
+      "srs.deleteEntity",
+      (node) => cmdDeleteEntity(cli, repoProvider, treeProvider, node)
+    )
+  );
+}
+function requireActiveRepo(repoProvider) {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode9.window.showWarningMessage(
+      "SRS: No active repository. Run 'SRS: Select Repository' first."
+    );
+    return void 0;
+  }
+  return repo;
+}
+function containerId(attention) {
+  return attention.active?.containerId;
+}
+async function cmdCreateNote(cli, repoProvider, attention, treeProvider) {
+  const repo = requireActiveRepo(repoProvider);
+  if (!repo)
+    return;
+  const title = await vscode9.window.showInputBox({
+    title: "SRS: Create Note",
+    prompt: "Note title",
+    placeHolder: "e.g. Architecture Decision: Use CLI bridge",
+    validateInput: (v) => v.trim() ? void 0 : "Title is required"
+  });
+  if (!title)
+    return;
+  const { randomUUID } = await import("crypto");
+  const instanceId = randomUUID();
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const noteJson = JSON.stringify({
+    instanceId,
+    title: title.trim(),
+    sections: [{ name: "body", content: "", label: "Body" }],
+    tags: [],
+    createdAt: now
+  });
+  try {
+    const cid = containerId(attention);
+    await cli.runOk(repo.rootPath, ["note", "create"], {
+      stdin: noteJson,
+      containerId: cid
+    });
+    treeProvider.refresh();
+    vscode9.window.showInformationMessage(`SRS: Note '${title}' created.`);
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode9.window.showErrorMessage(`SRS: Failed to create note: ${msg}`);
+  }
+}
+async function cmdCreateTag(cli, repoProvider, treeProvider) {
+  const repo = requireActiveRepo(repoProvider);
+  if (!repo)
+    return;
+  const slug = await vscode9.window.showInputBox({
+    title: "SRS: Create Tag",
+    prompt: "Tag slug (kebab-case identifier)",
+    placeHolder: "e.g. needs-review",
+    validateInput: (v) => /^[a-z0-9]+(-[a-z0-9]+)*$/.test(v.trim()) ? void 0 : "Slug must be kebab-case (e.g. my-tag)"
+  });
+  if (!slug)
+    return;
+  const label = await vscode9.window.showInputBox({
+    title: "SRS: Create Tag",
+    prompt: "Display label (optional)",
+    placeHolder: "e.g. Needs Review"
+  });
+  const { randomUUID } = await import("crypto");
+  const instanceId = randomUUID();
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const tagJson = JSON.stringify({
+    instanceId,
+    slug: slug.trim(),
+    label: label?.trim() || void 0,
+    createdAt: now
+  });
+  try {
+    await cli.runOk(repo.rootPath, ["tag", "create"], {
+      stdin: tagJson
+    });
+    treeProvider.refresh();
+    vscode9.window.showInformationMessage(`SRS: Tag '${slug}' created.`);
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode9.window.showErrorMessage(`SRS: Failed to create tag: ${msg}`);
+  }
+}
+async function cmdCreateRecord(cli, repoProvider, attention, treeProvider) {
+  const repo = requireActiveRepo(repoProvider);
+  if (!repo)
+    return;
+  let types;
+  try {
+    const payload = await cli.runOk(repo.rootPath, [
+      "type",
+      "list"
+    ]);
+    types = payload.types;
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode9.window.showErrorMessage(`SRS: Failed to list types: ${msg}`);
+    return;
+  }
+  if (types.length === 0) {
+    vscode9.window.showWarningMessage(
+      "SRS: No types defined in the active repository."
+    );
+    return;
+  }
+  const typeItems = types.map((t) => ({
+    label: `${t.namespace}/${t.name}`,
+    description: `v${t.version}`,
+    detail: t.id,
+    type: t
+  }));
+  const picked = await vscode9.window.showQuickPick(typeItems, {
+    placeHolder: "Select a type for the new record",
+    matchOnDescription: true,
+    matchOnDetail: true
+  });
+  if (!picked)
+    return;
+  const typeName = `${picked.type.namespace}/${picked.type.name}`;
+  try {
+    const cid = containerId(attention);
+    await cli.runOk(
+      repo.rootPath,
+      ["record", "create", "--type", typeName, "--version", String(picked.type.version)],
+      {
+        stdin: JSON.stringify({ fieldValues: [] }),
+        containerId: cid
+      }
+    );
+    treeProvider.refresh();
+    vscode9.window.showInformationMessage(
+      `SRS: Record of type '${typeName}' created.`
+    );
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode9.window.showErrorMessage(`SRS: Failed to create record: ${msg}`);
+  }
+}
+async function cmdDeleteEntity(cli, repoProvider, treeProvider, node) {
+  if (!(node instanceof EntityNode)) {
+    vscode9.window.showWarningMessage(
+      "SRS: Select an entity in the SRS tree to delete."
+    );
+    return;
+  }
+  const repo = repoProvider.active;
+  if (!repo)
+    return;
+  const confirmed = await vscode9.window.showWarningMessage(
+    `SRS: Delete ${node.entityKind} '${node.label}'?`,
+    { modal: true },
+    "Delete"
+  );
+  if (confirmed !== "Delete")
+    return;
+  const deleteArgs = deleteArgsFor(node.entityKind, node.entityId);
+  if (!deleteArgs) {
+    vscode9.window.showErrorMessage(
+      `SRS: Delete not supported for '${node.entityKind}'.`
+    );
+    return;
+  }
+  try {
+    await cli.runOk(repo.rootPath, deleteArgs);
+    treeProvider.refresh();
+    vscode9.window.showInformationMessage(
+      `SRS: ${node.entityKind} deleted.`
+    );
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode9.window.showErrorMessage(`SRS: Failed to delete entity: ${msg}`);
+  }
+}
+function deleteArgsFor(kind, id) {
+  switch (kind) {
+    case "note":
+      return ["note", "delete", "--id", id];
+    case "tag":
+      return ["tag", "delete", "--id", id];
+    case "record":
+      return ["record", "delete", "--id", id];
+    case "relation":
+      return ["relation", "delete", "--id", id];
+    case "container":
+      return ["container", "delete", "--id", id];
+    default:
+      return void 0;
   }
 }
 
 // src/extension.ts
 async function activate(context) {
-  const outputChannel = vscode5.window.createOutputChannel("SRS");
+  const outputChannel = vscode10.window.createOutputChannel("SRS");
   context.subscriptions.push(outputChannel);
   const cli = new CliClient(outputChannel);
   const repoProvider = new RepositoryProvider(cli);
-  const treeProvider = new SrsTreeDataProvider(cli, repoProvider);
-  context.subscriptions.push(repoProvider, treeProvider);
-  const treeView = vscode5.window.createTreeView("srsRepositoryTree", {
+  const attention = new AttentionManager(context.workspaceState, cli);
+  const treeProvider = new SrsTreeDataProvider(cli, repoProvider, attention);
+  const statusBarItem = new ContainerStatusBarItem(attention);
+  const schemaProvider = new SchemaProvider(context.extensionUri);
+  context.subscriptions.push(
+    repoProvider,
+    treeProvider,
+    attention,
+    statusBarItem,
+    schemaProvider
+  );
+  const treeView = vscode10.window.createTreeView("srsRepositoryTree", {
     treeDataProvider: treeProvider,
     showCollapseAll: true
   });
   context.subscriptions.push(treeView);
   repoProvider.onDidChangeActive((repo) => {
     treeView.title = repo ? `SRS: ${repo.title}` : "SRS Repository";
+    if (repo) {
+      statusBarItem.show();
+    } else {
+      statusBarItem.hide();
+    }
   });
   registerRepositoryCommands(
     context,
@@ -620,10 +1127,17 @@ async function activate(context) {
     treeProvider,
     outputChannel
   );
+  registerContainerCommands(context, cli, repoProvider, attention, treeProvider);
+  registerMutationCommands(context, cli, repoProvider, attention, treeProvider);
   await autoDetectRepository(cli, repoProvider);
+  const activeRepo = repoProvider.active;
+  if (activeRepo) {
+    await attention.restore(activeRepo.rootPath);
+    statusBarItem.show();
+  }
 }
 async function autoDetectRepository(cli, repoProvider) {
-  const config = vscode5.workspace.getConfiguration("srs");
+  const config = vscode10.workspace.getConfiguration("srs");
   const configuredPath = config.get("repository.path", null);
   if (configuredPath) {
     const repo = await repoProvider.probe(configuredPath);
@@ -631,12 +1145,12 @@ async function autoDetectRepository(cli, repoProvider) {
       repoProvider.setActive(repo);
     } else {
       const action = "Open Settings";
-      const choice = await vscode5.window.showWarningMessage(
+      const choice = await vscode10.window.showWarningMessage(
         `SRS: Configured path '${configuredPath}' is not a valid SRS repository.`,
         action
       );
       if (choice === action) {
-        vscode5.commands.executeCommand(
+        vscode10.commands.executeCommand(
           "workbench.action.openSettings",
           "srs.repository.path"
         );
@@ -648,7 +1162,7 @@ async function autoDetectRepository(cli, repoProvider) {
   if (discovered.length === 1) {
     repoProvider.setActive(discovered[0]);
   } else if (discovered.length > 1) {
-    vscode5.window.showInformationMessage(
+    vscode10.window.showInformationMessage(
       `SRS: Found ${discovered.length} repositories in workspace. Use 'SRS: Select Repository' to choose one.`
     );
   }

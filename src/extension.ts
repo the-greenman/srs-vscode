@@ -2,7 +2,12 @@ import * as vscode from "vscode";
 import { CliClient } from "./cli/CliClient";
 import { RepositoryProvider } from "./repository/RepositoryProvider";
 import { SrsTreeDataProvider } from "./tree/SrsTreeDataProvider";
+import { AttentionManager } from "./container/AttentionManager";
+import { ContainerStatusBarItem } from "./container/ContainerStatusBarItem";
+import { SchemaProvider } from "./schema/SchemaProvider";
 import { registerRepositoryCommands } from "./commands/repositoryCommands";
+import { registerContainerCommands } from "./commands/containerCommands";
+import { registerMutationCommands } from "./commands/mutationCommands";
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -12,9 +17,18 @@ export async function activate(
 
   const cli = new CliClient(outputChannel);
   const repoProvider = new RepositoryProvider(cli);
-  const treeProvider = new SrsTreeDataProvider(cli, repoProvider);
+  const attention = new AttentionManager(context.workspaceState, cli);
+  const treeProvider = new SrsTreeDataProvider(cli, repoProvider, attention);
+  const statusBarItem = new ContainerStatusBarItem(attention);
+  const schemaProvider = new SchemaProvider(context.extensionUri);
 
-  context.subscriptions.push(repoProvider, treeProvider);
+  context.subscriptions.push(
+    repoProvider,
+    treeProvider,
+    attention,
+    statusBarItem,
+    schemaProvider,
+  );
 
   const treeView = vscode.window.createTreeView("srsRepositoryTree", {
     treeDataProvider: treeProvider,
@@ -25,6 +39,11 @@ export async function activate(
   // Keep tree view title in sync with active repository name
   repoProvider.onDidChangeActive((repo) => {
     treeView.title = repo ? `SRS: ${repo.title}` : "SRS Repository";
+    if (repo) {
+      statusBarItem.show();
+    } else {
+      statusBarItem.hide();
+    }
   });
 
   registerRepositoryCommands(
@@ -35,8 +54,19 @@ export async function activate(
     outputChannel,
   );
 
+  registerContainerCommands(context, cli, repoProvider, attention, treeProvider);
+
+  registerMutationCommands(context, cli, repoProvider, attention, treeProvider);
+
   // Auto-detect on activation
   await autoDetectRepository(cli, repoProvider);
+
+  // Restore persisted active container once the active repo is known
+  const activeRepo = repoProvider.active;
+  if (activeRepo) {
+    await attention.restore(activeRepo.rootPath);
+    statusBarItem.show();
+  }
 }
 
 async function autoDetectRepository(

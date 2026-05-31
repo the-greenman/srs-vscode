@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/relation-type.json",
+  "title": "SRS Relation Type Definition",
+  "description": "Declares a named relation type within a package's relation type vocabulary. Relation types describe the semantic meaning and structural shape of a class of relations.",
+  "type": "object",
+  "required": ["$schema", "id", "version", "relationType", "namespace", "label", "description", "category", "createdAt"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable UUID identity for this relation type definition."
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Monotonically increasing version number. Starts at 1."
+    },
+    "relationType": {
+      "type": "string",
+      "description": "Canonical bare string (e.g. `supersedes`) or custom `namespace/name` string (e.g. `org.example/my_type`). Must be globally unique across the effective installed package set."
+    },
+    "namespace": {
+      "type": "string",
+      "description": "The package namespace this relation type belongs to."
+    },
+    "label": {
+      "type": "string",
+      "description": "Short human-readable label for display in views and tooling."
+    },
+    "description": {
+      "type": "string",
+      "description": "Full description of the semantic meaning of this relation type."
+    },
+    "category": {
+      "type": "string",
+      "enum": ["composition", "refinement", "dependency", "sequence", "derivation", "evidence", "governance", "association", "lifecycle", "provenance", "other"],
+      "description": "Structural category."
+    },
+    "canonicalDirection": {
+      "type": "string",
+      "description": "Human-readable description of which end is source and which is target, or what members represent."
+    },
+    "inverseType": {
+      "type": "string",
+      "description": "The relationType of the inverse relation, if one is formally declared."
+    },
+    "irreflexive": {
+      "type": "boolean",
+      "description": "When true, a relation from an instance to itself is invalid."
+    },
+    "allowedSourceTypes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Allowed semanticObjectType values for the source instance. Absent means any type is permitted."
+    },
+    "allowedTargetTypes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Allowed semanticObjectType values for the target instance. Absent means any type is permitted."
+    },
+    "requireSameSemanticObjectType": {
+      "type": "boolean",
+      "description": "When true, source and target must have the same semanticObjectType."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "deprecated", "tombstone", "retired"],
+      "description": "Lifecycle status. Absent means active. deprecated: resolves but new writes rejected. tombstone: resolves for reads only. retired: does not resolve."
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when this definition was created."
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when this definition was last updated."
+    }
+  }
+}

@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { CliClient } from "../cli/CliClient";
 import { RepositoryProvider } from "../repository/RepositoryProvider";
+import { AttentionManager } from "../container/AttentionManager";
 import type {
   EntityKind,
   NoteListPayload,
@@ -205,11 +206,16 @@ export class SrsTreeDataProvider implements vscode.TreeDataProvider<SrsTreeNode>
   constructor(
     private readonly cli: CliClient,
     private readonly repoProvider: RepositoryProvider,
+    private readonly attention?: AttentionManager,
   ) {
     // Full tree refresh whenever the active repository changes
     this._disposables.push(
       repoProvider.onDidChangeActive(() => this.refresh()),
     );
+    // Refresh when active container changes (filtered view changes)
+    if (attention) {
+      this._disposables.push(attention.onDidChange(() => this.refresh()));
+    }
   }
 
   refresh(): void {
@@ -256,8 +262,11 @@ export class SrsTreeDataProvider implements vscode.TreeDataProvider<SrsTreeNode>
     repoPath: string,
   ): Promise<EntityNode[]> {
     const spec = ENTITY_SPECS[kind];
+    const containerId = this.attention?.active?.containerId;
     try {
-      const payload = await this.cli.runOk<unknown>(repoPath, spec.listArgs);
+      const payload = await this.cli.runOk<unknown>(repoPath, spec.listArgs, {
+        containerId,
+      });
       const items = spec.extractItems(payload);
       return items.map(
         (item) => new EntityNode(item.id, kind, item.label, spec.getArgs(item.id)),

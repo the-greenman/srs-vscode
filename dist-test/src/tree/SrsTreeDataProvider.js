@@ -179,14 +179,19 @@ const GROUP_ORDER = [
 ];
 // ---- Provider ----
 class SrsTreeDataProvider {
-    constructor(cli, repoProvider) {
+    constructor(cli, repoProvider, attention) {
         this.cli = cli;
         this.repoProvider = repoProvider;
+        this.attention = attention;
         this._onDidChangeTreeData = new vscode.EventEmitter();
         this.onDidChangeTreeData = this._onDidChangeTreeData.event;
         this._disposables = [];
         // Full tree refresh whenever the active repository changes
         this._disposables.push(repoProvider.onDidChangeActive(() => this.refresh()));
+        // Refresh when active container changes (filtered view changes)
+        if (attention) {
+            this._disposables.push(attention.onDidChange(() => this.refresh()));
+        }
     }
     refresh() {
         this._onDidChangeTreeData.fire();
@@ -221,8 +226,11 @@ class SrsTreeDataProvider {
     }
     async loadGroupChildren(kind, repoPath) {
         const spec = ENTITY_SPECS[kind];
+        const containerId = this.attention?.active?.containerId;
         try {
-            const payload = await this.cli.runOk(repoPath, spec.listArgs);
+            const payload = await this.cli.runOk(repoPath, spec.listArgs, {
+                containerId,
+            });
             const items = spec.extractItems(payload);
             return items.map((item) => new EntityNode(item.id, kind, item.label, spec.getArgs(item.id)));
         }

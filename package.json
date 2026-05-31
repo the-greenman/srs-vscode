@@ -14,10 +14,17 @@
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
-      { "command": "srs.selectRepository",  "title": "SRS: Select Repository" },
-      { "command": "srs.refreshRepository", "title": "SRS: Refresh Repository", "icon": "$(refresh)" },
-      { "command": "srs.validateRepository","title": "SRS: Validate Repository" },
-      { "command": "srs.openRepositoryMap", "title": "SRS: Open Repository Map" }
+      { "command": "srs.selectRepository",     "title": "SRS: Select Repository" },
+      { "command": "srs.refreshRepository",    "title": "SRS: Refresh Repository", "icon": "$(refresh)" },
+      { "command": "srs.validateRepository",   "title": "SRS: Validate Repository" },
+      { "command": "srs.openRepositoryMap",    "title": "SRS: Open Repository Map" },
+      { "command": "srs.setActiveContainer",   "title": "SRS: Set Active Container" },
+      { "command": "srs.clearActiveContainer", "title": "SRS: Clear Active Container" },
+      { "command": "srs.createContainer",      "title": "SRS: Create Container" },
+      { "command": "srs.createNote",           "title": "SRS: Create Note" },
+      { "command": "srs.createTag",            "title": "SRS: Create Tag Definition" },
+      { "command": "srs.createRecord",         "title": "SRS: Create Record" },
+      { "command": "srs.deleteEntity",         "title": "SRS: Delete Entity", "icon": "$(trash)" }
     ],
     "views": {
       "explorer": [
@@ -39,6 +46,13 @@
           "command": "srs.validateRepository",
           "when": "view == srsRepositoryTree",
           "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "srs.deleteEntity",
+          "when": "view == srsRepositoryTree && viewItem == srsEntity",
+          "group": "srs@1"
         }
       ]
     },
