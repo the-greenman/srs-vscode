@@ -9,6 +9,7 @@ import type {
   RelationListPayload,
   NoteListPayload,
   RecordListPayload,
+  ProtocolStagesPayload,
 } from "../cli/types";
 
 // ---- Payload shapes (local — only what we need for rendering) ----
@@ -109,6 +110,7 @@ async function cmdPreviewEntity(
       case "note":      return await previewNote(context, cli, repo.rootPath, node.entityId);
       case "record":    return await previewRecord(context, cli, repo.rootPath, node.entityId);
       case "container": return await previewContainer(context, cli, repo.rootPath, node.entityId);
+      case "protocol":  return await previewProtocol(context, cli, repo.rootPath, node.entityId);
       default:
         vscode.window.showInformationMessage(
           `SRS: No preview available for '${node.entityKind}'. Use Open Entity for raw JSON.`,
@@ -410,6 +412,76 @@ async function previewContainer(
   `);
 
   PreviewPanel.show(context, `container:${id}`, title, html);
+}
+
+// ---- Protocol preview ----
+
+interface ProtocolGetPayload {
+  protocol: {
+    instanceId?: string;
+    protocolId?: string;
+    namespace?: string;
+    name?: string;
+    version?: number;
+    description?: string;
+    targetType?: string;
+    tags?: string[];
+  };
+}
+
+async function previewProtocol(
+  context: vscode.ExtensionContext,
+  cli: CliClient,
+  repoPath: string,
+  id: string,
+): Promise<void> {
+  const [getResult, stagesResult] = await Promise.allSettled([
+    cli.runOk<ProtocolGetPayload>(repoPath, ["protocol", "get", id]),
+    cli.runOk<ProtocolStagesPayload>(repoPath, ["protocol", "stages", id]),
+  ]);
+
+  const proto = getResult.status === "fulfilled" ? getResult.value.protocol : undefined;
+  const stages = stagesResult.status === "fulfilled"
+    ? [...stagesResult.value.stages].sort((a, b) => a.order - b.order)
+    : [];
+
+  const ns = proto?.namespace ?? "";
+  const name = proto?.name ?? id.slice(0, 8);
+  const version = proto?.version ?? "";
+  const title = `${ns}/${name} v${version}`;
+
+  const descHtml = proto?.description ? `<p class="description">${esc(proto.description)}</p>` : "";
+  const targetHtml = proto?.targetType ? `<div class="meta">Target type: ${esc(proto.targetType)}</div>` : "";
+  const tagsHtml = (proto?.tags ?? []).length > 0
+    ? `<div class="meta">Tags: ${(proto!.tags!).map((t) => `<code>${esc(t)}</code>`).join(" ")}</div>`
+    : "";
+
+  const stagesHtml = stages.length === 0
+    ? '<p class="empty">No stages defined.</p>'
+    : stages.map((s) => {
+        const deps = s.dependsOn.length > 0
+          ? `<div class="stage-deps">depends on: ${s.dependsOn.map((d) => esc(d)).join(", ")}</div>`
+          : "";
+        return `<div class="stage-row">
+          <span class="stage-order">${s.order}</span>
+          <div class="stage-body">
+            <div class="stage-name">${esc(s.name)}</div>
+            ${deps}
+          </div>
+        </div>`;
+      }).join("");
+
+  const html = wrapHtml(title, `
+    <h1>${esc(title)}</h1>
+    <div class="meta">${esc(id.slice(0, 8))}…</div>
+    ${targetHtml}
+    ${tagsHtml}
+    ${descHtml}
+    <h2>Stages (${stages.length})</h2>
+    ${stagesHtml}
+  `);
+
+  PreviewPanel.show(context, `protocol:${id}`, title, html);
 }
 
 // ---- Markdown helper ----

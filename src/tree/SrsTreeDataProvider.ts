@@ -145,7 +145,7 @@ const ENTITY_SPECS: Record<EntityKind, EntitySpec> = {
     extractItems: (p) =>
       (p as ProtocolListPayload).protocols.map((pr) => ({
         id: pr.instanceId,
-        label: pr.title ?? pr.instanceId,
+        label: `${pr.namespace}/${pr.name} v${pr.version}`,
       })),
     getArgs: (id) => ["protocol", "get", id],
   },

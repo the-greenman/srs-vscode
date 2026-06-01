@@ -94,7 +94,24 @@ export interface ExtensionListPayload {
 
 // protocol list  → payload.protocols
 export interface ProtocolListPayload {
-  protocols: Array<{ instanceId: string; title?: string }>;
+  protocols: Array<{
+    instanceId: string;
+    protocolId: string;
+    namespace: string;
+    name: string;
+    version: number;
+    stageCount: number;
+  }>;
+}
+
+// protocol stages  → payload.stages
+export interface ProtocolStagesPayload {
+  stages: Array<{
+    stageId: string;
+    name: string;
+    order: number;
+    dependsOn: string[];
+  }>;
 }
 
 // view list  → payload.views
