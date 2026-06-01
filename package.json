@@ -89,6 +89,18 @@
         "title": "SRS: Create Relation"
       },
       {
+        "command": "srs.createRelationType",
+        "title": "SRS: Create Relation Type"
+      },
+      {
+        "command": "srs.updateRelationType",
+        "title": "SRS: Update Relation Type"
+      },
+      {
+        "command": "srs.deleteRelationType",
+        "title": "SRS: Delete Relation Type"
+      },
+      {
         "command": "srs.showRelationGraph",
         "title": "SRS: Show Relation Graph",
         "icon": "$(type-hierarchy)"
