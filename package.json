@@ -228,7 +228,8 @@
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "compile-tests": "tsc -p tsconfig.test.json",
-    "test": "npm run compile-tests && node --require ./test/fixtures/register-vscode-mock.js ./dist-test/test/suite/index.js"
+    "test": "npm run compile-tests && node --require ./test/fixtures/register-vscode-mock.js ./dist-test/test/suite/index.js",
+    "check-schema-drift": "scripts/check-schema-drift.sh"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.6",

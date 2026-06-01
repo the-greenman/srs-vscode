@@ -151,13 +151,16 @@ async function previewRecord(context, cli, repoPath, id) {
     if (typeResult.status === "fulfilled") {
         const typeFields = typeResult.value.type.fields;
         for (const f of typeFields) {
-            labelMap.set(f.fieldId, f.displayLabel ?? f.fieldId.slice(0, 8));
             if (f.repeatable)
                 repeatableSet.add(f.fieldId);
         }
-        // Fetch field definitions in parallel to get valueType
+        // Fetch field definitions in parallel to get valueType and field name for labeling
         const fieldResults = await Promise.allSettled(typeFields.map((f) => cli.runOk(repoPath, ["field", "get", f.fieldId])));
-        for (const fr of fieldResults) {
+        for (let i = 0; i < typeFields.length; i++) {
+            const f = typeFields[i];
+            const fr = fieldResults[i];
+            const fieldName = fr.status === "fulfilled" ? fr.value.field.name : undefined;
+            labelMap.set(f.fieldId, f.displayLabel ?? fieldName ?? f.fieldId.slice(0, 8));
             if (fr.status === "fulfilled" && fr.value.field.valueType === "text") {
                 textFieldSet.add(fr.value.field.id);
             }
