@@ -10,6 +10,7 @@ import type {
   NoteListPayload,
   RecordListPayload,
   ProtocolStagesPayload,
+  BlueprintStructurePayload,
 } from "../cli/types";
 
 // ---- Payload shapes (local — only what we need for rendering) ----
@@ -111,6 +112,7 @@ async function cmdPreviewEntity(
       case "record":    return await previewRecord(context, cli, repo.rootPath, node.entityId);
       case "container": return await previewContainer(context, cli, repo.rootPath, node.entityId);
       case "protocol":  return await previewProtocol(context, cli, repo.rootPath, node.entityId);
+      case "blueprint": return await previewBlueprint(context, cli, repo.rootPath, node.entityId);
       default:
         vscode.window.showInformationMessage(
           `SRS: No preview available for '${node.entityKind}'. Use Open Entity for raw JSON.`,
@@ -482,6 +484,67 @@ async function previewProtocol(
   `);
 
   PreviewPanel.show(context, `protocol:${id}`, title, html);
+}
+
+// ---- Blueprint preview ----
+
+interface BlueprintGetPayload {
+  blueprint: {
+    id?: string;
+    namespace?: string;
+    name?: string;
+    version?: number;
+    description?: string;
+    rootTypeCount?: number;
+    rootTypes?: Array<{ id: string; name?: string }>;
+  };
+}
+
+async function previewBlueprint(
+  context: vscode.ExtensionContext,
+  cli: CliClient,
+  repoPath: string,
+  id: string,
+): Promise<void> {
+  const [getResult, structureResult] = await Promise.allSettled([
+    cli.runOk<BlueprintGetPayload>(repoPath, ["blueprint", "get", id]),
+    cli.runOk<BlueprintStructurePayload>(repoPath, ["blueprint", "structure", id]),
+  ]);
+
+  const bp = getResult.status === "fulfilled" ? getResult.value.blueprint : undefined;
+  const specs = structureResult.status === "fulfilled" ? structureResult.value.relationSpecs : [];
+
+  const ns = bp?.namespace ?? "";
+  const name = bp?.name ?? id.slice(0, 8);
+  const version = bp?.version ?? "";
+  const title = `${ns}/${name} v${version}`;
+
+  const descHtml = bp?.description ? `<p class="description">${esc(bp.description)}</p>` : "";
+
+  const specsHtml = specs.length === 0
+    ? '<p class="empty">No relation specs defined.</p>'
+    : `<table class="specs-table">
+        <thead><tr><th>Relation type</th><th>Source type</th><th>Target type</th><th>Cardinality</th><th>Required</th></tr></thead>
+        <tbody>
+          ${specs.map((s) => `<tr>
+            <td>${esc(s.relationType)}</td>
+            <td><code>${esc(s.sourceTypeId.slice(0, 8))}…</code></td>
+            <td><code>${esc(s.targetTypeId.slice(0, 8))}…</code></td>
+            <td>${s.cardinality ? esc(s.cardinality) : "—"}</td>
+            <td>${s.required ? "yes" : "—"}</td>
+          </tr>`).join("")}
+        </tbody>
+      </table>`;
+
+  const html = wrapHtml(title, `
+    <h1>${esc(title)}</h1>
+    <div class="meta">${esc(id.slice(0, 8))}…</div>
+    ${descHtml}
+    <h2>Structure (${specs.length} relation spec${specs.length === 1 ? "" : "s"})</h2>
+    ${specsHtml}
+  `);
+
+  PreviewPanel.show(context, `blueprint:${id}`, title, html);
 }
 
 // ---- Markdown helper ----

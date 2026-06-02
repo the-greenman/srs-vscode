@@ -139,6 +139,31 @@ export interface RelationTypeListPayload {
   }>;
 }
 
+// blueprint list  → payload.blueprints
+export interface BlueprintListPayload {
+  blueprints: Array<{
+    blueprintId: string;
+    namespace: string;
+    name: string;
+    version: number;
+    description: string;
+    rootTypeCount: number;
+    sourcePackage?: string;
+  }>;
+  diagnostics: string[];
+}
+
+// blueprint structure  → payload.relationSpecs
+export interface BlueprintStructurePayload {
+  relationSpecs: Array<{
+    relationType: string;
+    sourceTypeId: string;
+    targetTypeId: string;
+    cardinality?: string;
+    required?: boolean;
+  }>;
+}
+
 // Entity kinds understood by the tree
 export type EntityKind =
   | "note"
@@ -150,6 +175,7 @@ export type EntityKind =
   | "type"
   | "extension"
   | "protocol"
+  | "blueprint"
   | "view"
   | "document-view"
   | "relation-type";

@@ -283,6 +283,7 @@ function deleteArgsFor(kind: string, id: string): string[] | undefined {
     case "relation":  return ["relation", "delete", id];
     case "container": return ["container", "delete", id];
     case "protocol":  return ["protocol", "delete", id];
+    case "blueprint": return ["blueprint", "delete", id];
     default:          return undefined;
   }
 }
