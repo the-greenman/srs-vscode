@@ -1808,6 +1808,18 @@ function registerEditCommands(context, cli, repoProvider, treeProvider) {
     vscode13.commands.registerCommand(
       "srs.createRelation",
       () => cmdCreateRelation(cli, repoProvider, treeProvider)
+    ),
+    vscode13.commands.registerCommand(
+      "srs.createRelationType",
+      () => cmdCreateRelationType(cli, repoProvider, treeProvider)
+    ),
+    vscode13.commands.registerCommand(
+      "srs.updateRelationType",
+      () => cmdUpdateRelationType(cli, repoProvider, treeProvider)
+    ),
+    vscode13.commands.registerCommand(
+      "srs.deleteRelationType",
+      () => cmdDeleteRelationType(cli, repoProvider, treeProvider)
     )
   );
 }
@@ -2026,6 +2038,136 @@ async function cmdCreateRelation(cli, repoProvider, treeProvider) {
     const msg = err instanceof CliError ? err.message : String(err);
     vscode13.window.showErrorMessage(`SRS: Failed to create relation: ${msg}`);
   }
+}
+async function cmdCreateRelationType(cli, repoProvider, treeProvider) {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode13.window.showWarningMessage("SRS: No active repository.");
+    return;
+  }
+  const { randomUUID } = await import("crypto");
+  const scaffold = JSON.stringify(
+    {
+      id: randomUUID(),
+      version: 1,
+      relationType: "namespace/name",
+      namespace: "com.example",
+      label: "My relation type",
+      description: "Description of what this relation means.",
+      category: "association",
+      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+    },
+    null,
+    2
+  );
+  const doc = await vscode13.workspace.openTextDocument({
+    content: scaffold,
+    language: "json"
+  });
+  await vscode13.window.showTextDocument(doc);
+  const answer = await vscode13.window.showInformationMessage(
+    "SRS: Edit the relation type definition above, then click Create.",
+    "Create",
+    "Cancel"
+  );
+  if (answer !== "Create")
+    return;
+  const content = doc.getText();
+  try {
+    await cli.runOk(repo.rootPath, ["relation-type", "create"], {
+      stdin: content
+    });
+    treeProvider.refresh();
+    vscode13.window.showInformationMessage("SRS: Relation type created.");
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode13.window.showErrorMessage(`SRS: Failed to create relation type: ${msg}`);
+  }
+}
+async function cmdUpdateRelationType(cli, repoProvider, treeProvider) {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode13.window.showWarningMessage("SRS: No active repository.");
+    return;
+  }
+  const picked = await pickRelationType(cli, repo.rootPath);
+  if (!picked)
+    return;
+  const payload = await cli.runOk(repo.rootPath, [
+    "relation-type",
+    "get",
+    picked.id
+  ]);
+  const doc = await vscode13.workspace.openTextDocument({
+    content: JSON.stringify(payload.relationTypeDefinition, null, 2),
+    language: "json"
+  });
+  await vscode13.window.showTextDocument(doc);
+  const answer = await vscode13.window.showInformationMessage(
+    `SRS: Edit '${picked.label}', then click Update.`,
+    "Update",
+    "Cancel"
+  );
+  if (answer !== "Update")
+    return;
+  const content = doc.getText();
+  try {
+    await cli.runOk(repo.rootPath, ["relation-type", "update", picked.id], {
+      stdin: content
+    });
+    treeProvider.refresh();
+    vscode13.window.showInformationMessage("SRS: Relation type updated.");
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode13.window.showErrorMessage(`SRS: Failed to update relation type: ${msg}`);
+  }
+}
+async function cmdDeleteRelationType(cli, repoProvider, treeProvider) {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode13.window.showWarningMessage("SRS: No active repository.");
+    return;
+  }
+  const picked = await pickRelationType(cli, repo.rootPath);
+  if (!picked)
+    return;
+  const confirm = await vscode13.window.showWarningMessage(
+    `SRS: Delete relation type '${picked.label}' (${picked.relationType})? This will fail if any stored relations reference it.`,
+    { modal: true },
+    "Delete"
+  );
+  if (confirm !== "Delete")
+    return;
+  try {
+    await cli.runOk(repo.rootPath, ["relation-type", "delete", picked.id]);
+    treeProvider.refresh();
+    vscode13.window.showInformationMessage("SRS: Relation type deleted.");
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode13.window.showErrorMessage(`SRS: Failed to delete relation type: ${msg}`);
+  }
+}
+async function pickRelationType(cli, repoPath) {
+  let defs = [];
+  try {
+    const payload = await cli.runOk(repoPath, ["relation-type", "list"]);
+    defs = payload.relationTypeDefinitions;
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode13.window.showErrorMessage(`SRS: Could not load relation types: ${msg}`);
+    return void 0;
+  }
+  if (defs.length === 0) {
+    vscode13.window.showWarningMessage("SRS: No relation type definitions found in this repository.");
+    return void 0;
+  }
+  const items = defs.map((rt) => ({
+    label: rt.label,
+    description: rt.relationType,
+    id: rt.id,
+    relationType: rt.relationType
+  }));
+  return vscode13.window.showQuickPick(items, { placeHolder: "Select relation type" });
 }
 async function buildInstanceItems(cli, repoPath) {
   const items = [];
