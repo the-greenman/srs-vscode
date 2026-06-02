@@ -13,6 +13,7 @@ import type {
   TypeListPayload,
   ExtensionListPayload,
   ProtocolListPayload,
+  BlueprintListPayload,
   ViewListPayload,
   DocumentViewListPayload,
   RelationTypeListPayload,
@@ -149,6 +150,15 @@ const ENTITY_SPECS: Record<EntityKind, EntitySpec> = {
       })),
     getArgs: (id) => ["protocol", "get", id],
   },
+  blueprint: {
+    listArgs: ["blueprint", "list"],
+    extractItems: (p) =>
+      (p as BlueprintListPayload).blueprints.map((b) => ({
+        id: b.blueprintId,
+        label: `${b.namespace}/${b.name} v${b.version}`,
+      })),
+    getArgs: (id) => ["blueprint", "get", id],
+  },
   view: {
     listArgs: ["view", "list"],
     extractItems: (p) =>
@@ -189,6 +199,7 @@ const GROUP_ORDER: Array<[EntityKind, string]> = [
   ["field", "Fields"],
   ["extension", "Extensions"],
   ["protocol", "Protocols"],
+  ["blueprint", "Blueprints"],
   ["view", "Views"],
   ["document-view", "Document Views"],
   ["relation-type", "Relation Types"],
