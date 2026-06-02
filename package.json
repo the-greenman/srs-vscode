@@ -101,6 +101,30 @@
         "title": "SRS: Delete Relation Type"
       },
       {
+        "command": "srs.createField",
+        "title": "SRS: Create Field"
+      },
+      {
+        "command": "srs.updateField",
+        "title": "SRS: Update Field"
+      },
+      {
+        "command": "srs.deleteField",
+        "title": "SRS: Delete Field"
+      },
+      {
+        "command": "srs.createType",
+        "title": "SRS: Create Type"
+      },
+      {
+        "command": "srs.updateType",
+        "title": "SRS: Update Type"
+      },
+      {
+        "command": "srs.deleteType",
+        "title": "SRS: Delete Type"
+      },
+      {
         "command": "srs.showRelationGraph",
         "title": "SRS: Show Relation Graph",
         "icon": "$(type-hierarchy)"

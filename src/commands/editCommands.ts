@@ -8,6 +8,8 @@ import type {
   RelationTypeListPayload,
   NoteListPayload,
   RecordListPayload,
+  FieldListPayload,
+  TypeListPayload,
 } from "../cli/types";
 
 // ---- Local payload shapes ----
@@ -94,6 +96,24 @@ export function registerEditCommands(
     ),
     vscode.commands.registerCommand("srs.deleteRelationType", () =>
       cmdDeleteRelationType(cli, repoProvider, treeProvider),
+    ),
+    vscode.commands.registerCommand("srs.createField", () =>
+      cmdCreateField(cli, repoProvider, treeProvider),
+    ),
+    vscode.commands.registerCommand("srs.updateField", () =>
+      cmdUpdateField(cli, repoProvider, treeProvider),
+    ),
+    vscode.commands.registerCommand("srs.deleteField", () =>
+      cmdDeleteField(cli, repoProvider, treeProvider),
+    ),
+    vscode.commands.registerCommand("srs.createType", () =>
+      cmdCreateType(cli, repoProvider, treeProvider),
+    ),
+    vscode.commands.registerCommand("srs.updateType", () =>
+      cmdUpdateType(cli, repoProvider, treeProvider),
+    ),
+    vscode.commands.registerCommand("srs.deleteType", () =>
+      cmdDeleteType(cli, repoProvider, treeProvider),
     ),
   );
 }
@@ -578,6 +598,310 @@ async function pickRelationType(
   }));
 
   return vscode.window.showQuickPick(items, { placeHolder: "Select relation type" });
+}
+
+// ---- Field CRUD ----
+
+async function cmdCreateField(
+  cli: CliClient,
+  repoProvider: RepositoryProvider,
+  treeProvider: SrsTreeDataProvider,
+): Promise<void> {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode.window.showWarningMessage("SRS: No active repository.");
+    return;
+  }
+
+  const { randomUUID } = await import("crypto");
+  const scaffold = JSON.stringify(
+    {
+      id: randomUUID(),
+      namespace: "com.example",
+      name: "my-field",
+      version: 1,
+      valueType: "string",
+      description: "",
+      aiGuidance: { purpose: "" },
+      createdAt: new Date().toISOString(),
+    },
+    null,
+    2,
+  );
+
+  const doc = await vscode.workspace.openTextDocument({ content: scaffold, language: "json" });
+  await vscode.window.showTextDocument(doc);
+
+  const answer = await vscode.window.showInformationMessage(
+    "SRS: Edit the field definition above, then click Create.",
+    "Create",
+    "Cancel",
+  );
+  if (answer !== "Create") return;
+
+  try {
+    await cli.runOk<unknown>(repo.rootPath, ["field", "create"], { stdin: doc.getText() });
+    treeProvider.refresh();
+    vscode.window.showInformationMessage("SRS: Field created.");
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode.window.showErrorMessage(`SRS: Failed to create field: ${msg}`);
+  }
+}
+
+async function cmdUpdateField(
+  cli: CliClient,
+  repoProvider: RepositoryProvider,
+  treeProvider: SrsTreeDataProvider,
+): Promise<void> {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode.window.showWarningMessage("SRS: No active repository.");
+    return;
+  }
+
+  const picked = await pickField(cli, repo.rootPath);
+  if (!picked) return;
+
+  const payload = await cli.runOk<FieldPayload>(repo.rootPath, ["field", "get", picked.id]);
+
+  const doc = await vscode.workspace.openTextDocument({
+    content: JSON.stringify(payload.field, null, 2),
+    language: "json",
+  });
+  await vscode.window.showTextDocument(doc);
+
+  const answer = await vscode.window.showInformationMessage(
+    `SRS: Edit field '${picked.label}', then click Update.`,
+    "Update",
+    "Cancel",
+  );
+  if (answer !== "Update") return;
+
+  try {
+    await cli.runOk<unknown>(repo.rootPath, ["field", "update", picked.id], {
+      stdin: doc.getText(),
+    });
+    treeProvider.refresh();
+    vscode.window.showInformationMessage("SRS: Field updated.");
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode.window.showErrorMessage(`SRS: Failed to update field: ${msg}`);
+  }
+}
+
+async function cmdDeleteField(
+  cli: CliClient,
+  repoProvider: RepositoryProvider,
+  treeProvider: SrsTreeDataProvider,
+): Promise<void> {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode.window.showWarningMessage("SRS: No active repository.");
+    return;
+  }
+
+  const picked = await pickField(cli, repo.rootPath);
+  if (!picked) return;
+
+  const confirm = await vscode.window.showWarningMessage(
+    `SRS: Delete field '${picked.label}' (${picked.namespace}/${picked.name})? This will fail if any types reference it.`,
+    { modal: true },
+    "Delete",
+  );
+  if (confirm !== "Delete") return;
+
+  try {
+    await cli.runOk<unknown>(repo.rootPath, ["field", "delete", picked.id]);
+    treeProvider.refresh();
+    vscode.window.showInformationMessage("SRS: Field deleted.");
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode.window.showErrorMessage(`SRS: Failed to delete field: ${msg}`);
+  }
+}
+
+// ---- Type CRUD ----
+
+async function cmdCreateType(
+  cli: CliClient,
+  repoProvider: RepositoryProvider,
+  treeProvider: SrsTreeDataProvider,
+): Promise<void> {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode.window.showWarningMessage("SRS: No active repository.");
+    return;
+  }
+
+  const { randomUUID } = await import("crypto");
+  const scaffold = JSON.stringify(
+    {
+      id: randomUUID(),
+      namespace: "com.example",
+      name: "my-type",
+      version: 1,
+      description: "",
+      fields: [],
+      createdAt: new Date().toISOString(),
+    },
+    null,
+    2,
+  );
+
+  const doc = await vscode.workspace.openTextDocument({ content: scaffold, language: "json" });
+  await vscode.window.showTextDocument(doc);
+
+  const answer = await vscode.window.showInformationMessage(
+    "SRS: Edit the type definition above, then click Create.",
+    "Create",
+    "Cancel",
+  );
+  if (answer !== "Create") return;
+
+  try {
+    await cli.runOk<unknown>(repo.rootPath, ["type", "create"], { stdin: doc.getText() });
+    treeProvider.refresh();
+    vscode.window.showInformationMessage("SRS: Type created.");
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode.window.showErrorMessage(`SRS: Failed to create type: ${msg}`);
+  }
+}
+
+async function cmdUpdateType(
+  cli: CliClient,
+  repoProvider: RepositoryProvider,
+  treeProvider: SrsTreeDataProvider,
+): Promise<void> {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode.window.showWarningMessage("SRS: No active repository.");
+    return;
+  }
+
+  const picked = await pickType(cli, repo.rootPath);
+  if (!picked) return;
+
+  const payload = await cli.runOk<TypePayload>(repo.rootPath, ["type", "get", picked.id]);
+
+  const doc = await vscode.workspace.openTextDocument({
+    content: JSON.stringify(payload.type, null, 2),
+    language: "json",
+  });
+  await vscode.window.showTextDocument(doc);
+
+  const answer = await vscode.window.showInformationMessage(
+    `SRS: Edit type '${picked.label}', then click Update.`,
+    "Update",
+    "Cancel",
+  );
+  if (answer !== "Update") return;
+
+  try {
+    await cli.runOk<unknown>(repo.rootPath, ["type", "update", picked.id], {
+      stdin: doc.getText(),
+    });
+    treeProvider.refresh();
+    vscode.window.showInformationMessage("SRS: Type updated.");
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode.window.showErrorMessage(`SRS: Failed to update type: ${msg}`);
+  }
+}
+
+async function cmdDeleteType(
+  cli: CliClient,
+  repoProvider: RepositoryProvider,
+  treeProvider: SrsTreeDataProvider,
+): Promise<void> {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode.window.showWarningMessage("SRS: No active repository.");
+    return;
+  }
+
+  const picked = await pickType(cli, repo.rootPath);
+  if (!picked) return;
+
+  const confirm = await vscode.window.showWarningMessage(
+    `SRS: Delete type '${picked.label}' (${picked.namespace}/${picked.name} v${picked.version})? This will fail if any records instantiate it.`,
+    { modal: true },
+    "Delete",
+  );
+  if (confirm !== "Delete") return;
+
+  try {
+    await cli.runOk<unknown>(repo.rootPath, ["type", "delete", picked.id]);
+    treeProvider.refresh();
+    vscode.window.showInformationMessage("SRS: Type deleted.");
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode.window.showErrorMessage(`SRS: Failed to delete type: ${msg}`);
+  }
+}
+
+// ---- Field/Type pickers ----
+
+async function pickField(
+  cli: CliClient,
+  repoPath: string,
+): Promise<{ id: string; label: string; namespace: string; name: string } | undefined> {
+  let fields: FieldListPayload["fields"] = [];
+  try {
+    const payload = await cli.runOk<FieldListPayload>(repoPath, ["field", "list"]);
+    fields = payload.fields;
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode.window.showErrorMessage(`SRS: Could not load fields: ${msg}`);
+    return undefined;
+  }
+
+  if (fields.length === 0) {
+    vscode.window.showWarningMessage("SRS: No field definitions found in this repository.");
+    return undefined;
+  }
+
+  const items = fields.map((f) => ({
+    label: `${f.namespace}/${f.name}`,
+    description: `v${f.version} · ${f.id.slice(0, 8)}`,
+    id: f.id,
+    namespace: f.namespace,
+    name: f.name,
+  }));
+
+  return vscode.window.showQuickPick(items, { placeHolder: "Select field" });
+}
+
+async function pickType(
+  cli: CliClient,
+  repoPath: string,
+): Promise<{ id: string; label: string; namespace: string; name: string; version: number } | undefined> {
+  let types: TypeListPayload["types"] = [];
+  try {
+    const payload = await cli.runOk<TypeListPayload>(repoPath, ["type", "list"]);
+    types = payload.types;
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode.window.showErrorMessage(`SRS: Could not load types: ${msg}`);
+    return undefined;
+  }
+
+  if (types.length === 0) {
+    vscode.window.showWarningMessage("SRS: No type definitions found in this repository.");
+    return undefined;
+  }
+
+  const items = types.map((t) => ({
+    label: `${t.namespace}/${t.name}`,
+    description: `v${t.version} · ${t.id.slice(0, 8)}`,
+    id: t.id,
+    namespace: t.namespace,
+    name: t.name,
+    version: t.version,
+  }));
+
+  return vscode.window.showQuickPick(items, { placeHolder: "Select type" });
 }
 
 async function buildInstanceItems(
