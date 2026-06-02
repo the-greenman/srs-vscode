@@ -258,8 +258,20 @@ async function cmdDeleteEntity(
       `SRS: ${node.entityKind} deleted.`,
     );
   } catch (err) {
-    const msg = err instanceof CliError ? err.message : String(err);
-    vscode.window.showErrorMessage(`SRS: Failed to delete entity: ${msg}`);
+    if (
+      err instanceof CliError &&
+      err.diagnostics.some(
+        (d) => d.includes("CannotDeleteInUse") || d.includes("used by"),
+      )
+    ) {
+      vscode.window.showErrorMessage(
+        `SRS: Cannot delete ${node.entityKind} '${node.label}' — it is referenced by other entities. Remove those references first.\n\nDetails: ${err.diagnostics.join("\n")}`,
+        { modal: true },
+      );
+    } else {
+      const msg = err instanceof CliError ? err.message : String(err);
+      vscode.window.showErrorMessage(`SRS: Failed to delete entity: ${msg}`);
+    }
   }
 }
 
