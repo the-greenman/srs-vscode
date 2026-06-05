@@ -51,9 +51,37 @@
       "items": { "$ref": "#/$defs/FieldGroup" },
       "description": "ext:field-groups — grouped, potentially repeatable field sets."
     },
+    "lifecycle": {
+      "$ref": "#/$defs/TypeLifecycle",
+      "description": "ext:lifecycle — inline state machine declaration. Mutually exclusive with lifecycleRef."
+    },
+    "lifecycleRef": {
+      "type": "string",
+      "description": "ext:lifecycle — reference to an installed Lifecycle by id. Mutually exclusive with lifecycle."
+    },
     "tags": {
       "type": "array",
       "items": { "type": "string" }
+    },
+    "extendsTypeId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "ext:type-inheritance — the UUID of the base Type this Type specializes."
+    },
+    "extendsTypeVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "ext:type-inheritance — the version of the base Type being extended."
+    },
+    "fieldOrder": {
+      "type": "array",
+      "items": { "type": "string", "format": "uuid" },
+      "description": "ext:type-inheritance — explicit ordering for the merged field list (base + own). Must contain every fieldId from the effective field set exactly once."
+    },
+    "fieldAssignmentOverrides": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/FieldAssignmentOverride" },
+      "description": "ext:type-inheritance — per-field overrides applied to inherited FieldAssignments."
     },
     "createdAt": {
       "type": "string",
@@ -61,6 +89,68 @@
     }
   },
   "$defs": {
+    "TypeLifecycle": {
+      "type": "object",
+      "required": ["states", "transitions", "initialState"],
+      "additionalProperties": false,
+      "properties": {
+        "states": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/LifecycleState" }
+        },
+        "transitions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/LifecycleTransition" }
+        },
+        "initialState": {
+          "type": "string",
+          "description": "Must reference a state name with isInitial: true (Invariant 4)."
+        }
+      }
+    },
+    "LifecycleState": {
+      "type": "object",
+      "required": ["key"],
+      "additionalProperties": false,
+      "description": "A lifecycle state (VocabularyEntry specialization). key is the unified substrate field (was name pre-RFC-006).",
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "version": { "type": "integer", "minimum": 1 },
+        "namespace": { "type": "string" },
+        "key": {
+          "type": "string",
+          "description": "Machine-readable state key. Unified substrate field (was name)."
+        },
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "aliases": { "type": "array", "items": { "type": "string" } },
+        "isInitial": { "type": "boolean" },
+        "isFinal": { "type": "boolean" },
+        "status": {
+          "type": "string",
+          "enum": ["active", "deprecated", "tombstone", "retired"]
+        },
+        "properties": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "LifecycleTransition": {
+      "type": "object",
+      "required": ["name", "from", "to"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID identity for this transition edge."
+        },
+        "name": { "type": "string" },
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "description": { "type": "string" },
+        "properties": { "type": "object", "additionalProperties": true }
+      }
+    },
     "FieldAssignment": {
       "type": "object",
       "required": ["fieldId", "order", "required"],
@@ -98,6 +188,31 @@
         },
         "defaultValue": {
           "description": "Optional default value to pre-populate the field."
+        }
+      }
+    },
+    "FieldAssignmentOverride": {
+      "type": "object",
+      "required": ["fieldId"],
+      "additionalProperties": false,
+      "description": "ext:type-inheritance — overrides for a single inherited FieldAssignment.",
+      "properties": {
+        "fieldId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The fieldId of the inherited field being overridden."
+        },
+        "displayLabel": {
+          "type": "string",
+          "description": "Rendering-only label override."
+        },
+        "displayHint": {
+          "type": "string",
+          "description": "Rendering-only hint text override."
+        },
+        "required": {
+          "type": "boolean",
+          "description": "May tighten (false→true) but not relax (true→false) the base field's required status."
         }
       }
     },
