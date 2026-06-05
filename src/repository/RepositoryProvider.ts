@@ -29,7 +29,7 @@ export class RepositoryProvider implements vscode.Disposable {
       const payload = await this.cli.runOk<RepoMapPayload>(rootPath, ["repo", "map"]);
       return {
         rootPath,
-        title: payload.repoMap.repository.title,
+        title: payload.repoMap.repository.title ?? payload.repoMap.repository.repositoryId,
         repositoryId: payload.repoMap.repository.repositoryId,
         counts: payload.repoMap.counts,
       };
