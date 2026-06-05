@@ -54,6 +54,8 @@ async function cmdPreviewEntity(context, cli, repoProvider, node) {
             case "note": return await previewNote(context, cli, repo.rootPath, node.entityId);
             case "record": return await previewRecord(context, cli, repo.rootPath, node.entityId);
             case "container": return await previewContainer(context, cli, repo.rootPath, node.entityId);
+            case "protocol": return await previewProtocol(context, cli, repo.rootPath, node.entityId);
+            case "blueprint": return await previewBlueprint(context, cli, repo.rootPath, node.entityId);
             default:
                 vscode.window.showInformationMessage(`SRS: No preview available for '${node.entityKind}'. Use Open Entity for raw JSON.`);
         }
@@ -305,6 +307,84 @@ async function previewContainer(context, cli, repoPath, id) {
     ${rows || '<p class="empty">No members.</p>'}
   `);
     PreviewPanel_1.PreviewPanel.show(context, `container:${id}`, title, html);
+}
+async function previewProtocol(context, cli, repoPath, id) {
+    const [getResult, stagesResult] = await Promise.allSettled([
+        cli.runOk(repoPath, ["protocol", "get", id]),
+        cli.runOk(repoPath, ["protocol", "stages", id]),
+    ]);
+    const proto = getResult.status === "fulfilled" ? getResult.value.protocol : undefined;
+    const stages = stagesResult.status === "fulfilled"
+        ? [...stagesResult.value.stages].sort((a, b) => a.order - b.order)
+        : [];
+    const ns = proto?.namespace ?? "";
+    const name = proto?.name ?? id.slice(0, 8);
+    const version = proto?.version ?? "";
+    const title = `${ns}/${name} v${version}`;
+    const descHtml = proto?.description ? `<p class="description">${(0, PreviewPanel_1.esc)(proto.description)}</p>` : "";
+    const targetHtml = proto?.targetType ? `<div class="meta">Target type: ${(0, PreviewPanel_1.esc)(proto.targetType)}</div>` : "";
+    const tagsHtml = (proto?.tags ?? []).length > 0
+        ? `<div class="meta">Tags: ${(proto.tags).map((t) => `<code>${(0, PreviewPanel_1.esc)(t)}</code>`).join(" ")}</div>`
+        : "";
+    const stagesHtml = stages.length === 0
+        ? '<p class="empty">No stages defined.</p>'
+        : stages.map((s) => {
+            const deps = s.dependsOn.length > 0
+                ? `<div class="stage-deps">depends on: ${s.dependsOn.map((d) => (0, PreviewPanel_1.esc)(d)).join(", ")}</div>`
+                : "";
+            return `<div class="stage-row">
+          <span class="stage-order">${s.order}</span>
+          <div class="stage-body">
+            <div class="stage-name">${(0, PreviewPanel_1.esc)(s.name)}</div>
+            ${deps}
+          </div>
+        </div>`;
+        }).join("");
+    const html = (0, PreviewPanel_1.wrapHtml)(title, `
+    <h1>${(0, PreviewPanel_1.esc)(title)}</h1>
+    <div class="meta">${(0, PreviewPanel_1.esc)(id.slice(0, 8))}…</div>
+    ${targetHtml}
+    ${tagsHtml}
+    ${descHtml}
+    <h2>Stages (${stages.length})</h2>
+    ${stagesHtml}
+  `);
+    PreviewPanel_1.PreviewPanel.show(context, `protocol:${id}`, title, html);
+}
+async function previewBlueprint(context, cli, repoPath, id) {
+    const [getResult, structureResult] = await Promise.allSettled([
+        cli.runOk(repoPath, ["blueprint", "get", id]),
+        cli.runOk(repoPath, ["blueprint", "structure", id]),
+    ]);
+    const bp = getResult.status === "fulfilled" ? getResult.value.blueprint : undefined;
+    const specs = structureResult.status === "fulfilled" ? structureResult.value.relationSpecs : [];
+    const ns = bp?.namespace ?? "";
+    const name = bp?.name ?? id.slice(0, 8);
+    const version = bp?.version ?? "";
+    const title = `${ns}/${name} v${version}`;
+    const descHtml = bp?.description ? `<p class="description">${(0, PreviewPanel_1.esc)(bp.description)}</p>` : "";
+    const specsHtml = specs.length === 0
+        ? '<p class="empty">No relation specs defined.</p>'
+        : `<table class="specs-table">
+        <thead><tr><th>Relation type</th><th>Source type</th><th>Target type</th><th>Cardinality</th><th>Required</th></tr></thead>
+        <tbody>
+          ${specs.map((s) => `<tr>
+            <td>${(0, PreviewPanel_1.esc)(s.relationType)}</td>
+            <td><code>${(0, PreviewPanel_1.esc)(s.sourceTypeId.slice(0, 8))}…</code></td>
+            <td><code>${(0, PreviewPanel_1.esc)(s.targetTypeId.slice(0, 8))}…</code></td>
+            <td>${s.cardinality ? (0, PreviewPanel_1.esc)(s.cardinality) : "—"}</td>
+            <td>${s.required ? "yes" : "—"}</td>
+          </tr>`).join("")}
+        </tbody>
+      </table>`;
+    const html = (0, PreviewPanel_1.wrapHtml)(title, `
+    <h1>${(0, PreviewPanel_1.esc)(title)}</h1>
+    <div class="meta">${(0, PreviewPanel_1.esc)(id.slice(0, 8))}…</div>
+    ${descHtml}
+    <h2>Structure (${specs.length} relation spec${specs.length === 1 ? "" : "s"})</h2>
+    ${specsHtml}
+  `);
+    PreviewPanel_1.PreviewPanel.show(context, `blueprint:${id}`, title, html);
 }
 // ---- Markdown helper ----
 /**

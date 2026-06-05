@@ -133,9 +133,17 @@ const ENTITY_SPECS = {
         listArgs: ["protocol", "list"],
         extractItems: (p) => p.protocols.map((pr) => ({
             id: pr.instanceId,
-            label: pr.title ?? pr.instanceId,
+            label: `${pr.namespace}/${pr.name} v${pr.version}`,
         })),
         getArgs: (id) => ["protocol", "get", id],
+    },
+    blueprint: {
+        listArgs: ["blueprint", "list"],
+        extractItems: (p) => p.blueprints.map((b) => ({
+            id: b.blueprintId,
+            label: `${b.namespace}/${b.name} v${b.version}`,
+        })),
+        getArgs: (id) => ["blueprint", "get", id],
     },
     view: {
         listArgs: ["view", "list"],
@@ -173,6 +181,7 @@ const GROUP_ORDER = [
     ["field", "Fields"],
     ["extension", "Extensions"],
     ["protocol", "Protocols"],
+    ["blueprint", "Blueprints"],
     ["view", "Views"],
     ["document-view", "Document Views"],
     ["relation-type", "Relation Types"],

@@ -52,6 +52,7 @@ const mutationCommands_1 = require("./commands/mutationCommands");
 const graphCommands_1 = require("./commands/graphCommands");
 const NavigatorTreeDataProvider_1 = require("./tree/NavigatorTreeDataProvider");
 const navigatorCommands_1 = require("./commands/navigatorCommands");
+const guideEditorCommands_1 = require("./webview/guides/guideEditorCommands");
 async function activate(context) {
     const outputChannel = vscode.window.createOutputChannel("SRS");
     context.subscriptions.push(outputChannel);
@@ -108,6 +109,7 @@ async function activate(context) {
     (0, editCommands_1.registerEditCommands)(context, cli, repoProvider, treeProvider);
     (0, graphCommands_1.registerGraphCommands)(context, cli, repoProvider, entityDocProvider);
     (0, navigatorCommands_1.registerNavigatorCommands)(context, navigatorProvider);
+    (0, guideEditorCommands_1.registerGuideEditorCommands)(context, cli, repoProvider, treeProvider);
     // Auto-detect on activation
     await autoDetectRepository(cli, repoProvider);
     // Restore persisted active container once the active repo is known
