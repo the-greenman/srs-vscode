@@ -208,8 +208,14 @@ async function cmdDeleteEntity(cli, repoProvider, treeProvider, node) {
         vscode.window.showInformationMessage(`SRS: ${node.entityKind} deleted.`);
     }
     catch (err) {
-        const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
-        vscode.window.showErrorMessage(`SRS: Failed to delete entity: ${msg}`);
+        if (err instanceof CliClient_1.CliError &&
+            err.diagnostics.some((d) => d.includes("CannotDeleteInUse") || d.includes("used by"))) {
+            vscode.window.showErrorMessage(`SRS: Cannot delete ${node.entityKind} '${node.label}' — it is referenced by other entities. Remove those references first.\n\nDetails: ${err.diagnostics.join("\n")}`, { modal: true });
+        }
+        else {
+            const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
+            vscode.window.showErrorMessage(`SRS: Failed to delete entity: ${msg}`);
+        }
     }
 }
 function deleteArgsFor(kind, id) {
@@ -219,6 +225,8 @@ function deleteArgsFor(kind, id) {
         case "record": return ["record", "delete", id];
         case "relation": return ["relation", "delete", id];
         case "container": return ["container", "delete", id];
+        case "protocol": return ["protocol", "delete", id];
+        case "blueprint": return ["blueprint", "delete", id];
         default: return undefined;
     }
 }

@@ -34,7 +34,7 @@ __export(extension_exports, {
   deactivate: () => deactivate
 });
 module.exports = __toCommonJS(extension_exports);
-var vscode20 = __toESM(require("vscode"));
+var vscode21 = __toESM(require("vscode"));
 
 // src/cli/CliClient.ts
 var cp = __toESM(require("child_process"));
@@ -198,7 +198,7 @@ var RepositoryProvider = class {
       const payload = await this.cli.runOk(rootPath, ["repo", "map"]);
       return {
         rootPath,
-        title: payload.repoMap.repository.title,
+        title: payload.repoMap.repository.title ?? payload.repoMap.repository.repositoryId,
         repositoryId: payload.repoMap.repository.repositoryId,
         counts: payload.repoMap.counts
       };
@@ -337,9 +337,17 @@ var ENTITY_SPECS = {
     listArgs: ["protocol", "list"],
     extractItems: (p) => p.protocols.map((pr) => ({
       id: pr.instanceId,
-      label: pr.title ?? pr.instanceId
+      label: `${pr.namespace}/${pr.name} v${pr.version}`
     })),
     getArgs: (id) => ["protocol", "get", id]
+  },
+  blueprint: {
+    listArgs: ["blueprint", "list"],
+    extractItems: (p) => p.blueprints.map((b) => ({
+      id: b.blueprintId,
+      label: `${b.namespace}/${b.name} v${b.version}`
+    })),
+    getArgs: (id) => ["blueprint", "get", id]
   },
   view: {
     listArgs: ["view", "list"],
@@ -376,6 +384,7 @@ var GROUP_ORDER = [
   ["field", "Fields"],
   ["extension", "Extensions"],
   ["protocol", "Protocols"],
+  ["blueprint", "Blueprints"],
   ["view", "Views"],
   ["document-view", "Document Views"],
   ["relation-type", "Relation Types"]
@@ -1050,6 +1059,10 @@ async function cmdPreviewEntity(context, cli, repoProvider, node) {
         return await previewRecord(context, cli, repo.rootPath, node.entityId);
       case "container":
         return await previewContainer(context, cli, repo.rootPath, node.entityId);
+      case "protocol":
+        return await previewProtocol(context, cli, repo.rootPath, node.entityId);
+      case "blueprint":
+        return await previewBlueprint(context, cli, repo.rootPath, node.entityId);
       default:
         vscode11.window.showInformationMessage(
           `SRS: No preview available for '${node.entityKind}'. Use Open Entity for raw JSON.`
@@ -1066,24 +1079,24 @@ async function cmdPreviewRender(context, cli, repoProvider, node) {
     vscode11.window.showWarningMessage("SRS: No active repository.");
     return;
   }
+  let views;
+  try {
+    const payload = await cli.runOk(repo.rootPath, [
+      "document-view",
+      "list"
+    ]);
+    views = payload.documentViews;
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode11.window.showErrorMessage(`SRS: Failed to list document views: ${msg}`);
+    return;
+  }
   let viewId;
   let viewLabel;
   if (node instanceof EntityNode && node.entityKind === "document-view") {
     viewId = node.entityId;
     viewLabel = String(node.label);
   } else {
-    let views;
-    try {
-      const payload = await cli.runOk(repo.rootPath, [
-        "document-view",
-        "list"
-      ]);
-      views = payload.documentViews;
-    } catch (err) {
-      const msg = err instanceof CliError ? err.message : String(err);
-      vscode11.window.showErrorMessage(`SRS: Failed to list document views: ${msg}`);
-      return;
-    }
     if (views.length === 0) {
       vscode11.window.showWarningMessage("SRS: No document views defined in this repository.");
       return;
@@ -1097,13 +1110,42 @@ async function cmdPreviewRender(context, cli, repoProvider, node) {
     viewId = picked.view.id;
     viewLabel = picked.label;
   }
+  const viewContainerType = views.find((v) => v.id === viewId)?.containerType;
+  let containerId2;
+  if (viewContainerType) {
+    let containers;
+    try {
+      const containerPayload = await cli.runOk(repo.rootPath, [
+        "container",
+        "list"
+      ]);
+      containers = containerPayload.containers.filter(
+        (c) => c.containerType === viewContainerType
+      );
+    } catch (err) {
+      const msg = err instanceof CliError ? err.message : String(err);
+      vscode11.window.showErrorMessage(`SRS: Failed to list containers: ${msg}`);
+      return;
+    }
+    if (containers.length === 0) {
+      vscode11.window.showWarningMessage(
+        `SRS: No containers of type "${viewContainerType}" found.`
+      );
+      return;
+    }
+    const picked = await vscode11.window.showQuickPick(
+      containers.map((c) => ({ label: c.title, description: c.containerId, id: c.containerId })),
+      { placeHolder: `Select a ${viewContainerType} to render` }
+    );
+    if (!picked)
+      return;
+    containerId2 = picked.id;
+  }
   try {
-    const payload = await cli.runOk(repo.rootPath, [
-      "render",
-      "document-view",
-      "--view",
-      viewId
-    ]);
+    const args = ["render", "document-view", "--view", viewId];
+    if (containerId2)
+      args.push("--container", containerId2);
+    const payload = await cli.runOk(repo.rootPath, args);
     await openMarkdownPreview(payload.rendered, viewLabel ?? viewId);
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
@@ -1193,18 +1235,18 @@ async function previewRecord(context, cli, repoPath, id) {
     }
   }
   const title = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
-  const rows = record.fieldValues.map((fv) => {
-    const label = labelMap.get(fv.fieldId) ?? fv.fieldId.slice(0, 8);
-    const isText = textFieldSet.has(fv.fieldId);
+  const rows = record.fieldValues.map((fv2) => {
+    const label = labelMap.get(fv2.fieldId) ?? fv2.fieldId.slice(0, 8);
+    const isText = textFieldSet.has(fv2.fieldId);
     let valueHtml;
-    if (repeatableSet.has(fv.fieldId) && fv.entries && fv.entries.length > 0) {
-      const items = fv.entries.map((e) => {
+    if (repeatableSet.has(fv2.fieldId) && fv2.entries && fv2.entries.length > 0) {
+      const items = fv2.entries.map((e) => {
         const v = typeof e.value === "string" ? e.value : JSON.stringify(e.value);
         return isText ? `<li class="markdown-value" data-md="${esc(v)}"></li>` : `<li>${esc(v)}</li>`;
       }).join("");
       valueHtml = `<ul class="repeatable-values">${items}</ul>`;
     } else {
-      const v = typeof fv.value === "string" ? fv.value : JSON.stringify(fv.value);
+      const v = typeof fv2.value === "string" ? fv2.value : JSON.stringify(fv2.value);
       valueHtml = isText ? `<div class="markdown-value" data-md="${esc(v)}"></div>` : esc(v);
     }
     const rowClass = isText ? "field-row field-row--text" : "field-row";
@@ -1277,6 +1319,74 @@ async function previewContainer(context, cli, repoPath, id) {
     ${rows || '<p class="empty">No members.</p>'}
   `);
   PreviewPanel.show(context, `container:${id}`, title, html);
+}
+async function previewProtocol(context, cli, repoPath, id) {
+  const [getResult, stagesResult] = await Promise.allSettled([
+    cli.runOk(repoPath, ["protocol", "get", id]),
+    cli.runOk(repoPath, ["protocol", "stages", id])
+  ]);
+  const proto = getResult.status === "fulfilled" ? getResult.value.protocol : void 0;
+  const stages = stagesResult.status === "fulfilled" ? [...stagesResult.value.stages].sort((a, b) => a.order - b.order) : [];
+  const ns = proto?.namespace ?? "";
+  const name = proto?.name ?? id.slice(0, 8);
+  const version = proto?.version ?? "";
+  const title = `${ns}/${name} v${version}`;
+  const descHtml = proto?.description ? `<p class="description">${esc(proto.description)}</p>` : "";
+  const targetHtml = proto?.targetType ? `<div class="meta">Target type: ${esc(proto.targetType)}</div>` : "";
+  const tagsHtml = (proto?.tags ?? []).length > 0 ? `<div class="meta">Tags: ${proto.tags.map((t) => `<code>${esc(t)}</code>`).join(" ")}</div>` : "";
+  const stagesHtml = stages.length === 0 ? '<p class="empty">No stages defined.</p>' : stages.map((s) => {
+    const deps = s.dependsOn.length > 0 ? `<div class="stage-deps">depends on: ${s.dependsOn.map((d) => esc(d)).join(", ")}</div>` : "";
+    return `<div class="stage-row">
+          <span class="stage-order">${s.order}</span>
+          <div class="stage-body">
+            <div class="stage-name">${esc(s.name)}</div>
+            ${deps}
+          </div>
+        </div>`;
+  }).join("");
+  const html = wrapHtml(title, `
+    <h1>${esc(title)}</h1>
+    <div class="meta">${esc(id.slice(0, 8))}\u2026</div>
+    ${targetHtml}
+    ${tagsHtml}
+    ${descHtml}
+    <h2>Stages (${stages.length})</h2>
+    ${stagesHtml}
+  `);
+  PreviewPanel.show(context, `protocol:${id}`, title, html);
+}
+async function previewBlueprint(context, cli, repoPath, id) {
+  const [getResult, structureResult] = await Promise.allSettled([
+    cli.runOk(repoPath, ["blueprint", "get", id]),
+    cli.runOk(repoPath, ["blueprint", "structure", id])
+  ]);
+  const bp = getResult.status === "fulfilled" ? getResult.value.blueprint : void 0;
+  const specs = structureResult.status === "fulfilled" ? structureResult.value.relationSpecs : [];
+  const ns = bp?.namespace ?? "";
+  const name = bp?.name ?? id.slice(0, 8);
+  const version = bp?.version ?? "";
+  const title = `${ns}/${name} v${version}`;
+  const descHtml = bp?.description ? `<p class="description">${esc(bp.description)}</p>` : "";
+  const specsHtml = specs.length === 0 ? '<p class="empty">No relation specs defined.</p>' : `<table class="specs-table">
+        <thead><tr><th>Relation type</th><th>Source type</th><th>Target type</th><th>Cardinality</th><th>Required</th></tr></thead>
+        <tbody>
+          ${specs.map((s) => `<tr>
+            <td>${esc(s.relationType)}</td>
+            <td><code>${esc(s.sourceTypeId.slice(0, 8))}\u2026</code></td>
+            <td><code>${esc(s.targetTypeId.slice(0, 8))}\u2026</code></td>
+            <td>${s.cardinality ? esc(s.cardinality) : "\u2014"}</td>
+            <td>${s.required ? "yes" : "\u2014"}</td>
+          </tr>`).join("")}
+        </tbody>
+      </table>`;
+  const html = wrapHtml(title, `
+    <h1>${esc(title)}</h1>
+    <div class="meta">${esc(id.slice(0, 8))}\u2026</div>
+    ${descHtml}
+    <h2>Structure (${specs.length} relation spec${specs.length === 1 ? "" : "s"})</h2>
+    ${specsHtml}
+  `);
+  PreviewPanel.show(context, `blueprint:${id}`, title, html);
 }
 async function openMarkdownPreview(markdown, _title) {
   const doc = await vscode11.workspace.openTextDocument({
@@ -1384,6 +1494,30 @@ var EntityEditorPanel = class _EntityEditorPanel {
 };
 
 // src/webview/forms.ts
+var REPEAT_ENTRY_JS = `
+  function wireRemoveEntry(btn) {
+    btn.addEventListener('click', function() {
+      btn.closest('[data-repeat-entry]').remove();
+    });
+  }
+  function addEntry(listId, rows) {
+    var list = document.getElementById(listId);
+    var entry = document.createElement('div');
+    entry.className = 'repeat-entry';
+    entry.setAttribute('data-repeat-entry', '');
+    entry.innerHTML = '<textarea class="repeat-value" rows="' + (rows || 2) + '"></textarea>' +
+      '<button type="button" class="btn-remove-entry" title="Remove">\\u2715</button>';
+    list.appendChild(entry);
+    entry.querySelector('.repeat-value').focus();
+    wireRemoveEntry(entry.querySelector('.btn-remove-entry'));
+  }
+  document.querySelectorAll('.btn-remove-entry').forEach(wireRemoveEntry);
+  document.querySelectorAll('.btn-add-entry[data-target]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      addEntry(btn.getAttribute('data-target'), parseInt(btn.getAttribute('data-rows') || '2', 10));
+    });
+  });
+`;
 function esc2(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -1679,16 +1813,16 @@ function buildRecordForm(record, fields) {
   const sorted = [...fields].sort((a, b) => a.order - b.order);
   const currentScalar = /* @__PURE__ */ new Map();
   const currentEntries = /* @__PURE__ */ new Map();
-  for (const fv of record.fieldValues) {
-    if (fv.entries && fv.entries.length > 0) {
+  for (const fv2 of record.fieldValues) {
+    if (fv2.entries && fv2.entries.length > 0) {
       currentEntries.set(
-        fv.fieldId,
-        fv.entries.map((e) => typeof e.value === "string" ? e.value : JSON.stringify(e.value))
+        fv2.fieldId,
+        fv2.entries.map((e) => typeof e.value === "string" ? e.value : JSON.stringify(e.value))
       );
     } else {
       currentScalar.set(
-        fv.fieldId,
-        typeof fv.value === "string" ? fv.value : JSON.stringify(fv.value)
+        fv2.fieldId,
+        typeof fv2.value === "string" ? fv2.value : JSON.stringify(fv2.value)
       );
     }
   }
@@ -1763,28 +1897,7 @@ function buildRecordForm(record, fields) {
                createdAt: createdAt, fieldValues: fieldValues };
     }
 
-    function wireRemoveEntry(btn) {
-      btn.addEventListener('click', function() {
-        btn.closest('[data-repeat-entry]').remove();
-      });
-    }
-
-    function addEntry(listId) {
-      var list = document.getElementById(listId);
-      var entry = document.createElement('div');
-      entry.className = 'repeat-entry';
-      entry.setAttribute('data-repeat-entry', '');
-      entry.innerHTML = '<textarea class="repeat-value" rows="2"></textarea>' +
-        '<button type="button" class="btn-remove-entry" title="Remove">\\u2715</button>';
-      list.appendChild(entry);
-      entry.querySelector('.repeat-value').focus();
-      wireRemoveEntry(entry.querySelector('.btn-remove-entry'));
-    }
-
-    document.querySelectorAll('.btn-remove-entry').forEach(wireRemoveEntry);
-    document.querySelectorAll('.btn-add-entry').forEach(function(btn) {
-      btn.addEventListener('click', function() { addEntry(btn.getAttribute('data-target')); });
-    });
+    ${REPEAT_ENTRY_JS.trim()}
   </script>`;
   return `
     ${fieldHtml}
@@ -1808,6 +1921,18 @@ function registerEditCommands(context, cli, repoProvider, treeProvider) {
     vscode13.commands.registerCommand(
       "srs.createRelation",
       () => cmdCreateRelation(cli, repoProvider, treeProvider)
+    ),
+    vscode13.commands.registerCommand(
+      "srs.createRelationType",
+      () => cmdCreateRelationType(cli, repoProvider, treeProvider)
+    ),
+    vscode13.commands.registerCommand(
+      "srs.updateRelationType",
+      () => cmdUpdateRelationType(cli, repoProvider, treeProvider)
+    ),
+    vscode13.commands.registerCommand(
+      "srs.deleteRelationType",
+      () => cmdDeleteRelationType(cli, repoProvider, treeProvider)
     )
   );
 }
@@ -2026,6 +2151,136 @@ async function cmdCreateRelation(cli, repoProvider, treeProvider) {
     const msg = err instanceof CliError ? err.message : String(err);
     vscode13.window.showErrorMessage(`SRS: Failed to create relation: ${msg}`);
   }
+}
+async function cmdCreateRelationType(cli, repoProvider, treeProvider) {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode13.window.showWarningMessage("SRS: No active repository.");
+    return;
+  }
+  const { randomUUID } = await import("crypto");
+  const scaffold = JSON.stringify(
+    {
+      id: randomUUID(),
+      version: 1,
+      relationType: "namespace/name",
+      namespace: "com.example",
+      label: "My relation type",
+      description: "Description of what this relation means.",
+      category: "association",
+      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+    },
+    null,
+    2
+  );
+  const doc = await vscode13.workspace.openTextDocument({
+    content: scaffold,
+    language: "json"
+  });
+  await vscode13.window.showTextDocument(doc);
+  const answer = await vscode13.window.showInformationMessage(
+    "SRS: Edit the relation type definition above, then click Create.",
+    "Create",
+    "Cancel"
+  );
+  if (answer !== "Create")
+    return;
+  const content = doc.getText();
+  try {
+    await cli.runOk(repo.rootPath, ["relation-type", "create"], {
+      stdin: content
+    });
+    treeProvider.refresh();
+    vscode13.window.showInformationMessage("SRS: Relation type created.");
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode13.window.showErrorMessage(`SRS: Failed to create relation type: ${msg}`);
+  }
+}
+async function cmdUpdateRelationType(cli, repoProvider, treeProvider) {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode13.window.showWarningMessage("SRS: No active repository.");
+    return;
+  }
+  const picked = await pickRelationType(cli, repo.rootPath);
+  if (!picked)
+    return;
+  const payload = await cli.runOk(repo.rootPath, [
+    "relation-type",
+    "get",
+    picked.id
+  ]);
+  const doc = await vscode13.workspace.openTextDocument({
+    content: JSON.stringify(payload.relationTypeDefinition, null, 2),
+    language: "json"
+  });
+  await vscode13.window.showTextDocument(doc);
+  const answer = await vscode13.window.showInformationMessage(
+    `SRS: Edit '${picked.label}', then click Update.`,
+    "Update",
+    "Cancel"
+  );
+  if (answer !== "Update")
+    return;
+  const content = doc.getText();
+  try {
+    await cli.runOk(repo.rootPath, ["relation-type", "update", picked.id], {
+      stdin: content
+    });
+    treeProvider.refresh();
+    vscode13.window.showInformationMessage("SRS: Relation type updated.");
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode13.window.showErrorMessage(`SRS: Failed to update relation type: ${msg}`);
+  }
+}
+async function cmdDeleteRelationType(cli, repoProvider, treeProvider) {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode13.window.showWarningMessage("SRS: No active repository.");
+    return;
+  }
+  const picked = await pickRelationType(cli, repo.rootPath);
+  if (!picked)
+    return;
+  const confirm = await vscode13.window.showWarningMessage(
+    `SRS: Delete relation type '${picked.label}' (${picked.relationType})? This will fail if any stored relations reference it.`,
+    { modal: true },
+    "Delete"
+  );
+  if (confirm !== "Delete")
+    return;
+  try {
+    await cli.runOk(repo.rootPath, ["relation-type", "delete", picked.id]);
+    treeProvider.refresh();
+    vscode13.window.showInformationMessage("SRS: Relation type deleted.");
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode13.window.showErrorMessage(`SRS: Failed to delete relation type: ${msg}`);
+  }
+}
+async function pickRelationType(cli, repoPath) {
+  let defs = [];
+  try {
+    const payload = await cli.runOk(repoPath, ["relation-type", "list"]);
+    defs = payload.relationTypeDefinitions;
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode13.window.showErrorMessage(`SRS: Could not load relation types: ${msg}`);
+    return void 0;
+  }
+  if (defs.length === 0) {
+    vscode13.window.showWarningMessage("SRS: No relation type definitions found in this repository.");
+    return void 0;
+  }
+  const items = defs.map((rt) => ({
+    label: rt.label,
+    description: rt.relationType,
+    id: rt.id,
+    relationType: rt.relationType
+  }));
+  return vscode13.window.showQuickPick(items, { placeHolder: "Select relation type" });
 }
 async function buildInstanceItems(cli, repoPath) {
   const items = [];
@@ -2381,8 +2636,19 @@ async function cmdDeleteEntity(cli, repoProvider, treeProvider, node) {
       `SRS: ${node.entityKind} deleted.`
     );
   } catch (err) {
-    const msg = err instanceof CliError ? err.message : String(err);
-    vscode15.window.showErrorMessage(`SRS: Failed to delete entity: ${msg}`);
+    if (err instanceof CliError && err.diagnostics.some(
+      (d) => d.includes("CannotDeleteInUse") || d.includes("used by")
+    )) {
+      vscode15.window.showErrorMessage(
+        `SRS: Cannot delete ${node.entityKind} '${node.label}' \u2014 it is referenced by other entities. Remove those references first.
+
+Details: ${err.diagnostics.join("\n")}`,
+        { modal: true }
+      );
+    } else {
+      const msg = err instanceof CliError ? err.message : String(err);
+      vscode15.window.showErrorMessage(`SRS: Failed to delete entity: ${msg}`);
+    }
   }
 }
 function deleteArgsFor(kind, id) {
@@ -2397,6 +2663,10 @@ function deleteArgsFor(kind, id) {
       return ["relation", "delete", id];
     case "container":
       return ["container", "delete", id];
+    case "protocol":
+      return ["protocol", "delete", id];
+    case "blueprint":
+      return ["blueprint", "delete", id];
     default:
       return void 0;
   }
@@ -3208,9 +3478,765 @@ function setMode(navigator, mode) {
   vscode19.commands.executeCommand("setContext", "srs.navigatorMode", mode);
 }
 
+// src/webview/guides/guideEditorCommands.ts
+var vscode20 = __toESM(require("vscode"));
+
+// src/webview/guides/guideTypes.ts
+var F = {
+  slug: "2e3be0f8-0497-4754-a8b2-62ce6b05493f",
+  title: "e5b359b0-8f8b-4807-bae9-b841adbd6248",
+  subtitle: "9bb3d21d-3a02-4b87-863d-99fdfcdb8a3e",
+  body: "cd97f7d2-29e4-435e-a991-9be8281d6a78",
+  // universal prose: guide intro + section body
+  blocks: "dabb80dc-a04e-48e9-afd8-37a6410bd43b",
+  heading: "9629c9b5-3b17-4766-b3d3-b2890902821a",
+  callout: "138e40f4-888b-49ed-9c26-bedc9567e806",
+  listItems: "e5e6ebce-8dfe-446f-a7fd-e329d4f5d67e",
+  outro: "04ce57ec-46bc-4e1e-9238-34bf7247905a",
+  // closing prose: was confirmation (list) + note (table)
+  itemTerm: "a02b147b-4319-4cdd-b263-781640c93fcb",
+  // was tipTitle — term/title for items group entries
+  itemBody: "6fafae71-f6f1-4e83-b091-19765517ff80",
+  // was tip — body for items group entries
+  // table block fields — used in groupValues["tables"] entries
+  columns: "15d81030-07db-40a7-9885-d23b1d6b39f7",
+  rows: "876daf6a-aefa-421c-80b5-2e3c3a4c6397",
+  subheading: "4523e0e0-f7b6-4c72-9f30-b526ca74799e",
+  tableLabel: "920fd0a2-5fb2-40c4-9362-7c6c86ab8ccd",
+  widths: "8d98614d-f420-4597-90fd-c141e8584b06"
+};
+var TYPE_PREFIX = {
+  guide: "8f138dd6",
+  sectionText: "4408a98e",
+  sectionList: "76cdc3fb",
+  sectionTable: "d8d09d3b"
+};
+
+// src/webview/guides/guideLoader.ts
+function fv(record, fieldId) {
+  const entry = record.fieldValues.find((e) => e.fieldId === fieldId);
+  if (entry == null)
+    return "";
+  return typeof entry.value === "string" ? entry.value : "";
+}
+function sortByPrecedes(ids, precedesMap) {
+  const hasIncoming = new Set(ids.filter((id) => [...precedesMap.values()].includes(id)));
+  const result = [];
+  let cur = ids.find((id) => !hasIncoming.has(id));
+  while (cur && result.length <= ids.length) {
+    result.push(cur);
+    cur = precedesMap.get(cur);
+  }
+  for (const id of ids) {
+    if (!result.includes(id))
+      result.push(id);
+  }
+  return result;
+}
+function sectionTypeFromPrefix(typeId) {
+  const p = typeId.slice(0, 8);
+  if (p === TYPE_PREFIX.sectionText)
+    return "text";
+  if (p === TYPE_PREFIX.sectionList)
+    return "list";
+  if (p === TYPE_PREFIX.sectionTable)
+    return "table";
+  throw new Error(`Unknown section typeId prefix: ${p} (${typeId})`);
+}
+function toSectionDoc(record) {
+  const type = sectionTypeFromPrefix(record.typeId);
+  const section = {
+    instanceId: record.instanceId,
+    typeId: record.typeId,
+    typeVersion: record.typeVersion,
+    type,
+    heading: fv(record, F.heading),
+    slug: fv(record, F.slug)
+  };
+  if (type === "text") {
+    section.body = fv(record, F.body);
+    section.callout = fv(record, F.callout);
+  } else if (type === "list") {
+    section.body = fv(record, F.body);
+    section.listItems = fv(record, F.listItems);
+    section.outro = fv(record, F.outro);
+  } else if (type === "table") {
+    section.body = fv(record, F.body);
+    const tablesGroup = record.groupValues?.find((gv) => gv.groupId === "tables");
+    section.tables = (tablesGroup?.entries ?? []).map((entry) => {
+      const fval = (id) => entry.fieldValues.find((e) => e.fieldId === id)?.value;
+      let columns = [];
+      let rows = [];
+      let widths;
+      try {
+        columns = JSON.parse(String(fval(F.columns) ?? "[]"));
+      } catch {
+        columns = [];
+      }
+      try {
+        rows = JSON.parse(String(fval(F.rows) ?? "[]"));
+      } catch {
+        rows = [];
+      }
+      const widthsRaw = fval(F.widths);
+      if (widthsRaw) {
+        try {
+          widths = JSON.parse(String(widthsRaw));
+        } catch {
+        }
+      }
+      const block = { columns, rows };
+      const sub = fval(F.subheading);
+      const lbl = fval(F.tableLabel);
+      if (typeof sub === "string" && sub)
+        block.subheading = sub;
+      if (typeof lbl === "string" && lbl)
+        block.label = lbl;
+      if (widths)
+        block.widths = widths;
+      return block;
+    });
+    const itemsGroup = record.groupValues?.find((gv) => gv.groupId === "items");
+    section.items = (itemsGroup?.entries ?? []).map((entry) => {
+      const term = entry.fieldValues.find((e) => e.fieldId === F.itemTerm)?.value;
+      const body = entry.fieldValues.find((e) => e.fieldId === F.itemBody)?.value;
+      return {
+        term: typeof term === "string" && term ? term : void 0,
+        body: typeof body === "string" ? body : ""
+      };
+    });
+    section.outro = fv(record, F.outro);
+  }
+  return section;
+}
+async function loadGuide(cli, repoPath, containerId2) {
+  const containerPayload = await cli.runOk(repoPath, [
+    "container",
+    "get",
+    containerId2
+  ]);
+  const { memberInstanceIds, rootInstanceIds } = containerPayload.container;
+  const guideId = rootInstanceIds[0];
+  const records = await Promise.all(
+    memberInstanceIds.map(
+      (id) => cli.runOk(repoPath, ["record", "get", id]).then((p) => p.record)
+    )
+  );
+  const relPayload = await cli.runOk(repoPath, ["relation", "list"]);
+  const precedesMap = /* @__PURE__ */ new Map();
+  for (const rel of relPayload.relations) {
+    if (rel.relationType === "precedes") {
+      precedesMap.set(rel.sourceId, rel.targetId);
+    }
+  }
+  const guideRecord = records.find((r) => r.instanceId === guideId);
+  if (!guideRecord) {
+    throw new Error(`Guide record ${guideId} not found in container members`);
+  }
+  const sectionIds = memberInstanceIds.filter((id) => id !== guideId);
+  const sortedSectionIds = sortByPrecedes(sectionIds, precedesMap);
+  const recordById = new Map(records.map((r) => [r.instanceId, r]));
+  const sections = sortedSectionIds.map((id) => {
+    const r = recordById.get(id);
+    if (!r)
+      throw new Error(`Section record ${id} missing`);
+    return toSectionDoc(r);
+  });
+  return {
+    containerId: containerId2,
+    guideInstanceId: guideId,
+    guideTypeId: guideRecord.typeId,
+    guideTypeVersion: guideRecord.typeVersion,
+    slug: fv(guideRecord, F.slug),
+    title: fv(guideRecord, F.title),
+    subtitle: fv(guideRecord, F.subtitle),
+    body: fv(guideRecord, F.body),
+    sections
+  };
+}
+
+// src/webview/guides/guideSaver.ts
+function buildFieldValues(pairs) {
+  return pairs.filter(([, v]) => v !== void 0 && v !== "").map(([fieldId, value]) => ({ fieldId, value }));
+}
+function guideUpdateInput(guide) {
+  return {
+    instanceId: guide.guideInstanceId,
+    typeId: guide.guideTypeId,
+    typeVersion: guide.guideTypeVersion,
+    fieldValues: buildFieldValues([
+      [F.slug, guide.slug],
+      [F.title, guide.title],
+      [F.subtitle, guide.subtitle],
+      [F.body, guide.body]
+    ])
+  };
+}
+function sectionUpdateInput(section) {
+  const pairs = [
+    [F.heading, section.heading],
+    [F.slug, section.slug]
+  ];
+  if (section.type === "text") {
+    pairs.push([F.body, section.body], [F.callout, section.callout]);
+  } else if (section.type === "list") {
+    pairs.push([F.body, section.body], [F.listItems, section.listItems], [F.outro, section.outro]);
+  } else if (section.type === "table") {
+    pairs.push([F.body, section.body], [F.outro, section.outro]);
+  }
+  const fieldValues = buildFieldValues(pairs);
+  const groupValues = [];
+  if (section.type === "table") {
+    if (section.items !== void 0) {
+      groupValues.push({
+        groupId: "items",
+        entries: section.items.map((item) => ({
+          fieldValues: [
+            ...item.term ? [{ fieldId: F.itemTerm, value: item.term }] : [],
+            { fieldId: F.itemBody, value: item.body }
+          ]
+        }))
+      });
+    }
+    if (section.tables !== void 0) {
+      groupValues.push({
+        groupId: "tables",
+        entries: section.tables.map((t) => ({
+          fieldValues: [
+            { fieldId: F.columns, value: JSON.stringify(t.columns ?? []) },
+            { fieldId: F.rows, value: JSON.stringify(t.rows) },
+            ...t.subheading ? [{ fieldId: F.subheading, value: t.subheading }] : [],
+            ...t.label ? [{ fieldId: F.tableLabel, value: t.label }] : [],
+            ...t.widths ? [{ fieldId: F.widths, value: JSON.stringify(t.widths) }] : []
+          ]
+        }))
+      });
+    }
+  }
+  return {
+    instanceId: section.instanceId,
+    typeId: section.typeId,
+    typeVersion: section.typeVersion,
+    fieldValues,
+    ...groupValues.length > 0 ? { groupValues } : {}
+  };
+}
+async function saveGuide(cli, repoPath, guide) {
+  const updates = [
+    { id: guide.guideInstanceId, input: guideUpdateInput(guide) },
+    ...guide.sections.map((s) => ({ id: s.instanceId, input: sectionUpdateInput(s) }))
+  ];
+  for (const { id, input } of updates) {
+    await cli.runOk(repoPath, ["record", "update", id], {
+      stdin: JSON.stringify(input)
+    });
+  }
+}
+
+// src/webview/guides/guideForm.ts
+function esc3(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function escAttr2(s) {
+  return esc3(s);
+}
+function escText2(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+}
+var TYPE_LABEL = {
+  text: "text",
+  list: "list",
+  table: "table"
+};
+function textField(label, name, value, opts = {}) {
+  const req = opts.required ? ` <span class="required-mark">*</span>` : "";
+  const reqAttr = opts.required ? " required" : "";
+  const rows = opts.rows ?? 2;
+  const hint = opts.hint ? `<div class="hint">${esc3(opts.hint)}</div>` : "";
+  return `
+    <div class="field">
+      <label>${esc3(label)}${req}</label>
+      <textarea name="${escAttr2(name)}" rows="${rows}"${reqAttr}>${escText2(value)}</textarea>
+      ${hint}
+    </div>`;
+}
+function inputField(label, name, value, opts = {}) {
+  const req = opts.required ? ` <span class="required-mark">*</span>` : "";
+  const reqAttr = opts.required ? " required" : "";
+  return `
+    <div class="field">
+      <label>${esc3(label)}${req}</label>
+      <input type="text" name="${escAttr2(name)}" value="${escAttr2(value)}"${reqAttr}>
+    </div>`;
+}
+function textSectionFields(s, i) {
+  return [
+    textField("Body", `s_${i}_body`, s.body ?? "", { required: true, rows: 5 }),
+    textField("Callout", `s_${i}_callout`, s.callout ?? "", { rows: 2 })
+  ].join("");
+}
+function listSectionFields(s, i) {
+  return [
+    textField("Body", `s_${i}_body`, s.body ?? "", { rows: 3 }),
+    textField("Items", `s_${i}_listItems`, s.listItems ?? "", {
+      required: true,
+      rows: 4,
+      hint: "One item per line"
+    }),
+    textField("Outro", `s_${i}_outro`, s.outro ?? "", { rows: 2 })
+  ].join("");
+}
+function itemEntryHtml(term, body) {
+  return `
+    <div class="section-group" data-item-entry>
+      <div class="section-header">
+        <span style="flex:1;font-size:0.8em;color:var(--vscode-descriptionForeground);text-transform:uppercase;letter-spacing:0.05em">Item</span>
+        <button type="button" class="btn-remove-section" title="Remove item">\u2715</button>
+      </div>
+      <div class="field">
+        <label>Term <span style="font-weight:400;text-transform:none">(optional)</span></label>
+        <input type="text" class="item-term" placeholder="e.g. Why" value="${escAttr2(term)}">
+      </div>
+      <div class="field">
+        <label>Body</label>
+        <textarea class="item-body" rows="3">${escText2(body)}</textarea>
+      </div>
+    </div>`;
+}
+function tableBlockHtml(t, si, ti) {
+  const cols = t.columns ?? [];
+  const colCount = cols.length > 0 ? cols.length : t.rows.length > 0 ? t.rows[0].length : 2;
+  const headerHtml = cols.length > 0 ? `<thead><tr>${cols.map((c) => `<th><input type="text" class="te-col-header" value="${escAttr2(c)}" placeholder="Header"></th>`).join("")}<th class="te-action-col"></th></tr></thead>` : "";
+  const bodyHtml = (t.rows ?? []).map(
+    (row) => `<tr>${row.map((cell) => `<td><input type="text" class="te-cell" value="${escAttr2(cell)}"></td>`).join("")}<td class="te-action-col"><button type="button" class="btn-remove-row" title="Remove row">\u2715</button></td></tr>`
+  ).join("");
+  return `
+    <div class="table-block" data-table-section="${si}" data-table-idx="${ti}" data-col-count="${colCount}">
+      <div class="table-block-meta">
+        <div class="field">
+          <label>Subheading <span style="font-weight:400;text-transform:none">(optional)</span></label>
+          <input type="text" class="te-subheading" value="${escAttr2(t.subheading ?? "")}">
+        </div>
+        <div class="field">
+          <label>Label <span style="font-weight:400;text-transform:none">(optional, shown above the table)</span></label>
+          <textarea class="te-label" rows="2">${escText2(t.label ?? "")}</textarea>
+        </div>
+      </div>
+      <div class="te-table-wrap">
+        <table class="te-table">
+          ${headerHtml}
+          <tbody>${bodyHtml}</tbody>
+        </table>
+      </div>
+      <button type="button" class="btn-add-row">+ Add row</button>
+    </div>`;
+}
+function tableSectionFields(s, i) {
+  const tables = s.tables ?? [];
+  const tableBlocksHtml = tables.map((t, ti) => tableBlockHtml(t, i, ti)).join("");
+  const items = s.items ?? [];
+  const itemEntries = items.map((item) => itemEntryHtml(item.term ?? "", item.body)).join("");
+  const itemBlock = `
+    <div class="field">
+      <label>Items</label>
+      <div id="items-list-${i}">${itemEntries}</div>
+      <button type="button" class="btn-add-entry" data-items-section="${i}">+ Add item</button>
+    </div>`;
+  return [
+    textField("Body", `s_${i}_body`, s.body ?? "", { rows: 3 }),
+    `<div class="field"><label>Tables</label><div class="table-blocks" id="table-blocks-${i}">${tableBlocksHtml}</div><button type="button" class="btn-add-entry btn-add-table" data-table-section="${i}">+ Add table</button></div>`,
+    itemBlock,
+    textField("Outro", `s_${i}_outro`, s.outro ?? "", { rows: 2 })
+  ].join("");
+}
+function sectionBlock(s, i) {
+  const typeLabel = TYPE_LABEL[s.type];
+  let typeFields = "";
+  if (s.type === "text")
+    typeFields = textSectionFields(s, i);
+  else if (s.type === "list")
+    typeFields = listSectionFields(s, i);
+  else if (s.type === "table")
+    typeFields = tableSectionFields(s, i);
+  return `
+    <div class="section-block" data-section-index="${i}">
+      <div class="section-block-header">
+        <span class="section-type-badge">${esc3(typeLabel)}</span>
+      </div>
+      ${inputField("Heading", `s_${i}_heading`, s.heading, { required: true })}
+      ${inputField("Slug (id)", `s_${i}_slug`, s.slug)}
+      ${typeFields}
+      <input type="hidden" name="s_${i}_instanceId" value="${escAttr2(s.instanceId)}">
+      <input type="hidden" name="s_${i}_typeId" value="${escAttr2(s.typeId)}">
+      <input type="hidden" name="s_${i}_typeVersion" value="${escAttr2(String(s.typeVersion))}">
+      <input type="hidden" name="s_${i}_type" value="${escAttr2(s.type)}">
+    </div>`;
+}
+var GUIDE_JS = `
+<script>
+function collectFormData() {
+  var form = document.getElementById('editor-form');
+  function val(name) {
+    var el = form.querySelector('[name="' + name + '"]');
+    return el ? el.value : '';
+  }
+
+  var guide = {
+    containerId: val('containerId'),
+    guideInstanceId: val('guideInstanceId'),
+    guideTypeId: val('guideTypeId'),
+    guideTypeVersion: parseInt(val('guideTypeVersion'), 10),
+    slug: val('guide_slug'),
+    title: val('guide_title'),
+    subtitle: val('guide_subtitle'),
+    body: val('guide_body'),
+    sections: [],
+  };
+
+  var sectionCount = parseInt(val('sectionCount'), 10);
+  for (var i = 0; i < sectionCount; i++) {
+    var type = val('s_' + i + '_type');
+    var section = {
+      instanceId: val('s_' + i + '_instanceId'),
+      typeId: val('s_' + i + '_typeId'),
+      typeVersion: parseInt(val('s_' + i + '_typeVersion'), 10),
+      type: type,
+      heading: val('s_' + i + '_heading'),
+      slug: val('s_' + i + '_slug'),
+    };
+    if (type === 'text') {
+      section.body = val('s_' + i + '_body');
+      section.callout = val('s_' + i + '_callout');
+    } else if (type === 'list') {
+      section.body = val('s_' + i + '_body');
+      section.listItems = val('s_' + i + '_listItems');
+      section.outro = val('s_' + i + '_outro');
+    } else if (type === 'table') {
+      section.body = val('s_' + i + '_body');
+      section.outro = val('s_' + i + '_outro');
+      section.tables = [];
+      document.querySelectorAll('[data-table-section="' + i + '"]').forEach(function(tb) {
+        var subheading = tb.querySelector('.te-subheading').value.trim();
+        var label = tb.querySelector('.te-label').value.trim();
+        var columns = [];
+        tb.querySelectorAll('thead .te-col-header').forEach(function(inp) { columns.push(inp.value); });
+        var rows = [];
+        tb.querySelectorAll('tbody tr').forEach(function(tr) {
+          var row = [];
+          tr.querySelectorAll('.te-cell').forEach(function(inp) { row.push(inp.value); });
+          rows.push(row);
+        });
+        var tbl = { columns: columns, rows: rows };
+        if (subheading) tbl.subheading = subheading;
+        if (label) tbl.label = label;
+        section.tables.push(tbl);
+      });
+      section.items = [];
+      var itemsList = document.getElementById('items-list-' + i);
+      itemsList.querySelectorAll('[data-item-entry]').forEach(function(entry) {
+        var body = entry.querySelector('.item-body').value.trim();
+        if (!body) return;
+        var term = entry.querySelector('.item-term').value.trim();
+        section.items.push({ term: term || undefined, body: body });
+      });
+    }
+    guide.sections.push(section);
+  }
+  return guide;
+}
+
+// Wire existing item remove buttons
+document.querySelectorAll('[data-item-entry] .btn-remove-section').forEach(function(btn) {
+  btn.addEventListener('click', function() { btn.closest('[data-item-entry]').remove(); });
+});
+
+// Wire item add buttons
+document.querySelectorAll('.btn-add-entry[data-items-section]').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var si = btn.getAttribute('data-items-section');
+    var list = document.getElementById('items-list-' + si);
+    var div = document.createElement('div');
+    div.className = 'section-group';
+    div.setAttribute('data-item-entry', '');
+    div.innerHTML =
+      '<div class="section-header">' +
+        '<span style="flex:1;font-size:0.8em;color:var(--vscode-descriptionForeground);text-transform:uppercase;letter-spacing:0.05em">Item</span>' +
+        '<button type="button" class="btn-remove-section" title="Remove item">\\u2715</button>' +
+      '</div>' +
+      '<div class="field"><label>Term <span style="font-weight:400;text-transform:none">(optional)</span></label>' +
+        '<input type="text" class="item-term" placeholder="e.g. Why"></div>' +
+      '<div class="field"><label>Body</label><textarea class="item-body" rows="3"></textarea></div>';
+    list.appendChild(div);
+    div.querySelector('.item-term').focus();
+    div.querySelector('.btn-remove-section').addEventListener('click', function() { div.remove(); });
+  });
+});
+
+// Table editor \u2014 event delegation handles all table buttons, including on dynamically added rows/tables
+document.addEventListener('click', function(e) {
+  var btn = e.target;
+  if (!btn || btn.tagName !== 'BUTTON') return;
+  if (btn.classList.contains('btn-remove-row')) {
+    btn.closest('tr').remove();
+  } else if (btn.classList.contains('btn-add-row')) {
+    var addTb = btn.closest('[data-table-section]');
+    var cols = addTb.querySelectorAll('thead .te-col-header').length;
+    if (!cols) {
+      var fr = addTb.querySelector('tbody tr');
+      if (fr) cols = fr.querySelectorAll('.te-cell').length;
+    }
+    if (!cols) cols = 2;
+    var addBody = addTb.querySelector('tbody');
+    var newTr = document.createElement('tr');
+    for (var c = 0; c < cols; c++) {
+      var newTd = document.createElement('td');
+      var newInp = document.createElement('input');
+      newInp.type = 'text';
+      newInp.className = 'te-cell';
+      newTd.appendChild(newInp);
+      newTr.appendChild(newTd);
+    }
+    var actTd = document.createElement('td');
+    actTd.className = 'te-action-col';
+    var delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'btn-remove-row';
+    delBtn.title = 'Remove row';
+    delBtn.textContent = '\\u2715';
+    actTd.appendChild(delBtn);
+    newTr.appendChild(actTd);
+    addBody.appendChild(newTr);
+    newTr.querySelector('.te-cell').focus();
+  } else if (btn.classList.contains('btn-add-table')) {
+    var tsi = btn.getAttribute('data-table-section');
+    var tblContainer = document.getElementById('table-blocks-' + tsi);
+    var newTi = tblContainer.querySelectorAll('[data-table-section]').length;
+    var newBlock = document.createElement('div');
+    newBlock.className = 'table-block';
+    newBlock.setAttribute('data-table-section', tsi);
+    newBlock.setAttribute('data-table-idx', String(newTi));
+    newBlock.setAttribute('data-col-count', '2');
+    newBlock.innerHTML =
+      '<div class="table-block-meta">' +
+        '<div class="field"><label>Subheading <span style="font-weight:400;text-transform:none">(optional)</span></label>' +
+          '<input type="text" class="te-subheading"></div>' +
+        '<div class="field"><label>Label <span style="font-weight:400;text-transform:none">(optional, shown above the table)</span></label>' +
+          '<textarea class="te-label" rows="2"></textarea></div>' +
+      '</div>' +
+      '<div class="te-table-wrap"><table class="te-table">' +
+        '<thead><tr>' +
+          '<th><input type="text" class="te-col-header" placeholder="Header"></th>' +
+          '<th><input type="text" class="te-col-header" placeholder="Header"></th>' +
+          '<th class="te-action-col"></th>' +
+        '</tr></thead>' +
+        '<tbody><tr>' +
+          '<td><input type="text" class="te-cell"></td>' +
+          '<td><input type="text" class="te-cell"></td>' +
+          '<td class="te-action-col"><button type="button" class="btn-remove-row" title="Remove row">\\u2715</button></td>' +
+        '</tr></tbody>' +
+      '</table></div>' +
+      '<button type="button" class="btn-add-row">+ Add row</button>';
+    tblContainer.appendChild(newBlock);
+    newBlock.querySelector('.te-col-header').focus();
+  }
+});
+
+
+</script>`;
+var GUIDE_CSS = `
+<style>
+  .guide-meta { margin-bottom: 2em; }
+  .guide-meta h2 { font-size: 1em; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--vscode-descriptionForeground); font-weight: 600; margin: 0 0 0.8em; }
+  .sections-list { display: flex; flex-direction: column; gap: 1.5em; }
+  .section-block {
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 3px;
+    padding: 1em;
+  }
+  .section-block-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    margin-bottom: 0.8em;
+  }
+  .section-type-badge {
+    font-family: var(--vscode-editor-font-family);
+    font-size: 0.75em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    background: var(--vscode-badge-background);
+    color: var(--vscode-badge-foreground);
+    border-radius: 3px;
+    padding: 1px 6px;
+  }
+  .sections-heading {
+    font-size: 1em; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--vscode-descriptionForeground); font-weight: 600; margin: 0 0 0.8em;
+  }
+  .table-blocks { display: flex; flex-direction: column; gap: 0.8em; }
+  .table-block {
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 3px;
+    padding: 0.8em;
+  }
+  .table-block-meta {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 0 0.8em;
+    margin-bottom: 0.6em;
+  }
+  .table-block-meta .field { margin-bottom: 0.6em; }
+  .te-table-wrap { overflow-x: auto; margin-bottom: 0.5em; }
+  .te-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9em;
+  }
+  .te-table th, .te-table td {
+    border: 1px solid var(--vscode-panel-border);
+    padding: 1px;
+    vertical-align: middle;
+  }
+  .te-table th {
+    background: var(--vscode-editor-lineHighlightBackground, rgba(128,128,128,0.07));
+  }
+  .te-table .te-col-header,
+  .te-table .te-cell {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    padding: 3px 6px !important;
+    outline: none !important;
+    min-width: 80px;
+    width: 100%;
+  }
+  .te-table .te-col-header { font-weight: 600; }
+  .te-table .te-col-header:focus,
+  .te-table .te-cell:focus {
+    background: var(--vscode-editor-lineHighlightBackground, rgba(128,128,128,0.1)) !important;
+  }
+  .te-action-col {
+    width: 24px;
+    min-width: 24px;
+    padding: 0 !important;
+    text-align: center;
+    border-left: none !important;
+  }
+  .btn-remove-row {
+    background: none;
+    border: none;
+    color: var(--vscode-errorForeground);
+    cursor: pointer;
+    padding: 2px 4px;
+    opacity: 0.45;
+    font-size: 0.75em;
+    line-height: 1;
+  }
+  .btn-remove-row:hover { opacity: 1; }
+  .btn-add-row {
+    background: none;
+    border: 1px dashed var(--vscode-panel-border);
+    color: var(--vscode-descriptionForeground);
+    cursor: pointer;
+    padding: 3px 10px;
+    border-radius: 2px;
+    font-size: 0.8em;
+    width: 100%;
+    text-align: left;
+  }
+  .btn-add-row:hover {
+    border-color: var(--vscode-focusBorder);
+    color: var(--vscode-foreground);
+  }
+</style>`;
+function buildGuideForm(guide) {
+  const sectionsHtml = guide.sections.map((s, i) => sectionBlock(s, i)).join("");
+  const body = `
+    ${GUIDE_CSS}
+    <div class="guide-meta">
+      <h2>Guide</h2>
+      ${inputField("Title", "guide_title", guide.title, { required: true })}
+      ${inputField("Subtitle", "guide_subtitle", guide.subtitle)}
+      ${textField("Body", "guide_body", guide.body, { rows: 4 })}
+    </div>
+    <p class="sections-heading">Sections (${guide.sections.length})</p>
+    <div class="sections-list">
+      ${sectionsHtml}
+    </div>
+    <input type="hidden" name="containerId" value="${escAttr2(guide.containerId)}">
+    <input type="hidden" name="guideInstanceId" value="${escAttr2(guide.guideInstanceId)}">
+    <input type="hidden" name="guideTypeId" value="${escAttr2(guide.guideTypeId)}">
+    <input type="hidden" name="guideTypeVersion" value="${escAttr2(String(guide.guideTypeVersion))}">
+    <input type="hidden" name="guide_slug" value="${escAttr2(guide.slug)}">
+    <input type="hidden" name="sectionCount" value="${guide.sections.length}">
+    ${GUIDE_JS}`;
+  return formWrapHtml(guide.title, body);
+}
+
+// src/webview/guides/guideEditorCommands.ts
+function registerGuideEditorCommands(context, cli, repoProvider, treeProvider) {
+  context.subscriptions.push(
+    vscode20.commands.registerCommand(
+      "srs.editGuide",
+      () => cmdEditGuide(context, cli, repoProvider, treeProvider)
+    )
+  );
+}
+async function cmdEditGuide(context, cli, repoProvider, treeProvider) {
+  const repoPath = repoProvider.active?.rootPath;
+  if (!repoPath) {
+    vscode20.window.showWarningMessage("SRS: No repository selected.");
+    return;
+  }
+  let containers;
+  try {
+    const payload = await cli.runOk(repoPath, ["container", "list"]);
+    containers = payload.containers.filter((c) => c.containerType === "guide");
+  } catch (err) {
+    vscode20.window.showErrorMessage(`SRS: Could not load containers \u2014 ${String(err)}`);
+    return;
+  }
+  if (containers.length === 0) {
+    vscode20.window.showInformationMessage("SRS: No guide containers found in this repository.");
+    return;
+  }
+  const picked = await vscode20.window.showQuickPick(
+    containers.map((c) => ({ label: c.title, description: c.containerId, id: c.containerId })),
+    { placeHolder: "Select a guide to edit" }
+  );
+  if (!picked)
+    return;
+  await vscode20.window.withProgress(
+    { location: vscode20.ProgressLocation.Notification, title: `Loading guide: ${picked.label}` },
+    async () => {
+      let guide;
+      try {
+        guide = await loadGuide(cli, repoPath, picked.id);
+      } catch (err) {
+        vscode20.window.showErrorMessage(`SRS: Failed to load guide \u2014 ${String(err)}`);
+        return;
+      }
+      const html = buildGuideForm(guide);
+      EntityEditorPanel.show(
+        context,
+        `guide:${picked.id}`,
+        guide.title,
+        html,
+        async (data) => {
+          await saveGuide(cli, repoPath, data);
+          treeProvider.refresh();
+          vscode20.window.showInformationMessage(`SRS: Guide "${guide.title}" saved.`);
+        }
+      );
+    }
+  );
+}
+
 // src/extension.ts
 async function activate(context) {
-  const outputChannel = vscode20.window.createOutputChannel("SRS");
+  const outputChannel = vscode21.window.createOutputChannel("SRS");
   context.subscriptions.push(outputChannel);
   const cli = new CliClient(outputChannel);
   const repoProvider = new RepositoryProvider(cli);
@@ -3230,22 +4256,22 @@ async function activate(context) {
     schemaProvider,
     entityDocProvider,
     diagnosticsProvider,
-    vscode20.workspace.registerTextDocumentContentProvider(
+    vscode21.workspace.registerTextDocumentContentProvider(
       ENTITY_SCHEME,
       entityDocProvider
     )
   );
-  const treeView = vscode20.window.createTreeView("srsRepositoryTree", {
+  const treeView = vscode21.window.createTreeView("srsRepositoryTree", {
     treeDataProvider: treeProvider,
     showCollapseAll: true
   });
   context.subscriptions.push(treeView);
-  const navigatorView = vscode20.window.createTreeView("srsNavigatorTree", {
+  const navigatorView = vscode21.window.createTreeView("srsNavigatorTree", {
     treeDataProvider: navigatorProvider,
     showCollapseAll: true
   });
   context.subscriptions.push(navigatorView);
-  vscode20.commands.executeCommand("setContext", "srs.navigatorMode", "relations");
+  vscode21.commands.executeCommand("setContext", "srs.navigatorMode", "relations");
   repoProvider.onDidChangeActive((repo) => {
     treeView.title = repo ? `SRS: ${repo.title}` : "SRS Repository";
     if (repo) {
@@ -3256,11 +4282,11 @@ async function activate(context) {
     }
   });
   context.subscriptions.push(
-    vscode20.workspace.onDidSaveTextDocument((doc) => {
+    vscode21.workspace.onDidSaveTextDocument((doc) => {
       const repo = repoProvider.active;
       if (!repo)
         return;
-      const config = vscode20.workspace.getConfiguration("srs");
+      const config = vscode21.workspace.getConfiguration("srs");
       if (!config.get("validate.onSave", true))
         return;
       if (!doc.uri.fsPath.startsWith(repo.rootPath))
@@ -3283,6 +4309,7 @@ async function activate(context) {
   registerEditCommands(context, cli, repoProvider, treeProvider);
   registerGraphCommands(context, cli, repoProvider, entityDocProvider);
   registerNavigatorCommands(context, navigatorProvider);
+  registerGuideEditorCommands(context, cli, repoProvider, treeProvider);
   await autoDetectRepository(cli, repoProvider);
   const activeRepo = repoProvider.active;
   if (activeRepo) {
@@ -3291,7 +4318,7 @@ async function activate(context) {
   }
 }
 async function autoDetectRepository(cli, repoProvider) {
-  const config = vscode20.workspace.getConfiguration("srs");
+  const config = vscode21.workspace.getConfiguration("srs");
   const configuredPath = config.get("repository.path", null);
   if (configuredPath) {
     const repo = await repoProvider.probe(configuredPath);
@@ -3299,12 +4326,12 @@ async function autoDetectRepository(cli, repoProvider) {
       repoProvider.setActive(repo);
     } else {
       const action = "Open Settings";
-      const choice = await vscode20.window.showWarningMessage(
+      const choice = await vscode21.window.showWarningMessage(
         `SRS: Configured path '${configuredPath}' is not a valid SRS repository.`,
         action
       );
       if (choice === action) {
-        vscode20.commands.executeCommand(
+        vscode21.commands.executeCommand(
           "workbench.action.openSettings",
           "srs.repository.path"
         );
@@ -3316,7 +4343,7 @@ async function autoDetectRepository(cli, repoProvider) {
   if (discovered.length === 1) {
     repoProvider.setActive(discovered[0]);
   } else if (discovered.length > 1) {
-    vscode20.window.showInformationMessage(
+    vscode21.window.showInformationMessage(
       `SRS: Found ${discovered.length} repositories in workspace. Use 'SRS: Select Repository' to choose one.`
     );
   }
