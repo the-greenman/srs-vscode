@@ -136,8 +136,20 @@ async function cmdPreviewRender(
     return;
   }
 
-  // If invoked from context menu on a document-view node, use that ID directly.
-  // Otherwise show a quick pick.
+  // Always fetch the view list — needed for containerType lookup in both code paths.
+  let views: DocumentViewListPayload["documentViews"];
+  try {
+    const payload = await cli.runOk<DocumentViewListPayload>(repo.rootPath, [
+      "document-view",
+      "list",
+    ]);
+    views = payload.documentViews;
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode.window.showErrorMessage(`SRS: Failed to list document views: ${msg}`);
+    return;
+  }
+
   let viewId: string | undefined;
   let viewLabel: string | undefined;
 
@@ -145,24 +157,10 @@ async function cmdPreviewRender(
     viewId = node.entityId;
     viewLabel = String(node.label);
   } else {
-    let views: DocumentViewListPayload["documentViews"];
-    try {
-      const payload = await cli.runOk<DocumentViewListPayload>(repo.rootPath, [
-        "document-view",
-        "list",
-      ]);
-      views = payload.documentViews;
-    } catch (err) {
-      const msg = err instanceof CliError ? err.message : String(err);
-      vscode.window.showErrorMessage(`SRS: Failed to list document views: ${msg}`);
-      return;
-    }
-
     if (views.length === 0) {
       vscode.window.showWarningMessage("SRS: No document views defined in this repository.");
       return;
     }
-
     const picked = await vscode.window.showQuickPick(
       views.map((v) => ({ label: `${v.namespace}/${v.name}`, description: v.id, view: v })),
       { placeHolder: "Select a document view to render" },
@@ -172,14 +170,44 @@ async function cmdPreviewRender(
     viewLabel = picked.label;
   }
 
-  try {
-    const payload = await cli.runOk<RenderPayload>(repo.rootPath, [
-      "render",
-      "document-view",
-      "--view",
-      viewId,
-    ]);
+  // If the view targets a container type, ask the user which container to render
+  const viewContainerType = views.find((v) => v.id === viewId)?.containerType;
+  let containerId: string | undefined;
+  if (viewContainerType) {
+    let containers: ContainerListPayload["containers"];
+    try {
+      const containerPayload = await cli.runOk<ContainerListPayload>(repo.rootPath, [
+        "container",
+        "list",
+      ]);
+      containers = containerPayload.containers.filter(
+        (c) => c.containerType === viewContainerType,
+      );
+    } catch (err) {
+      const msg = err instanceof CliError ? err.message : String(err);
+      vscode.window.showErrorMessage(`SRS: Failed to list containers: ${msg}`);
+      return;
+    }
 
+    if (containers.length === 0) {
+      vscode.window.showWarningMessage(
+        `SRS: No containers of type "${viewContainerType}" found.`,
+      );
+      return;
+    }
+
+    const picked = await vscode.window.showQuickPick(
+      containers.map((c) => ({ label: c.title, description: c.containerId, id: c.containerId })),
+      { placeHolder: `Select a ${viewContainerType} to render` },
+    );
+    if (!picked) return;
+    containerId = picked.id;
+  }
+
+  try {
+    const args = ["render", "document-view", "--view", viewId];
+    if (containerId) args.push("--container", containerId);
+    const payload = await cli.runOk<RenderPayload>(repo.rootPath, args);
     await openMarkdownPreview(payload.rendered, viewLabel ?? viewId);
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);

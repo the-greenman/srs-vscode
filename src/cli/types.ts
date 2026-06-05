@@ -126,6 +126,7 @@ export interface DocumentViewListPayload {
     name: string;
     namespace: string;
     description?: string;
+    containerType?: string;
   }>;
 }
 

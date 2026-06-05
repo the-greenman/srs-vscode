@@ -124,6 +124,10 @@
         "command": "srs.navigatorRefresh",
         "title": "SRS Navigator: Refresh",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "srs.editGuide",
+        "title": "SRS: Open Guide Editor"
       }
     ],
     "views": {

@@ -15,6 +15,7 @@ import { registerMutationCommands } from "./commands/mutationCommands";
 import { registerGraphCommands } from "./commands/graphCommands";
 import { NavigatorTreeDataProvider } from "./tree/NavigatorTreeDataProvider";
 import { registerNavigatorCommands } from "./commands/navigatorCommands";
+import { registerGuideEditorCommands } from "./webview/guides/guideEditorCommands";
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -103,6 +104,7 @@ export async function activate(
   registerEditCommands(context, cli, repoProvider, treeProvider);
   registerGraphCommands(context, cli, repoProvider, entityDocProvider);
   registerNavigatorCommands(context, navigatorProvider);
+  registerGuideEditorCommands(context, cli, repoProvider, treeProvider);
 
   // Auto-detect on activation
   await autoDetectRepository(cli, repoProvider);
