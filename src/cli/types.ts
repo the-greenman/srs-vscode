@@ -8,22 +8,28 @@ export type SrsEnvelope<T> =
 export interface RepoMapPayload {
   repoMap: {
     counts: {
-      notes: number;
-      records: number;
       totalInstances: number;
+      notes: number;
+      typedRecords: number;
+      records: number;
+      byTier: Record<string, number>;
     };
     repository: {
-      repositoryId: string;
-      title: string;
+      repositoryId?: string | null;
+      title?: string | null;
       description?: string | null;
+      conformance?: string | null;
     };
+    // additional fields (schemas, sourceDocuments, etc.) present but not consumed here
+    [key: string]: unknown;
   };
 }
 
 // repo validate
 export interface RepoValidateDiagnostic {
-  severity: "Error" | "Warning" | "Info";
-  relative_path: string;
+  severity: "error" | "warning";  // lowercase — Rust: #[serde(rename_all = "lowercase")]
+  path: string;                    // renamed — Rust: #[serde(rename = "path")]
+  schemaId?: string;
   message: string;
 }
 
