@@ -121,8 +121,8 @@ async function cmdValidateRepository(
         outputChannel.appendLine("✓ No issues found.");
       } else {
         for (const d of diagnostics) {
-          const sev = (d.severity ?? "Info").toUpperCase().padEnd(7);
-          const loc = d.relative_path ? ` [${d.relative_path}]` : "";
+          const sev = (d.severity ?? "info").toUpperCase().padEnd(7);
+          const loc = d.path ? ` [${d.path}]` : "";
           outputChannel.appendLine(`  ${sev}${loc}: ${d.message}`);
         }
       }
