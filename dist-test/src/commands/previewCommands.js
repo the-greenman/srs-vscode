@@ -37,10 +37,11 @@ exports.registerPreviewCommands = registerPreviewCommands;
 const vscode = __importStar(require("vscode"));
 const CliClient_1 = require("../cli/CliClient");
 const SrsTreeDataProvider_1 = require("../tree/SrsTreeDataProvider");
+const NavigatorTreeDataProvider_1 = require("../tree/NavigatorTreeDataProvider");
 const PreviewPanel_1 = require("../preview/PreviewPanel");
 // ---- Registration ----
-function registerPreviewCommands(context, cli, repoProvider) {
-    context.subscriptions.push(vscode.commands.registerCommand("srs.previewEntity", (node) => cmdPreviewEntity(context, cli, repoProvider, node)), vscode.commands.registerCommand("srs.previewRender", (node) => cmdPreviewRender(context, cli, repoProvider, node)));
+function registerPreviewCommands(context, cli, repoProvider, attention) {
+    context.subscriptions.push(vscode.commands.registerCommand("srs.previewEntity", (node) => cmdPreviewEntity(context, cli, repoProvider, node)), vscode.commands.registerCommand("srs.previewRender", (node) => cmdPreviewRender(context, cli, repoProvider, attention, node)));
 }
 // ---- Dispatch ----
 async function cmdPreviewEntity(context, cli, repoProvider, node) {
@@ -65,54 +66,112 @@ async function cmdPreviewEntity(context, cli, repoProvider, node) {
         vscode.window.showErrorMessage(`SRS: Preview failed: ${msg}`);
     }
 }
-async function cmdPreviewRender(context, cli, repoProvider, node) {
+/**
+ * Resolve the container context for a render invocation, used to type-filter the
+ * document-view picker. A container node names itself; a record/note (or a
+ * palette invocation) resolves to the active "scoped" container if one is set.
+ * Returns undefined when there is no container context.
+ */
+function resolveContainerContext(node, attention) {
+    if (node instanceof SrsTreeDataProvider_1.EntityNode && node.entityKind === "container") {
+        return node.entityId;
+    }
+    return attention.active?.containerId;
+}
+/** Extract the view id + label when render was invoked directly on a document-view node. */
+function directRenderTarget(node) {
+    if (node instanceof NavigatorTreeDataProvider_1.DocViewNode) {
+        return { viewId: node.viewId, viewLabel: String(node.label) };
+    }
+    if (node instanceof SrsTreeDataProvider_1.EntityNode && node.entityKind === "document-view") {
+        return { viewId: node.entityId, viewLabel: String(node.label) };
+    }
+    return undefined;
+}
+async function cmdPreviewRender(context, cli, repoProvider, attention, node) {
     const repo = repoProvider.active;
     if (!repo) {
         vscode.window.showWarningMessage("SRS: No active repository.");
         return;
     }
-    // Always fetch the view list — needed for containerType lookup in both code paths.
-    let views;
-    try {
-        const payload = await cli.runOk(repo.rootPath, [
-            "document-view",
-            "list",
-        ]);
-        views = payload.documentViews;
-    }
-    catch (err) {
-        const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
-        vscode.window.showErrorMessage(`SRS: Failed to list document views: ${msg}`);
-        return;
-    }
     let viewId;
     let viewLabel;
-    if (node instanceof SrsTreeDataProvider_1.EntityNode && node.entityKind === "document-view") {
-        viewId = node.entityId;
-        viewLabel = String(node.label);
+    let selectedContainerType;
+    const direct = directRenderTarget(node);
+    if (direct) {
+        // Render invoked directly on a document-view node (main tree or Navigator) — no picker.
+        viewId = direct.viewId;
+        viewLabel = direct.viewLabel;
+        // Best-effort containerType lookup from the full list (non-fatal if it fails).
+        try {
+            const payload = await cli.runOk(repo.rootPath, [
+                "document-view",
+                "list",
+            ]);
+            selectedContainerType = payload.documentViews.find((v) => v.id === viewId)?.containerType;
+        }
+        catch {
+            // fall through — render without a container is still valid
+        }
     }
     else {
+        // Picker path. Type-aware: when there is container context, offer only the
+        // views applicable to that container's root type; otherwise (or when nothing
+        // applies) fall back to the full list so the user is never stranded.
+        const containerCtxId = resolveContainerContext(node, attention);
+        let views = [];
+        try {
+            if (containerCtxId) {
+                const filtered = await cli.runOk(repo.rootPath, [
+                    "document-view",
+                    "list-for-container",
+                    containerCtxId,
+                ]);
+                views = filtered.documentViews;
+            }
+            if (views.length === 0) {
+                const full = await cli.runOk(repo.rootPath, [
+                    "document-view",
+                    "list",
+                ]);
+                views = full.documentViews;
+            }
+        }
+        catch (err) {
+            const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
+            vscode.window.showErrorMessage(`SRS: Failed to list document views: ${msg}`);
+            return;
+        }
         if (views.length === 0) {
             vscode.window.showWarningMessage("SRS: No document views defined in this repository.");
             return;
         }
-        const picked = await vscode.window.showQuickPick(views.map((v) => ({ label: `${v.namespace}/${v.name}`, description: v.id, view: v })), { placeHolder: "Select a document view to render" });
+        const picked = await vscode.window.showQuickPick(views.map((v) => ({
+            label: `${v.namespace}/${v.name}`,
+            description: `v${v.version}`,
+            detail: v.id,
+            view: v,
+        })), {
+            placeHolder: "Select a document view to render",
+            matchOnDescription: true,
+            matchOnDetail: true,
+        });
         if (!picked)
             return;
         viewId = picked.view.id;
         viewLabel = picked.label;
+        selectedContainerType = picked.view.containerType;
     }
     // If the view targets a container type, ask the user which container to render
-    const viewContainerType = views.find((v) => v.id === viewId)?.containerType;
     let containerId;
-    if (viewContainerType) {
+    if (selectedContainerType) {
         let containers;
         try {
             const containerPayload = await cli.runOk(repo.rootPath, [
                 "container",
                 "list",
             ]);
-            containers = containerPayload.containers.filter((c) => c.containerType === viewContainerType);
+            containers = containerPayload.containers.filter((c) => c.containerType === selectedContainerType);
         }
         catch (err) {
             const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
@@ -120,10 +179,10 @@ async function cmdPreviewRender(context, cli, repoProvider, node) {
             return;
         }
         if (containers.length === 0) {
-            vscode.window.showWarningMessage(`SRS: No containers of type "${viewContainerType}" found.`);
+            vscode.window.showWarningMessage(`SRS: No containers of type "${selectedContainerType}" found.`);
             return;
         }
-        const picked = await vscode.window.showQuickPick(containers.map((c) => ({ label: c.title, description: c.containerId, id: c.containerId })), { placeHolder: `Select a ${viewContainerType} to render` });
+        const picked = await vscode.window.showQuickPick(containers.map((c) => ({ label: c.title, description: c.containerId, id: c.containerId })), { placeHolder: `Select a ${selectedContainerType} to render` });
         if (!picked)
             return;
         containerId = picked.id;

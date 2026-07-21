@@ -35,6 +35,11 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SrsTreeDataProvider = exports.EntityNode = exports.GroupNode = void 0;
 const vscode = __importStar(require("vscode"));
+// Convert an EntityKind into a regex-safe camelCase contextValue suffix,
+// e.g. "document-view" → "documentView", "relation-type" → "relationType".
+function entityKindToContext(kind) {
+    return kind.replace(/-([a-z])/g, (_m, c) => c.toUpperCase());
+}
 // ---- Tree item types ----
 class GroupNode extends vscode.TreeItem {
     constructor(kind, label, count) {
@@ -53,7 +58,10 @@ class EntityNode extends vscode.TreeItem {
         this.entityId = entityId;
         this.entityKind = entityKind;
         this.getArgs = getArgs;
-        this.contextValue = "srsEntity";
+        // Per-kind contextValue so menus can target specific kinds (e.g. only
+        // document-view / container get the render action). The `srsEntity.` prefix
+        // is matched by the generic entity menus via `viewItem =~ /^srsEntity/`.
+        this.contextValue = `srsEntity.${entityKindToContext(entityKind)}`;
         this.tooltip = `${entityKind}: ${entityId}`;
         this.description = entityId.slice(0, 8);
         this.command = {

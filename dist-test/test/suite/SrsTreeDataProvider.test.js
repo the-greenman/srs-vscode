@@ -59,9 +59,17 @@ describe("EntityNode", () => {
         assert.strictEqual(node.entityId, "abc-123");
         assert.strictEqual(node.entityKind, "note");
     });
-    it("sets contextValue to srsEntity", () => {
+    it("sets a per-kind contextValue under the srsEntity prefix", () => {
         const node = new SrsTreeDataProvider_1.EntityNode("id", "tag", "Label", ["tag", "get", "id"]);
-        assert.strictEqual(node.contextValue, "srsEntity");
+        assert.strictEqual(node.contextValue, "srsEntity.tag");
+    });
+    it("camelCases kebab-case kinds in the contextValue suffix", () => {
+        // The render menu targets `srsEntity.documentView` / `srsEntity.container`,
+        // so kebab kinds must collapse to a regex-safe camelCase suffix.
+        const dv = new SrsTreeDataProvider_1.EntityNode("id", "document-view", "DV", ["document-view", "get", "id"]);
+        assert.strictEqual(dv.contextValue, "srsEntity.documentView");
+        const container = new SrsTreeDataProvider_1.EntityNode("id", "container", "C", ["container", "get", "id"]);
+        assert.strictEqual(container.contextValue, "srsEntity.container");
     });
     it("stores correct getArgs for note", () => {
         const node = new SrsTreeDataProvider_1.EntityNode("note-001", "note", "First Note", ["note", "get", "note-001"]);

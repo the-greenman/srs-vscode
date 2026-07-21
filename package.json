@@ -219,27 +219,32 @@
       "view/item/context": [
         {
           "command": "srs.previewEntity",
-          "when": "viewItem == srsEntity",
+          "when": "viewItem =~ /^srsEntity/",
           "group": "srs@1"
         },
         {
           "command": "srs.openEntity",
-          "when": "viewItem == srsEntity",
+          "when": "viewItem =~ /^srsEntity/",
           "group": "srs@1"
         },
         {
           "command": "srs.previewRender",
-          "when": "viewItem == srsEntity",
+          "when": "viewItem =~ /^srsEntity\\.(documentView|container)$/",
+          "group": "srs@2"
+        },
+        {
+          "command": "srs.previewRender",
+          "when": "view == srsNavigatorTree && viewItem == srsNavDocView",
           "group": "srs@2"
         },
         {
           "command": "srs.editEntity",
-          "when": "viewItem == srsEntity",
+          "when": "viewItem =~ /^srsEntity/",
           "group": "srs@3"
         },
         {
           "command": "srs.deleteEntity",
-          "when": "view == srsRepositoryTree && viewItem == srsEntity",
+          "when": "view == srsRepositoryTree && viewItem =~ /^srsEntity/",
           "group": "srs@9"
         }
       ]

@@ -3,6 +3,7 @@
 // Only covers the surface used by the files under test.
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ViewColumn = exports.ProgressLocation = exports.EventEmitter = exports.commands = exports.window = exports.workspace = exports.TreeItem = exports.TreeItemCollapsibleState = void 0;
+exports.getRegisteredCommand = getRegisteredCommand;
 var TreeItemCollapsibleState;
 (function (TreeItemCollapsibleState) {
     TreeItemCollapsibleState[TreeItemCollapsibleState["None"] = 0] = "None";
@@ -22,16 +23,33 @@ exports.workspace = {
         get: (_key, defaultValue) => defaultValue,
     }),
     workspaceFolders: [],
+    // Used by openMarkdownPreview — return a doc-like object with a uri.
+    openTextDocument: (_opts) => Promise.resolve({ uri: { toString: () => "untitled:preview" } }),
 };
 exports.window = {
     createOutputChannel: () => ({ appendLine: () => { } }),
     showErrorMessage: () => Promise.resolve(undefined),
     showWarningMessage: () => Promise.resolve(undefined),
     showInformationMessage: () => Promise.resolve(undefined),
+    showTextDocument: () => Promise.resolve(undefined),
+    lastQuickPick: undefined,
+    quickPickIndex: 0,
+    showQuickPick(items, options) {
+        exports.window.lastQuickPick = { items, options };
+        return Promise.resolve(items[exports.window.quickPickIndex]);
+    },
 };
+// Command registry so tests can invoke a registered command callback directly.
+const _commandRegistry = {};
+function getRegisteredCommand(id) {
+    return _commandRegistry[id];
+}
 exports.commands = {
     executeCommand: () => Promise.resolve(undefined),
-    registerCommand: () => ({ dispose: () => { } }),
+    registerCommand: (id, cb) => {
+        _commandRegistry[id] = cb;
+        return { dispose: () => { } };
+    },
 };
 class EventEmitter {
     constructor() {
@@ -48,5 +66,6 @@ var ProgressLocation;
 var ViewColumn;
 (function (ViewColumn) {
     ViewColumn[ViewColumn["Beside"] = -2] = "Beside";
+    ViewColumn[ViewColumn["Active"] = -1] = "Active";
 })(ViewColumn || (exports.ViewColumn = ViewColumn = {}));
 //# sourceMappingURL=vscode-mock.js.map

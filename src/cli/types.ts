@@ -132,12 +132,15 @@ export interface ViewListPayload {
   views: Array<{ id: string; name: string; namespace: string }>;
 }
 
-// document-view list  → payload.documentViews
+// document-view list / list-for-container  → payload.documentViews
+// Mirrors the Rust DocumentViewSummary (srs-repository view_service.rs): both
+// `version` and `description` are always emitted; `containerType` is optional.
 export interface DocumentViewListPayload {
   documentViews: Array<{
     id: string;
     name: string;
     namespace: string;
+    version: number;
     description?: string;
     containerType?: string;
   }>;
