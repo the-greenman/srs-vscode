@@ -81,7 +81,7 @@ class GraphPanel {
                 kindMap.set(n.instanceId, "note");
             }
             for (const r of recordPayload.records) {
-                labelMap.set(r.instanceId, r.typeName);
+                labelMap.set(r.instanceId, r.displayLabel);
                 kindMap.set(r.instanceId, "record");
             }
             const nodeIds = new Set();

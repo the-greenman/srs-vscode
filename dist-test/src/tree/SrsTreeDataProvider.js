@@ -85,7 +85,7 @@ const ENTITY_SPECS = {
         listArgs: ["record", "list"],
         extractItems: (p) => p.records.map((r) => ({
             id: r.instanceId,
-            label: `${r.typeNamespace}/${r.typeName}`,
+            label: r.displayLabel,
         })),
         getArgs: (id) => ["record", "get", id],
     },

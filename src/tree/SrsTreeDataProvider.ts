@@ -92,7 +92,7 @@ const ENTITY_SPECS: Record<EntityKind, EntitySpec> = {
     extractItems: (p) =>
       (p as RecordListPayload).records.map((r) => ({
         id: r.instanceId,
-        label: `${r.typeNamespace}/${r.typeName}`,
+        label: r.displayLabel,
       })),
     getArgs: (id) => ["record", "get", id],
   },
