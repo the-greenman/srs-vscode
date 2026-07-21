@@ -71,8 +71,20 @@ async function cmdPreviewRender(context, cli, repoProvider, node) {
         vscode.window.showWarningMessage("SRS: No active repository.");
         return;
     }
-    // If invoked from context menu on a document-view node, use that ID directly.
-    // Otherwise show a quick pick.
+    // Always fetch the view list — needed for containerType lookup in both code paths.
+    let views;
+    try {
+        const payload = await cli.runOk(repo.rootPath, [
+            "document-view",
+            "list",
+        ]);
+        views = payload.documentViews;
+    }
+    catch (err) {
+        const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
+        vscode.window.showErrorMessage(`SRS: Failed to list document views: ${msg}`);
+        return;
+    }
     let viewId;
     let viewLabel;
     if (node instanceof SrsTreeDataProvider_1.EntityNode && node.entityKind === "document-view") {
@@ -80,19 +92,6 @@ async function cmdPreviewRender(context, cli, repoProvider, node) {
         viewLabel = String(node.label);
     }
     else {
-        let views;
-        try {
-            const payload = await cli.runOk(repo.rootPath, [
-                "document-view",
-                "list",
-            ]);
-            views = payload.documentViews;
-        }
-        catch (err) {
-            const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
-            vscode.window.showErrorMessage(`SRS: Failed to list document views: ${msg}`);
-            return;
-        }
         if (views.length === 0) {
             vscode.window.showWarningMessage("SRS: No document views defined in this repository.");
             return;
@@ -103,13 +102,37 @@ async function cmdPreviewRender(context, cli, repoProvider, node) {
         viewId = picked.view.id;
         viewLabel = picked.label;
     }
+    // If the view targets a container type, ask the user which container to render
+    const viewContainerType = views.find((v) => v.id === viewId)?.containerType;
+    let containerId;
+    if (viewContainerType) {
+        let containers;
+        try {
+            const containerPayload = await cli.runOk(repo.rootPath, [
+                "container",
+                "list",
+            ]);
+            containers = containerPayload.containers.filter((c) => c.containerType === viewContainerType);
+        }
+        catch (err) {
+            const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
+            vscode.window.showErrorMessage(`SRS: Failed to list containers: ${msg}`);
+            return;
+        }
+        if (containers.length === 0) {
+            vscode.window.showWarningMessage(`SRS: No containers of type "${viewContainerType}" found.`);
+            return;
+        }
+        const picked = await vscode.window.showQuickPick(containers.map((c) => ({ label: c.title, description: c.containerId, id: c.containerId })), { placeHolder: `Select a ${viewContainerType} to render` });
+        if (!picked)
+            return;
+        containerId = picked.id;
+    }
     try {
-        const payload = await cli.runOk(repo.rootPath, [
-            "render",
-            "document-view",
-            "--view",
-            viewId,
-        ]);
+        const args = ["render", "document-view", "--view", viewId];
+        if (containerId)
+            args.push("--container", containerId);
+        const payload = await cli.runOk(repo.rootPath, args);
         await openMarkdownPreview(payload.rendered, viewLabel ?? viewId);
     }
     catch (err) {

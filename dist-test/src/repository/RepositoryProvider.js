@@ -51,8 +51,8 @@ class RepositoryProvider {
             const payload = await this.cli.runOk(rootPath, ["repo", "map"]);
             return {
                 rootPath,
-                title: payload.repoMap.repository.title ?? payload.repoMap.repository.repositoryId,
-                repositoryId: payload.repoMap.repository.repositoryId,
+                title: payload.repoMap.repository.title ?? payload.repoMap.repository.repositoryId ?? rootPath,
+                repositoryId: payload.repoMap.repository.repositoryId ?? rootPath,
                 counts: payload.repoMap.counts,
             };
         }
@@ -70,6 +70,8 @@ class RepositoryProvider {
     setActive(repo) {
         this._active = repo;
         vscode.commands.executeCommand("setContext", "srs.repositoryActive", repo !== undefined);
+        // Drives the `when` clause for "Save to .srs" — true only for archive-backed repos.
+        vscode.commands.executeCommand("setContext", "srs.activeRepoIsArchive", repo?.archivePath !== undefined);
         this._onDidChangeActive.fire(repo);
     }
     // Re-probe the current active path and refresh its counts.
@@ -79,7 +81,8 @@ class RepositoryProvider {
         }
         const updated = await this.probe(this._active.rootPath);
         if (updated) {
-            this.setActive(updated);
+            // probe() never sets archivePath — carry the active archive binding forward.
+            this.setActive({ ...updated, archivePath: this._active.archivePath });
         }
     }
     dispose() {

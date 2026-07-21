@@ -1,0 +1,2 @@
+# Packaged extension build artifact (produced by `npm run package` / CI)
+*.vsix

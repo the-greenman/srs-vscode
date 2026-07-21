@@ -171,6 +171,18 @@ export interface BlueprintStructurePayload {
   }>;
 }
 
+// archive pack  → payload
+export interface ArchivePackPayload {
+  outputPath: string;
+  fileSizeBytes: number;
+}
+
+// archive unpack  → payload
+export interface ArchiveUnpackPayload {
+  targetDir: string;
+  repositoryId: string;
+}
+
 // Entity kinds understood by the tree
 export type EntityKind =
   | "note"
