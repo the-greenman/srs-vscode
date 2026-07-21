@@ -2,8 +2,12 @@
   "name": "srs-vscode",
   "displayName": "SRS Repository Browser",
   "description": "Browse and validate Semantic Record System repositories via the srs CLI",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "semanticops",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/the-greenman/srs-vscode.git"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -13,7 +17,8 @@
   "activationEvents": [
     "workspaceContains:.srs",
     "workspaceContains:manifest.json",
-    "workspaceContains:*.srsj"
+    "workspaceContains:*.srsj",
+    "workspaceContains:**/*.srs"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -128,6 +133,20 @@
       {
         "command": "srs.editGuide",
         "title": "SRS: Open Guide Editor"
+      },
+      {
+        "command": "srs.openArchive",
+        "title": "SRS: Open Archive (.srs)…",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "srs.saveArchive",
+        "title": "SRS: Save to .srs",
+        "icon": "$(save)"
+      },
+      {
+        "command": "srs.exportArchive",
+        "title": "SRS: Export Repository to .srs…"
       }
     ],
     "views": {
@@ -145,7 +164,22 @@
       ]
     },
     "menus": {
+      "commandPalette": [
+        {
+          "command": "srs.saveArchive",
+          "when": "srs.activeRepoIsArchive"
+        },
+        {
+          "command": "srs.exportArchive",
+          "when": "srs.repositoryActive"
+        }
+      ],
       "view/title": [
+        {
+          "command": "srs.saveArchive",
+          "when": "view == srsRepositoryTree && srs.activeRepoIsArchive",
+          "group": "navigation"
+        },
         {
           "command": "srs.refreshRepository",
           "when": "view == srsRepositoryTree",
@@ -245,7 +279,9 @@
     "watch": "node esbuild.js --watch",
     "compile-tests": "tsc -p tsconfig.test.json",
     "test": "npm run compile-tests && node --require ./test/fixtures/register-vscode-mock.js ./dist-test/test/suite/index.js",
-    "check-schema-drift": "scripts/check-schema-drift.sh"
+    "check-schema-drift": "scripts/check-schema-drift.sh",
+    "package": "npx --yes @vscode/vsce package --out srs-vscode.vsix",
+    "install:local": "scripts/install-local.sh"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.6",

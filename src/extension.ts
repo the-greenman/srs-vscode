@@ -16,6 +16,9 @@ import { registerGraphCommands } from "./commands/graphCommands";
 import { NavigatorTreeDataProvider } from "./tree/NavigatorTreeDataProvider";
 import { registerNavigatorCommands } from "./commands/navigatorCommands";
 import { registerGuideEditorCommands } from "./webview/guides/guideEditorCommands";
+import { ArchiveManager } from "./archive/ArchiveManager";
+import { ArchiveStatusBarItem } from "./archive/ArchiveStatusBarItem";
+import { registerArchiveCommands } from "./commands/archiveCommands";
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -32,6 +35,8 @@ export async function activate(
   const schemaProvider = new SchemaProvider(context.extensionUri);
   const entityDocProvider = new EntityDocumentProvider(cli, repoProvider);
   const diagnosticsProvider = new DiagnosticsProvider(cli, repoProvider);
+  const archiveManager = new ArchiveManager(context, cli, repoProvider);
+  const archiveStatusBarItem = new ArchiveStatusBarItem(archiveManager, repoProvider);
 
   context.subscriptions.push(
     repoProvider,
@@ -42,6 +47,8 @@ export async function activate(
     schemaProvider,
     entityDocProvider,
     diagnosticsProvider,
+    archiveManager,
+    archiveStatusBarItem,
     vscode.workspace.registerTextDocumentContentProvider(
       ENTITY_SCHEME,
       entityDocProvider,
@@ -105,6 +112,7 @@ export async function activate(
   registerGraphCommands(context, cli, repoProvider, entityDocProvider);
   registerNavigatorCommands(context, navigatorProvider);
   registerGuideEditorCommands(context, cli, repoProvider, treeProvider);
+  registerArchiveCommands(context, cli, repoProvider, archiveManager);
 
   // Auto-detect on activation
   await autoDetectRepository(cli, repoProvider);

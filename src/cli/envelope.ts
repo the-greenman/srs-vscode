@@ -61,3 +61,21 @@ export function buildArgv(
   args.push(...subcommandArgs);
   return args;
 }
+
+// Build argv WITHOUT injecting --repo. For the few commands that operate on a
+// file path directly rather than on a loaded repository — notably
+// `srs archive unpack <source>.srs --target <dir>`, which takes its source and
+// target as arguments and never resolves the ambient --repo. --format json is
+// still prepended so the output is a parseable envelope. --container is omitted
+// (these commands have no container scope).
+export function buildRawArgv(
+  subcommandArgs: string[],
+  options?: CliRunOptions,
+): string[] {
+  const args = ["--format", "json"];
+  if (options?.pretty) {
+    args.push("--pretty");
+  }
+  args.push(...subcommandArgs);
+  return args;
+}

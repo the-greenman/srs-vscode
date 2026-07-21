@@ -7,6 +7,10 @@ export interface DetectedRepository {
   title: string;
   repositoryId: string;
   counts: RepoMapPayload["repoMap"]["counts"];
+  // When this repo is the unpacked working copy of a `.srs` archive, the
+  // absolute path of that source archive — the target for "Save to .srs".
+  // Undefined for plain directory repos (probe() never sets it).
+  archivePath?: string;
 }
 
 export class RepositoryProvider implements vscode.Disposable {
@@ -55,6 +59,12 @@ export class RepositoryProvider implements vscode.Disposable {
       "srs.repositoryActive",
       repo !== undefined,
     );
+    // Drives the `when` clause for "Save to .srs" — true only for archive-backed repos.
+    vscode.commands.executeCommand(
+      "setContext",
+      "srs.activeRepoIsArchive",
+      repo?.archivePath !== undefined,
+    );
     this._onDidChangeActive.fire(repo);
   }
 
@@ -65,7 +75,8 @@ export class RepositoryProvider implements vscode.Disposable {
     }
     const updated = await this.probe(this._active.rootPath);
     if (updated) {
-      this.setActive(updated);
+      // probe() never sets archivePath — carry the active archive binding forward.
+      this.setActive({ ...updated, archivePath: this._active.archivePath });
     }
   }
 

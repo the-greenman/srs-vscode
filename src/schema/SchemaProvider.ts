@@ -5,11 +5,12 @@ import * as path from "path";
 // The extension.ts will resolve these to absolute URIs and register them with vscode.
 const SCHEMA_ASSOCIATIONS: Array<{ glob: string; schema: string }> = [
   { glob: "**/manifest.json",              schema: "schemas/2.0/manifest.json" },
-  { glob: "**/records/*.json",             schema: "schemas/2.0/record.json" },
-  { glob: "**/records/*.srsj",             schema: "schemas/2.0/record.json" },
-  { glob: "**/notes/*.json",               schema: "schemas/2.0/note.json" },
-  { glob: "**/notes/*.srsj",               schema: "schemas/2.0/note.json" },
-  { glob: "**/typed-records/*.json",       schema: "schemas/2.0/typed-record.json" },
+  // Instance files are always `.json`. `**` after the folder matches tier-nested
+  // layouts too (e.g. an unpacked archive's records/tier-2/*.json). `.srsj`/`.srs`
+  // are whole-repo bundle extensions, never per-instance files — do not glob them.
+  { glob: "**/records/**/*.json",          schema: "schemas/2.0/record.json" },
+  { glob: "**/notes/**/*.json",            schema: "schemas/2.0/note.json" },
+  { glob: "**/typed-records/**/*.json",    schema: "schemas/2.0/typed-record.json" },
   { glob: "**/package/fields/*.json",      schema: "schemas/2.0/field.json" },
   { glob: "**/package/types/*.json",       schema: "schemas/2.0/type.json" },
   { glob: "**/package/views/*.json",       schema: "schemas/2.0/view.json" },

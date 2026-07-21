@@ -16,7 +16,7 @@ function guideUpdateInput(guide) {
             [guideTypes_1.F.slug, guide.slug],
             [guideTypes_1.F.title, guide.title],
             [guideTypes_1.F.subtitle, guide.subtitle],
-            [guideTypes_1.F.intro, guide.intro],
+            [guideTypes_1.F.body, guide.body],
         ]),
     };
 }
@@ -29,20 +29,46 @@ function sectionUpdateInput(section) {
         pairs.push([guideTypes_1.F.body, section.body], [guideTypes_1.F.callout, section.callout]);
     }
     else if (section.type === "list") {
-        pairs.push([guideTypes_1.F.listItems, section.listItems], [guideTypes_1.F.confirmation, section.confirmation]);
-    }
-    else if (section.type === "commentary") {
-        const raw = section.commentaryItems ? JSON.stringify(section.commentaryItems) : undefined;
-        pairs.push([guideTypes_1.F.commentaryItems, raw]);
+        pairs.push([guideTypes_1.F.body, section.body], [guideTypes_1.F.listItems, section.listItems], [guideTypes_1.F.outro, section.outro]);
     }
     else if (section.type === "table") {
-        pairs.push([guideTypes_1.F.intro, section.intro], [guideTypes_1.F.tip, section.tip], [guideTypes_1.F.note, section.note]);
+        pairs.push([guideTypes_1.F.body, section.body], [guideTypes_1.F.outro, section.outro]);
+    }
+    const fieldValues = buildFieldValues(pairs);
+    const groupValues = [];
+    if (section.type === "table") {
+        if (section.items !== undefined) {
+            groupValues.push({
+                groupId: "items",
+                entries: section.items.map((item) => ({
+                    fieldValues: [
+                        ...(item.term ? [{ fieldId: guideTypes_1.F.itemTerm, value: item.term }] : []),
+                        { fieldId: guideTypes_1.F.itemBody, value: item.body },
+                    ],
+                })),
+            });
+        }
+        if (section.tables !== undefined) {
+            groupValues.push({
+                groupId: "tables",
+                entries: section.tables.map((t) => ({
+                    fieldValues: [
+                        { fieldId: guideTypes_1.F.columns, value: JSON.stringify(t.columns ?? []) },
+                        { fieldId: guideTypes_1.F.rows, value: JSON.stringify(t.rows) },
+                        ...(t.subheading ? [{ fieldId: guideTypes_1.F.subheading, value: t.subheading }] : []),
+                        ...(t.label ? [{ fieldId: guideTypes_1.F.tableLabel, value: t.label }] : []),
+                        ...(t.widths ? [{ fieldId: guideTypes_1.F.widths, value: JSON.stringify(t.widths) }] : []),
+                    ],
+                })),
+            });
+        }
     }
     return {
         instanceId: section.instanceId,
         typeId: section.typeId,
         typeVersion: section.typeVersion,
-        fieldValues: buildFieldValues(pairs),
+        fieldValues,
+        ...(groupValues.length > 0 ? { groupValues } : {}),
     };
 }
 async function saveGuide(cli, repoPath, guide) {

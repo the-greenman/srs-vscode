@@ -1,12 +1,12 @@
 import * as cp from "child_process";
 import * as vscode from "vscode";
 import { CliError } from "./errors";
-import { parseEnvelope, buildArgv } from "./envelope";
+import { parseEnvelope, buildArgv, buildRawArgv } from "./envelope";
 import type { SrsEnvelope } from "./types";
 import type { CliRunOptions } from "./envelope";
 
 export { CliError } from "./errors";
-export { parseEnvelope, buildArgv } from "./envelope";
+export { parseEnvelope, buildArgv, buildRawArgv } from "./envelope";
 export type { CliRunOptions } from "./envelope";
 
 export class CliClient {
@@ -30,9 +30,33 @@ export class CliClient {
     subcommandArgs: string[],
     options?: CliRunOptions,
   ): Promise<SrsEnvelope<T>> {
+    return this._exec<T>(
+      buildArgv(repoPath, subcommandArgs, options),
+      subcommandArgs[0] ?? "unknown",
+      options,
+    );
+  }
+
+  // Run a command WITHOUT injecting --repo (buildRawArgv). For commands that take
+  // file paths as arguments rather than a loaded repo — e.g. `archive unpack`.
+  async runRaw<T>(
+    subcommandArgs: string[],
+    options?: CliRunOptions,
+  ): Promise<SrsEnvelope<T>> {
+    return this._exec<T>(
+      buildRawArgv(subcommandArgs, options),
+      subcommandArgs[0] ?? "unknown",
+      options,
+    );
+  }
+
+  // Spawn the srs binary with a fully-built argv and parse the JSON envelope.
+  private async _exec<T>(
+    args: string[],
+    commandHint: string,
+    options?: CliRunOptions,
+  ): Promise<SrsEnvelope<T>> {
     const binary = this.binaryPath;
-    const args = buildArgv(repoPath, subcommandArgs, options);
-    const commandHint = subcommandArgs[0] ?? "unknown";
 
     if (this.tracing) {
       this.outputChannel.appendLine(`[srs] ${binary} ${args.join(" ")}`);
@@ -110,7 +134,27 @@ export class CliClient {
     subcommandArgs: string[],
     options?: CliRunOptions,
   ): Promise<T> {
-    const envelope = await this.run<T>(repoPath, subcommandArgs, options);
+    return CliClient._assertOk(
+      await this.run<T>(repoPath, subcommandArgs, options),
+      subcommandArgs,
+    );
+  }
+
+  // runRaw + assert ok:true; throw CliError on ok:false.
+  async runRawOk<T>(
+    subcommandArgs: string[],
+    options?: CliRunOptions,
+  ): Promise<T> {
+    return CliClient._assertOk(
+      await this.runRaw<T>(subcommandArgs, options),
+      subcommandArgs,
+    );
+  }
+
+  private static _assertOk<T>(
+    envelope: SrsEnvelope<T>,
+    subcommandArgs: string[],
+  ): T {
     if (!envelope.ok) {
       throw new CliError(
         `srs ${subcommandArgs.join(" ")} failed: ${envelope.diagnostics.join("; ")}`,
