@@ -297,7 +297,7 @@ async function previewRecord(
     }
     if (recordListResult.status === "fulfilled") {
       for (const r of recordListResult.value.records) {
-        peerLabelMap.set(r.instanceId, { label: r.typeName, kind: "record" });
+        peerLabelMap.set(r.instanceId, { label: r.displayLabel, kind: "record" });
       }
     }
 

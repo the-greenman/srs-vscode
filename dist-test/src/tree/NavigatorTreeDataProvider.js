@@ -252,7 +252,7 @@ class NavigatorTreeDataProvider {
             ]);
             if (payload.records.length === 0)
                 return [new EmptyNode("No records")];
-            return payload.records.map((r) => new SrsTreeDataProvider_1.EntityNode(r.instanceId, "record", r.typeName, ["record", "get", r.instanceId]));
+            return payload.records.map((r) => new SrsTreeDataProvider_1.EntityNode(r.instanceId, "record", r.displayLabel, ["record", "get", r.instanceId]));
         }
         catch {
             return [new EmptyNode(`Failed to load records for ${semanticObjectType}`)];
@@ -298,7 +298,7 @@ class NavigatorTreeDataProvider {
         }
         if (recordResult.status === "fulfilled") {
             for (const r of recordResult.value.records) {
-                map.set(r.instanceId, { label: r.typeName, kind: "record" });
+                map.set(r.instanceId, { label: r.displayLabel, kind: "record" });
             }
         }
         this._labelMap = map;

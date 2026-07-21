@@ -200,7 +200,7 @@ async function previewRecord(context, cli, repoPath, id) {
         }
         if (recordListResult.status === "fulfilled") {
             for (const r of recordListResult.value.records) {
-                peerLabelMap.set(r.instanceId, { label: r.typeName, kind: "record" });
+                peerLabelMap.set(r.instanceId, { label: r.displayLabel, kind: "record" });
             }
         }
         for (const rel of relResult.value.relations) {
