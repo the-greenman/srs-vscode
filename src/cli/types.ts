@@ -43,9 +43,20 @@ export interface NoteListPayload {
   notes: Array<{ instanceId: string; title: string }>;
 }
 
-// tag list  → payload.tagDefinitions
+// tag list  → payload.terms
+// RFC-006 vocabulary Terms (Rust srs-core Term): id/version/namespace/key are
+// always emitted; label/description/roles are optional. Replaces the retired
+// tagDefinitions shape.
 export interface TagListPayload {
-  tagDefinitions: Array<{ instanceId: string; slug: string; label?: string }>;
+  terms: Array<{
+    id: string;
+    version: number;
+    namespace: string;
+    key: string;
+    label?: string;
+    description?: string;
+    roles?: string[];
+  }>;
 }
 
 // record list  → payload.records

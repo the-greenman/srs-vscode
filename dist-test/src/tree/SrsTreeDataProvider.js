@@ -83,9 +83,9 @@ const ENTITY_SPECS = {
     },
     tag: {
         listArgs: ["tag", "list"],
-        extractItems: (p) => p.tagDefinitions.map((t) => ({
-            id: t.instanceId,
-            label: t.label ?? t.slug,
+        extractItems: (p) => p.terms.map((t) => ({
+            id: t.id,
+            label: t.label ?? t.key,
         })),
         getArgs: (id) => ["tag", "get", id],
     },

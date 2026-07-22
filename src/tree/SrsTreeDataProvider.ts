@@ -90,9 +90,9 @@ const ENTITY_SPECS: Record<EntityKind, EntitySpec> = {
   tag: {
     listArgs: ["tag", "list"],
     extractItems: (p) =>
-      (p as TagListPayload).tagDefinitions.map((t) => ({
-        id: t.instanceId,
-        label: t.label ?? t.slug,
+      (p as TagListPayload).terms.map((t) => ({
+        id: t.id,
+        label: t.label ?? t.key,
       })),
     getArgs: (id) => ["tag", "get", id],
   },
