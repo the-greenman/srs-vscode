@@ -2,10 +2,38 @@
 // HTML form builders for SRS entity editors.
 // No vscode dependency — pure string generation.
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.REPEAT_ENTRY_JS = void 0;
 exports.formWrapHtml = formWrapHtml;
 exports.buildNoteForm = buildNoteForm;
 exports.buildTagForm = buildTagForm;
 exports.buildRecordForm = buildRecordForm;
+// ---- Shared JS for dynamic repeat-entry lists ----
+// Relies on CSS classes .repeat-list, .repeat-entry, .repeat-value, .btn-remove-entry,
+// .btn-add-entry (all defined in FORM_CSS). Include once per webview.
+exports.REPEAT_ENTRY_JS = `
+  function wireRemoveEntry(btn) {
+    btn.addEventListener('click', function() {
+      btn.closest('[data-repeat-entry]').remove();
+    });
+  }
+  function addEntry(listId, rows) {
+    var list = document.getElementById(listId);
+    var entry = document.createElement('div');
+    entry.className = 'repeat-entry';
+    entry.setAttribute('data-repeat-entry', '');
+    entry.innerHTML = '<textarea class="repeat-value" rows="' + (rows || 2) + '"></textarea>' +
+      '<button type="button" class="btn-remove-entry" title="Remove">\\u2715</button>';
+    list.appendChild(entry);
+    entry.querySelector('.repeat-value').focus();
+    wireRemoveEntry(entry.querySelector('.btn-remove-entry'));
+  }
+  document.querySelectorAll('.btn-remove-entry').forEach(wireRemoveEntry);
+  document.querySelectorAll('.btn-add-entry[data-target]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      addEntry(btn.getAttribute('data-target'), parseInt(btn.getAttribute('data-rows') || '2', 10));
+    });
+  });
+`;
 // ---- HTML escape ----
 function esc(s) {
     return s
@@ -397,28 +425,7 @@ function buildRecordForm(record, fields) {
                createdAt: createdAt, fieldValues: fieldValues };
     }
 
-    function wireRemoveEntry(btn) {
-      btn.addEventListener('click', function() {
-        btn.closest('[data-repeat-entry]').remove();
-      });
-    }
-
-    function addEntry(listId) {
-      var list = document.getElementById(listId);
-      var entry = document.createElement('div');
-      entry.className = 'repeat-entry';
-      entry.setAttribute('data-repeat-entry', '');
-      entry.innerHTML = '<textarea class="repeat-value" rows="2"></textarea>' +
-        '<button type="button" class="btn-remove-entry" title="Remove">\\u2715</button>';
-      list.appendChild(entry);
-      entry.querySelector('.repeat-value').focus();
-      wireRemoveEntry(entry.querySelector('.btn-remove-entry'));
-    }
-
-    document.querySelectorAll('.btn-remove-entry').forEach(wireRemoveEntry);
-    document.querySelectorAll('.btn-add-entry').forEach(function(btn) {
-      btn.addEventListener('click', function() { addEntry(btn.getAttribute('data-target')); });
-    });
+    ${exports.REPEAT_ENTRY_JS.trim()}
   </script>`;
     return `
     ${fieldHtml}

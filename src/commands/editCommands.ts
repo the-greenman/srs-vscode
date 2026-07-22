@@ -597,7 +597,7 @@ async function buildInstanceItems(
     const records = await cli.runOk<RecordListPayload>(repoPath, ["record", "list"]);
     for (const r of records.records) {
       items.push({
-        label: `${r.typeNamespace}/${r.typeName}`,
+        label: r.displayLabel,
         description: `record · ${r.instanceId.slice(0, 8)}`,
         id: r.instanceId,
       });

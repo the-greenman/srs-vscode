@@ -49,12 +49,19 @@ export interface TagListPayload {
 }
 
 // record list  → payload.records
+// Each entry is a RecordSummary: the resolved `displayLabel` plus the full nested
+// `record`. Type fields (typeName/typeNamespace/typeVersion) live under `.record`,
+// NOT at the top level — reading them flat yields "undefined/undefined".
 export interface RecordListPayload {
   records: Array<{
     instanceId: string;
-    typeName: string;
-    typeNamespace: string;
-    typeVersion: number;
+    /** Resolved human label — the same resolution `srs tree` uses. */
+    displayLabel: string;
+    record: {
+      typeName: string;
+      typeNamespace: string;
+      typeVersion: number;
+    };
   }>;
 }
 
@@ -169,6 +176,18 @@ export interface BlueprintStructurePayload {
     cardinality?: string;
     required?: boolean;
   }>;
+}
+
+// archive pack  → payload
+export interface ArchivePackPayload {
+  outputPath: string;
+  fileSizeBytes: number;
+}
+
+// archive unpack  → payload
+export interface ArchiveUnpackPayload {
+  targetDir: string;
+  repositoryId: string;
 }
 
 // Entity kinds understood by the tree

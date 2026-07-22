@@ -1,0 +1,77 @@
+name: Release
+
+# Package the extension into a `.vsix` and publish it as a GitHub Release asset on
+# every merge to master (and on manual dispatch). The asset name is stable
+# (`srs-vscode.vsix`) so the /releases/latest/download/ URL never changes; the
+# per-build extension version is `<major.minor>.<run_number>` so reinstalling always
+# upgrades cleanly. Mirrors the srs-rust release.yml convention.
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Package and Release (.vsix)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Package VSIX
+        id: package
+        run: |
+          set -euo pipefail
+          # Per-build version: keep the committed major.minor, use the run number as
+          # patch so every published build has a unique, increasing version.
+          majmin=$(node -p "require('./package.json').version.split('.').slice(0,2).join('.')")
+          version="${majmin}.${{ github.run_number }}"
+          npm version "$version" --no-git-tag-version --allow-same-version
+          npm run package            # -> srs-vscode.vsix (runs vscode:prepublish)
+          sha256sum srs-vscode.vsix > srs-vscode.vsix.sha256
+          {
+            echo "version=$version"
+            echo "tag=v$version"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: srs-vscode-vsix
+          path: |
+            srs-vscode.vsix
+            srs-vscode.vsix.sha256
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.package.outputs.tag }}" \
+            srs-vscode.vsix \
+            srs-vscode.vsix.sha256 \
+            --target "${{ github.sha }}" \
+            --title "srs-vscode ${{ steps.package.outputs.version }} (build ${{ github.run_number }})" \
+            --notes "Automated VSIX build from \`${{ github.sha }}\`.
+
+          Install the latest build (stable URL — always the newest):
+          \`\`\`bash
+          gh release download --repo ${{ github.repository }} --pattern 'srs-vscode.vsix' --dir . --clobber
+          code --install-extension srs-vscode.vsix --force
+          \`\`\`
+
+          Or run \`scripts/install-local.sh\` from a checkout. Requires the \`srs\` CLI on PATH (or set \`srs.cli.path\`)." \
+            --latest

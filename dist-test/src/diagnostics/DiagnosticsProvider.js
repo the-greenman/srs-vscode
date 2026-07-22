@@ -72,8 +72,8 @@ class DiagnosticsProvider {
         // Group diagnostics by file URI
         const byUri = new Map();
         for (const d of diagnostics) {
-            const uri = d.relative_path
-                ? vscode.Uri.file(path.join(repo.rootPath, d.relative_path)).toString()
+            const uri = d.path
+                ? vscode.Uri.file(path.join(repo.rootPath, d.path)).toString()
                 : vscode.Uri.file(path.join(repo.rootPath, "manifest.json")).toString();
             const severity = severityFor(d.severity);
             const diag = new vscode.Diagnostic(new vscode.Range(0, 0, 0, 0), d.message, severity);
@@ -98,8 +98,8 @@ class DiagnosticsProvider {
 exports.DiagnosticsProvider = DiagnosticsProvider;
 function severityFor(s) {
     switch (s) {
-        case "Error": return vscode.DiagnosticSeverity.Error;
-        case "Warning": return vscode.DiagnosticSeverity.Warning;
+        case "error": return vscode.DiagnosticSeverity.Error;
+        case "warning": return vscode.DiagnosticSeverity.Warning;
         default: return vscode.DiagnosticSeverity.Information;
     }
 }

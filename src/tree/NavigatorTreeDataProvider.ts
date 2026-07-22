@@ -330,7 +330,7 @@ export class NavigatorTreeDataProvider
         (r) => new EntityNode(
           r.instanceId,
           "record",
-          r.typeName,
+          r.displayLabel,
           ["record", "get", r.instanceId],
         ),
       );
@@ -396,7 +396,7 @@ export class NavigatorTreeDataProvider
     }
     if (recordResult.status === "fulfilled") {
       for (const r of recordResult.value.records) {
-        map.set(r.instanceId, { label: r.typeName, kind: "record" });
+        map.set(r.instanceId, { label: r.displayLabel, kind: "record" });
       }
     }
     this._labelMap = map;

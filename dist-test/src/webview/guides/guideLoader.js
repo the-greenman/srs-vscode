@@ -28,8 +28,6 @@ function sectionTypeFromPrefix(typeId) {
         return "text";
     if (p === guideTypes_1.TYPE_PREFIX.sectionList)
         return "list";
-    if (p === guideTypes_1.TYPE_PREFIX.sectionCommentary)
-        return "commentary";
     if (p === guideTypes_1.TYPE_PREFIX.sectionTable)
         return "table";
     throw new Error(`Unknown section typeId prefix: ${p} (${typeId})`);
@@ -49,22 +47,58 @@ function toSectionDoc(record) {
         section.callout = fv(record, guideTypes_1.F.callout);
     }
     else if (type === "list") {
+        section.body = fv(record, guideTypes_1.F.body);
         section.listItems = fv(record, guideTypes_1.F.listItems);
-        section.confirmation = fv(record, guideTypes_1.F.confirmation);
-    }
-    else if (type === "commentary") {
-        const raw = fv(record, guideTypes_1.F.commentaryItems);
-        try {
-            section.commentaryItems = raw ? JSON.parse(raw) : [];
-        }
-        catch {
-            section.commentaryItems = [];
-        }
+        section.outro = fv(record, guideTypes_1.F.outro);
     }
     else if (type === "table") {
-        section.intro = fv(record, guideTypes_1.F.intro);
-        section.tip = fv(record, guideTypes_1.F.tip);
-        section.note = fv(record, guideTypes_1.F.note);
+        section.body = fv(record, guideTypes_1.F.body);
+        const tablesGroup = record.groupValues?.find((gv) => gv.groupId === "tables");
+        section.tables = (tablesGroup?.entries ?? []).map((entry) => {
+            const fval = (id) => entry.fieldValues.find((e) => e.fieldId === id)?.value;
+            let columns = [];
+            let rows = [];
+            let widths;
+            try {
+                columns = JSON.parse(String(fval(guideTypes_1.F.columns) ?? "[]"));
+            }
+            catch {
+                columns = [];
+            }
+            try {
+                rows = JSON.parse(String(fval(guideTypes_1.F.rows) ?? "[]"));
+            }
+            catch {
+                rows = [];
+            }
+            const widthsRaw = fval(guideTypes_1.F.widths);
+            if (widthsRaw) {
+                try {
+                    widths = JSON.parse(String(widthsRaw));
+                }
+                catch { /* ignore */ }
+            }
+            const block = { columns, rows };
+            const sub = fval(guideTypes_1.F.subheading);
+            const lbl = fval(guideTypes_1.F.tableLabel);
+            if (typeof sub === "string" && sub)
+                block.subheading = sub;
+            if (typeof lbl === "string" && lbl)
+                block.label = lbl;
+            if (widths)
+                block.widths = widths;
+            return block;
+        });
+        const itemsGroup = record.groupValues?.find((gv) => gv.groupId === "items");
+        section.items = (itemsGroup?.entries ?? []).map((entry) => {
+            const term = entry.fieldValues.find((e) => e.fieldId === guideTypes_1.F.itemTerm)?.value;
+            const body = entry.fieldValues.find((e) => e.fieldId === guideTypes_1.F.itemBody)?.value;
+            return {
+                term: typeof term === "string" && term ? term : undefined,
+                body: typeof body === "string" ? body : "",
+            };
+        });
+        section.outro = fv(record, guideTypes_1.F.outro);
     }
     return section;
 }
@@ -107,7 +141,7 @@ async function loadGuide(cli, repoPath, containerId) {
         slug: fv(guideRecord, guideTypes_1.F.slug),
         title: fv(guideRecord, guideTypes_1.F.title),
         subtitle: fv(guideRecord, guideTypes_1.F.subtitle),
-        intro: fv(guideRecord, guideTypes_1.F.intro),
+        body: fv(guideRecord, guideTypes_1.F.body),
         sections,
     };
 }

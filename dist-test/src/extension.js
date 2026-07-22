@@ -53,6 +53,9 @@ const graphCommands_1 = require("./commands/graphCommands");
 const NavigatorTreeDataProvider_1 = require("./tree/NavigatorTreeDataProvider");
 const navigatorCommands_1 = require("./commands/navigatorCommands");
 const guideEditorCommands_1 = require("./webview/guides/guideEditorCommands");
+const ArchiveManager_1 = require("./archive/ArchiveManager");
+const ArchiveStatusBarItem_1 = require("./archive/ArchiveStatusBarItem");
+const archiveCommands_1 = require("./commands/archiveCommands");
 async function activate(context) {
     const outputChannel = vscode.window.createOutputChannel("SRS");
     context.subscriptions.push(outputChannel);
@@ -65,7 +68,9 @@ async function activate(context) {
     const schemaProvider = new SchemaProvider_1.SchemaProvider(context.extensionUri);
     const entityDocProvider = new EntityDocumentProvider_1.EntityDocumentProvider(cli, repoProvider);
     const diagnosticsProvider = new DiagnosticsProvider_1.DiagnosticsProvider(cli, repoProvider);
-    context.subscriptions.push(repoProvider, treeProvider, navigatorProvider, attention, statusBarItem, schemaProvider, entityDocProvider, diagnosticsProvider, vscode.workspace.registerTextDocumentContentProvider(EntityDocumentProvider_1.ENTITY_SCHEME, entityDocProvider));
+    const archiveManager = new ArchiveManager_1.ArchiveManager(context, cli, repoProvider);
+    const archiveStatusBarItem = new ArchiveStatusBarItem_1.ArchiveStatusBarItem(archiveManager, repoProvider);
+    context.subscriptions.push(repoProvider, treeProvider, navigatorProvider, attention, statusBarItem, schemaProvider, entityDocProvider, diagnosticsProvider, archiveManager, archiveStatusBarItem, vscode.workspace.registerTextDocumentContentProvider(EntityDocumentProvider_1.ENTITY_SCHEME, entityDocProvider));
     const treeView = vscode.window.createTreeView("srsRepositoryTree", {
         treeDataProvider: treeProvider,
         showCollapseAll: true,
@@ -110,6 +115,7 @@ async function activate(context) {
     (0, graphCommands_1.registerGraphCommands)(context, cli, repoProvider, entityDocProvider);
     (0, navigatorCommands_1.registerNavigatorCommands)(context, navigatorProvider);
     (0, guideEditorCommands_1.registerGuideEditorCommands)(context, cli, repoProvider, treeProvider);
+    (0, archiveCommands_1.registerArchiveCommands)(context, cli, repoProvider, archiveManager);
     // Auto-detect on activation
     await autoDetectRepository(cli, repoProvider);
     // Restore persisted active container once the active repo is known
