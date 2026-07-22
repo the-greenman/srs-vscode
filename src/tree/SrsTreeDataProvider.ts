@@ -19,6 +19,12 @@ import type {
   RelationTypeListPayload,
 } from "../cli/types";
 
+// Convert an EntityKind into a regex-safe camelCase contextValue suffix,
+// e.g. "document-view" → "documentView", "relation-type" → "relationType".
+function entityKindToContext(kind: EntityKind): string {
+  return kind.replace(/-([a-z])/g, (_m, c: string) => c.toUpperCase());
+}
+
 // ---- Tree item types ----
 
 export class GroupNode extends vscode.TreeItem {
@@ -45,7 +51,10 @@ export class EntityNode extends vscode.TreeItem {
     public readonly getArgs: string[],
   ) {
     super(label, vscode.TreeItemCollapsibleState.None);
-    this.contextValue = "srsEntity";
+    // Per-kind contextValue so menus can target specific kinds (e.g. only
+    // document-view / container get the render action). The `srsEntity.` prefix
+    // is matched by the generic entity menus via `viewItem =~ /^srsEntity/`.
+    this.contextValue = `srsEntity.${entityKindToContext(entityKind)}`;
     this.tooltip = `${entityKind}: ${entityId}`;
     this.description = entityId.slice(0, 8);
     this.command = {
@@ -81,9 +90,9 @@ const ENTITY_SPECS: Record<EntityKind, EntitySpec> = {
   tag: {
     listArgs: ["tag", "list"],
     extractItems: (p) =>
-      (p as TagListPayload).tagDefinitions.map((t) => ({
-        id: t.instanceId,
-        label: t.label ?? t.slug,
+      (p as TagListPayload).terms.map((t) => ({
+        id: t.id,
+        label: t.label ?? t.key,
       })),
     getArgs: (id) => ["tag", "get", id],
   },

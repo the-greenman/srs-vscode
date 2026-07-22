@@ -110,7 +110,7 @@ async function activate(context) {
     (0, repositoryCommands_1.registerRepositoryCommands)(context, cli, repoProvider, treeProvider, outputChannel, entityDocProvider, diagnosticsProvider);
     (0, containerCommands_1.registerContainerCommands)(context, cli, repoProvider, attention, treeProvider);
     (0, mutationCommands_1.registerMutationCommands)(context, cli, repoProvider, attention, treeProvider);
-    (0, previewCommands_1.registerPreviewCommands)(context, cli, repoProvider);
+    (0, previewCommands_1.registerPreviewCommands)(context, cli, repoProvider, attention);
     (0, editCommands_1.registerEditCommands)(context, cli, repoProvider, treeProvider);
     (0, graphCommands_1.registerGraphCommands)(context, cli, repoProvider, entityDocProvider);
     (0, navigatorCommands_1.registerNavigatorCommands)(context, navigatorProvider);

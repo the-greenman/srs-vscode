@@ -160,11 +160,19 @@ describe("payload contracts", () => {
     if (!check) {
       return;
     }
-    // tagDefinitions is an array of any (external type, validated at runtime)
+    // terms is an array of RFC-006 vocabulary Terms (external type, validated at runtime)
     check({
-      tagDefinitions: [{ instanceId: "tag-001", slug: "foundation" }],
+      terms: [
+        {
+          id: "b5db2773-cf71-454f-a4a6-ceada8fc8602",
+          version: 1,
+          namespace: "com.example.spec",
+          key: "topic:foundation",
+          label: "Foundation",
+        },
+      ],
     });
-    check({ tagDefinitions: [] });
+    check({ terms: [] });
   });
 
   // ── render document-view ───────────────────────────────────────────────────

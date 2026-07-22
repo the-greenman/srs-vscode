@@ -30,8 +30,15 @@ export const OK_TAG_LIST = JSON.stringify({
   ok: true,
   version: "0.1.0",
   payload: {
-    tagDefinitions: [
-      { instanceId: "tag-001", slug: "foundation", label: "Foundation" },
+    terms: [
+      {
+        id: "b5db2773-cf71-454f-a4a6-ceada8fc8602",
+        version: 1,
+        namespace: "com.example.spec",
+        key: "topic:foundation",
+        label: "Foundation",
+        roles: ["topic"],
+      },
     ],
   },
 });

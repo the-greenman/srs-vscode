@@ -107,7 +107,7 @@ export async function activate(
   registerContainerCommands(context, cli, repoProvider, attention, treeProvider);
 
   registerMutationCommands(context, cli, repoProvider, attention, treeProvider);
-  registerPreviewCommands(context, cli, repoProvider);
+  registerPreviewCommands(context, cli, repoProvider, attention);
   registerEditCommands(context, cli, repoProvider, treeProvider);
   registerGraphCommands(context, cli, repoProvider, entityDocProvider);
   registerNavigatorCommands(context, navigatorProvider);

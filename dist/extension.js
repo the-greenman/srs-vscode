@@ -1,7 +1,1325 @@
-"use strict";var ht=Object.create;var ce=Object.defineProperty;var wt=Object.getOwnPropertyDescriptor;var bt=Object.getOwnPropertyNames;var St=Object.getPrototypeOf,xt=Object.prototype.hasOwnProperty;var Ct=(t,e)=>{for(var o in e)ce(t,o,{get:e[o],enumerable:!0})},He=(t,e,o,n)=>{if(e&&typeof e=="object"||typeof e=="function")for(let i of bt(e))!xt.call(t,i)&&i!==o&&ce(t,i,{get:()=>e[i],enumerable:!(n=wt(e,i))||n.enumerable});return t};var h=(t,e,o)=>(o=t!=null?ht(St(t)):{},He(e||!t||!t.__esModule?ce(o,"default",{value:t,enumerable:!0}):o,t)),It=t=>He(ce({},"__esModule",{value:!0}),t);var Uo={};Ct(Uo,{activate:()=>qo,deactivate:()=>jo});module.exports=It(Uo);var F=h(require("vscode"));var ze=h(require("child_process")),Ve=h(require("vscode"));var u=class extends Error{constructor(o,n,i){super(o);this.diagnostics=n;this.command=i;this.name="CliError"}};function Oe(t,e){let o=t.trim();if(!o)throw new u("srs produced no output",["Empty stdout"],e);let n;try{n=JSON.parse(o)}catch{throw new u(`srs output is not valid JSON: ${o.slice(0,200)}`,["Non-JSON stdout"],e)}if(typeof n!="object"||n===null||typeof n.ok!="boolean")throw new u("srs envelope missing 'ok' field",["Malformed envelope"],e);return n}function Le(t,e,o){let n=["--repo",t,"--format","json"];return o?.pretty&&n.push("--pretty"),o?.containerId&&n.push("--container",o.containerId),n.push(...e),n}function Fe(t,e){let o=["--format","json"];return e?.pretty&&o.push("--pretty"),o.push(...t),o}var le=class t{constructor(e){this.outputChannel=e}get binaryPath(){return Ve.workspace.getConfiguration("srs").get("cli.path","srs")}get tracing(){return Ve.workspace.getConfiguration("srs").get("trace.cli",!1)}async run(e,o,n){return this._exec(Le(e,o,n),o[0]??"unknown",n)}async runRaw(e,o){return this._exec(Fe(e,o),e[0]??"unknown",o)}async _exec(e,o,n){let i=this.binaryPath;return this.tracing&&this.outputChannel.appendLine(`[srs] ${i} ${e.join(" ")}`),new Promise((r,s)=>{let a;try{a=ze.spawn(i,e,{stdio:["pipe","pipe","pipe"]})}catch(c){s(new u(`Failed to spawn srs binary '${i}'. Check srs.cli.path in settings.`,[`Spawn error: ${String(c)}`],o));return}let l="",d="";a.stdout.on("data",c=>{l+=c.toString()}),a.stderr.on("data",c=>{d+=c.toString()}),n?.stdin&&a.stdin.write(n.stdin),a.stdin.end(),a.on("error",c=>{c.code==="ENOENT"?s(new u(`srs binary not found at '${i}'. Install srs and set srs.cli.path in settings.`,[`Binary not found: ${i}`],o)):s(new u(`srs process error: ${c.message}`,[c.message],o))}),a.on("close",()=>{this.tracing&&l&&this.outputChannel.appendLine(`[srs stdout] ${l.slice(0,2e3)}`),d&&this.outputChannel.appendLine(`[srs stderr] ${d}`);try{r(Oe(l,o))}catch(c){s(c)}})})}async runOk(e,o,n){return t._assertOk(await this.run(e,o,n),o)}async runRawOk(e,o){return t._assertOk(await this.runRaw(e,o),e)}static _assertOk(e,o){if(!e.ok)throw new u(`srs ${o.join(" ")} failed: ${e.diagnostics.join("; ")}`,e.diagnostics,o[0]??"unknown");return e.payload}};var z=h(require("vscode")),pe=class{constructor(e){this.cli=e;this._onDidChangeActive=new z.EventEmitter;this.onDidChangeActive=this._onDidChangeActive.event}get active(){return this._active}async probe(e){try{let o=await this.cli.runOk(e,["repo","map"]);return{rootPath:e,title:o.repoMap.repository.title??o.repoMap.repository.repositoryId??e,repositoryId:o.repoMap.repository.repositoryId??e,counts:o.repoMap.counts}}catch{return}}async discoverAll(){let e=z.workspace.workspaceFolders??[];return(await Promise.all(e.map(n=>this.probe(n.uri.fsPath)))).filter(n=>n!==void 0)}setActive(e){this._active=e,z.commands.executeCommand("setContext","srs.repositoryActive",e!==void 0),z.commands.executeCommand("setContext","srs.activeRepoIsArchive",e?.archivePath!==void 0),this._onDidChangeActive.fire(e)}async refresh(){if(!this._active)return;let e=await this.probe(this._active.rootPath);e&&this.setActive({...e,archivePath:this._active.archivePath})}dispose(){this._onDidChangeActive.dispose()}};var j=h(require("vscode")),ue=class extends j.TreeItem{constructor(o,n,i){super(i>0?`${n} (${i})`:n,j.TreeItemCollapsibleState.Collapsed);this.kind=o;this.contextValue="srsGroup",this.tooltip=`${n} \u2014 ${i} items`}},T=class extends j.TreeItem{constructor(o,n,i,r){super(i,j.TreeItemCollapsibleState.None);this.entityId=o;this.entityKind=n;this.getArgs=r;this.contextValue="srsEntity",this.tooltip=`${n}: ${o}`,this.description=o.slice(0,8),this.command={command:"srs.openEntityDefault",title:"Open",arguments:[this]}}},Pt={note:{listArgs:["note","list"],extractItems:t=>t.notes.map(e=>({id:e.instanceId,label:e.title})),getArgs:t=>["note","get",t]},tag:{listArgs:["tag","list"],extractItems:t=>t.tagDefinitions.map(e=>({id:e.instanceId,label:e.label??e.slug})),getArgs:t=>["tag","get",t]},record:{listArgs:["record","list"],extractItems:t=>t.records.map(e=>({id:e.instanceId,label:e.displayLabel})),getArgs:t=>["record","get",t]},relation:{listArgs:["relation","list"],extractItems:t=>t.relations.map(e=>({id:e.relationId,label:`${e.relationType}: ${e.sourceId.slice(0,8)}\u2192${e.targetId.slice(0,8)}`})),getArgs:t=>["relation","get",t]},container:{listArgs:["container","list"],extractItems:t=>t.containers.map(e=>({id:e.containerId,label:e.title})),getArgs:t=>["container","get",t]},field:{listArgs:["field","list"],extractItems:t=>t.fields.map(e=>({id:e.id,label:`${e.namespace}/${e.name}`})),getArgs:t=>["field","get",t]},type:{listArgs:["type","list"],extractItems:t=>t.types.map(e=>({id:e.id,label:`${e.namespace}/${e.name}`})),getArgs:t=>["type","get",t]},extension:{listArgs:["extension","list"],extractItems:t=>t.extensions.map(e=>({id:e.instanceId,label:e.extensionId??e.instanceId})),getArgs:t=>["extension","get",t]},protocol:{listArgs:["protocol","list"],extractItems:t=>t.protocols.map(e=>({id:e.instanceId,label:`${e.namespace}/${e.name} v${e.version}`})),getArgs:t=>["protocol","get",t]},blueprint:{listArgs:["blueprint","list"],extractItems:t=>t.blueprints.map(e=>({id:e.blueprintId,label:`${e.namespace}/${e.name} v${e.version}`})),getArgs:t=>["blueprint","get",t]},view:{listArgs:["view","list"],extractItems:t=>t.views.map(e=>({id:e.id,label:`${e.namespace}/${e.name}`})),getArgs:t=>["view","get",t]},"document-view":{listArgs:["document-view","list"],extractItems:t=>t.documentViews.map(e=>({id:e.id,label:`${e.namespace}/${e.name}`})),getArgs:t=>["document-view","get",t]},"relation-type":{listArgs:["relation-type","list"],extractItems:t=>t.relationTypeDefinitions.map(e=>({id:e.id,label:e.label})),getArgs:t=>["relation-type","get",t]}},kt=[["note","Notes"],["record","Records"],["tag","Tags"],["container","Containers"],["relation","Relations"],["type","Types"],["field","Fields"],["extension","Extensions"],["protocol","Protocols"],["blueprint","Blueprints"],["view","Views"],["document-view","Document Views"],["relation-type","Relation Types"]],me=class{constructor(e,o,n){this.cli=e;this.repoProvider=o;this.attention=n;this._onDidChangeTreeData=new j.EventEmitter;this.onDidChangeTreeData=this._onDidChangeTreeData.event;this._disposables=[];this._disposables.push(o.onDidChangeActive(()=>this.refresh())),n&&this._disposables.push(n.onDidChange(()=>this.refresh()))}refresh(){this._onDidChangeTreeData.fire()}getTreeItem(e){return e}async getChildren(e){let o=this.repoProvider.active;return o?e?e instanceof ue?this.loadGroupChildren(e.kind,o.rootPath):[]:kt.map(([n,i])=>{let r=this.countFromRepoMap(n,o.counts);return new ue(n,i,r)}):[]}countFromRepoMap(e,o){return e==="note"?o.notes:e==="record"?o.records:0}async loadGroupChildren(e,o){let n=Pt[e],i=this.attention?.active?.containerId;try{let r=await this.cli.runOk(o,n.listArgs,{containerId:i});return n.extractItems(r).map(a=>new T(a.id,e,a.label,n.getArgs(a.id)))}catch{return[]}}dispose(){this._onDidChangeTreeData.dispose(),this._disposables.forEach(e=>e.dispose())}};var Ke=h(require("vscode")),ge="srs.activeContainer",ve=class{constructor(e,o){this.workspaceState=e;this.cli=o;this._onDidChange=new Ke.EventEmitter;this.onDidChange=this._onDidChange.event}get active(){return this._active}async restore(e){let o=this.workspaceState.get(ge);if(o)try{await this.cli.runOk(e,["container","get",o.containerId]),this._active=o,this._onDidChange.fire(this._active)}catch{await this.workspaceState.update(ge,void 0)}}async set(e,o){await this.cli.runOk(o,["container","get",e.containerId]),this._active=e,await this.workspaceState.update(ge,e),this._onDidChange.fire(this._active)}async clear(){this._active=void 0,await this.workspaceState.update(ge,void 0),this._onDidChange.fire(void 0)}dispose(){this._onDidChange.dispose()}};var fe=h(require("vscode")),ye=class{constructor(e){this.attention=e;this._disposables=[];this._item=fe.window.createStatusBarItem(fe.StatusBarAlignment.Left,100),this._item.command="srs.setActiveContainer",this._item.tooltip="SRS: Click to set active container",this._disposables.push(this._item),this._disposables.push(e.onDidChange(()=>this._update())),this._update()}show(){this._item.show()}hide(){this._item.hide()}_update(){let e=this.attention.active;e?(this._item.text=`$(package) ${e.title}`,this._item.tooltip=`SRS Container: ${e.title}
-Click to change`):(this._item.text="$(package) No container",this._item.tooltip="SRS: No active container. Click to set one.")}dispose(){this._disposables.forEach(e=>e.dispose())}};var X=h(require("vscode")),Rt=[{glob:"**/manifest.json",schema:"schemas/2.0/manifest.json"},{glob:"**/records/**/*.json",schema:"schemas/2.0/record.json"},{glob:"**/notes/**/*.json",schema:"schemas/2.0/note.json"},{glob:"**/typed-records/**/*.json",schema:"schemas/2.0/typed-record.json"},{glob:"**/package/fields/*.json",schema:"schemas/2.0/field.json"},{glob:"**/package/types/*.json",schema:"schemas/2.0/type.json"},{glob:"**/package/views/*.json",schema:"schemas/2.0/view.json"},{glob:"**/package/document-views/*.json",schema:"schemas/2.0/document-view.json"},{glob:"**/package/package.json",schema:"schemas/2.0/package-manifest.json"},{glob:"**/relations/relations.json",schema:"schemas/2.0/relations-collection.json"},{glob:"**/containers/*.json",schema:"schemas/2.0/container.json"},{glob:"**/*.meta.json",schema:"schemas/2.0/source-document-meta.json"}],he=class{constructor(e){this.extensionUri=e;this._disposables=[];this._register()}_register(){let e=X.workspace.getConfiguration("json"),o=e.get("schemas")??[],n=Rt.filter(i=>!o.some(r=>r.fileMatch.includes(i.glob))).map(i=>({fileMatch:[i.glob],url:X.Uri.joinPath(this.extensionUri,i.schema).toString()}));n.length!==0&&e.update("schemas",[...o,...n],X.ConfigurationTarget.Workspace)}dispose(){this._disposables.forEach(e=>e.dispose())}};var be=h(require("vscode"));var Be="srs-entity";function Se(t,e,o){return be.Uri.from({scheme:Be,authority:t,path:`/${e}/${o}`})}function $t(t){let e=t.path.replace(/^\//,"").split("/");return{repositoryId:t.authority,kind:e[0]??"",entityId:e[1]??""}}var we=class{constructor(e,o){this.cli=e;this.repoProvider=o;this._onDidChange=new be.EventEmitter;this.onDidChangeEmitter=this._onDidChange;this.onDidChange=this._onDidChange.event}async provideTextDocumentContent(e){let{kind:o,entityId:n}=$t(e),i=this.repoProvider.active;if(!i)return JSON.stringify({error:"No active SRS repository"},null,2);let r=Et(o,n);if(!r)return JSON.stringify({error:`Unknown entity kind: ${o}`},null,2);try{let s=await this.cli.runOk(i.rootPath,r,{pretty:!0});return JSON.stringify(s,null,2)}catch(s){let a=s instanceof u?s.message:String(s);return JSON.stringify({error:a},null,2)}}refresh(e){this._onDidChange.fire(e)}dispose(){this._onDidChange.dispose()}};function Et(t,e){switch(t){case"note":return["note","get",e];case"tag":return["tag","get",e];case"record":return["record","get",e];case"relation":return["relation","get",e];case"container":return["container","get",e];case"field":return["field","get",e];case"type":return["type","get",e];case"extension":return["extension","get",e];case"protocol":return["protocol","get",e];case"view":return["view","get",e];case"document-view":return["document-view","get",e];case"relation-type":return["relation-type","get",e];default:return}}var D=h(require("vscode")),xe=h(require("path")),Tt="SRS",Ce=class{constructor(e,o){this.cli=e;this.repoProvider=o;this._disposables=[];this._collection=D.languages.createDiagnosticCollection("srs"),this._disposables.push(this._collection)}async validate(){let e=this.repoProvider.active;if(!e)return;this._collection.clear();let o=await this.cli.run(e.rootPath,["repo","validate"]);if(!o.ok){let r=D.Uri.file(xe.join(e.rootPath,"manifest.json"));this._collection.set(r,[new D.Diagnostic(new D.Range(0,0,0,0),o.diagnostics.join("; "),D.DiagnosticSeverity.Error)]);return}let{diagnostics:n}=o.payload;if(n.length===0)return;let i=new Map;for(let r of n){let s=r.path?D.Uri.file(xe.join(e.rootPath,r.path)).toString():D.Uri.file(xe.join(e.rootPath,"manifest.json")).toString(),a=Dt(r.severity),l=new D.Diagnostic(new D.Range(0,0,0,0),r.message,a);l.source=Tt,i.has(s)||i.set(s,[]),i.get(s).push(l)}for(let[r,s]of i)this._collection.set(D.Uri.parse(r),s)}clear(){this._collection.clear()}dispose(){this._disposables.forEach(e=>e.dispose())}};function Dt(t){switch(t){case"error":return D.DiagnosticSeverity.Error;case"warning":return D.DiagnosticSeverity.Warning;default:return D.DiagnosticSeverity.Information}}var I=h(require("vscode"));function Je(t,e,o,n,i,r,s){t.subscriptions.push(I.commands.registerCommand("srs.selectRepository",()=>_t(e,o)),I.commands.registerCommand("srs.refreshRepository",()=>At(o,n)),I.commands.registerCommand("srs.validateRepository",()=>Nt(e,o,i,s)),I.commands.registerCommand("srs.openRepositoryMap",()=>Mt(e,o,i)),I.commands.registerCommand("srs.openEntity",a=>Ye(o,r,a)),I.commands.registerCommand("srs.openEntityDefault",a=>Ft(o,r,a)))}async function _t(t,e){let o=await I.window.withProgress({location:I.ProgressLocation.Window,title:"SRS: Scanning workspace for repositories\u2026"},()=>e.discoverAll());if(o.length===0){let r="Open Settings";await I.window.showWarningMessage("No SRS repositories found. Check that srs is installed and srs.cli.path is set correctly.",r)===r&&I.commands.executeCommand("workbench.action.openSettings","srs.cli.path");return}let n=o.map(r=>({label:r.title,description:r.rootPath,detail:`${r.counts.notes} notes \xB7 ${r.counts.records} records \xB7 ${r.counts.totalInstances} total`,repo:r})),i=await I.window.showQuickPick(n,{placeHolder:"Select an SRS repository",matchOnDescription:!0});i&&e.setActive(i.repo)}async function At(t,e){await t.refresh(),e.refresh()}async function Nt(t,e,o,n){let i=e.active;if(!i){I.window.showWarningMessage("SRS: No active repository. Run 'SRS: Select Repository' first.");return}o.show(!0),o.appendLine(`
-\u2500\u2500 srs repo validate \u2500\u2500 ${i.rootPath}`);try{let r=await t.run(i.rootPath,["repo","validate"]);if(r.ok){let{summary:s,diagnostics:a}=r.payload;if(o.appendLine(`Checked: ${s.checked}  Errors: ${s.errors}  Warnings: ${s.warnings}`),a.length===0)o.appendLine("\u2713 No issues found.");else for(let l of a){let d=(l.severity??"info").toUpperCase().padEnd(7),c=l.path?` [${l.path}]`:"";o.appendLine(`  ${d}${c}: ${l.message}`)}}else{o.appendLine("Validation invocation failed:");for(let s of r.diagnostics)o.appendLine(`  ${s}`)}}catch(r){let s=r instanceof u?r.message:String(r);o.appendLine(`Error: ${s}`),I.window.showErrorMessage(`SRS validation error: ${s}`)}await n.validate()}async function Mt(t,e,o){let n=e.active;if(!n){I.window.showWarningMessage("SRS: No active repository. Run 'SRS: Select Repository' first.");return}o.show(!0),o.appendLine(`
-\u2500\u2500 srs repo map \u2500\u2500 ${n.rootPath}`);try{let i=await t.run(n.rootPath,["repo","map"],{pretty:!0});o.appendLine(JSON.stringify(i,null,2))}catch(i){let r=i instanceof u?i.message:String(i);o.appendLine(`Error: ${r}`),I.window.showErrorMessage(`SRS: ${r}`)}}var Ot=new Set(["note","record","container"]),Lt=new Set(["note","tag","record"]);async function Ft(t,e,o){if(o instanceof T)return Ot.has(o.entityKind)?I.commands.executeCommand("srs.previewEntity",o):Lt.has(o.entityKind)?I.commands.executeCommand("srs.editEntity",o):Ye(t,e,o)}async function Ye(t,e,o){if(!(o instanceof T))return;let n=t.active;if(n)try{let i=Se(n.repositoryId,o.entityKind,o.entityId),r=await I.workspace.openTextDocument(i);await I.window.showTextDocument(r,{preview:!0,viewColumn:I.ViewColumn.Active,preserveFocus:!1})}catch(i){let r=i instanceof u?i.message:String(i);I.window.showErrorMessage(`SRS: Failed to open entity: ${r}`)}}var R=h(require("vscode"));var ne=h(require("vscode")),K=class t{constructor(e,o,n,i,r){this._id=o;this._panel=ne.window.createWebviewPanel("srsPreview",n,{viewColumn:ne.ViewColumn.Active,preserveFocus:!1},{enableScripts:r?.enableScripts??!1,localResourceRoots:[]}),this._update(i),r?.onMessage&&this._setMessageHandler(r.onMessage),this._panel.onDidDispose(()=>{this._messageDisposable?.dispose(),t._panels.delete(this._id)})}static{this._panels=new Map}static show(e,o,n,i,r){let s=t._panels.get(o);if(s)return s._panel.reveal(ne.ViewColumn.Active),s._panel.title=n,s._update(i),r?.onMessage&&s._setMessageHandler(r.onMessage),s;let a=new t(e,o,n,i,r);return t._panels.set(o,a),a}_setMessageHandler(e){this._messageDisposable?.dispose(),this._messageDisposable=this._panel.webview.onDidReceiveMessage(e)}_update(e){this._panel.webview.html=e}dispose(){this._panel.dispose()}},Vt=`
+"use strict";
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// src/extension.ts
+var extension_exports = {};
+__export(extension_exports, {
+  activate: () => activate,
+  deactivate: () => deactivate
+});
+module.exports = __toCommonJS(extension_exports);
+var vscode24 = __toESM(require("vscode"));
+
+// src/cli/CliClient.ts
+var cp = __toESM(require("child_process"));
+var vscode = __toESM(require("vscode"));
+
+// src/cli/errors.ts
+var CliError = class extends Error {
+  constructor(message, diagnostics, command) {
+    super(message);
+    this.diagnostics = diagnostics;
+    this.command = command;
+    this.name = "CliError";
+  }
+};
+
+// src/cli/envelope.ts
+function parseEnvelope(stdout, commandHint) {
+  const trimmed = stdout.trim();
+  if (!trimmed) {
+    throw new CliError("srs produced no output", ["Empty stdout"], commandHint);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    throw new CliError(
+      `srs output is not valid JSON: ${trimmed.slice(0, 200)}`,
+      ["Non-JSON stdout"],
+      commandHint
+    );
+  }
+  if (typeof parsed !== "object" || parsed === null || typeof parsed["ok"] !== "boolean") {
+    throw new CliError(
+      "srs envelope missing 'ok' field",
+      ["Malformed envelope"],
+      commandHint
+    );
+  }
+  return parsed;
+}
+function buildArgv(repoPath, subcommandArgs, options) {
+  const args = ["--repo", repoPath, "--format", "json"];
+  if (options?.pretty) {
+    args.push("--pretty");
+  }
+  if (options?.containerId) {
+    args.push("--container", options.containerId);
+  }
+  args.push(...subcommandArgs);
+  return args;
+}
+function buildRawArgv(subcommandArgs, options) {
+  const args = ["--format", "json"];
+  if (options?.pretty) {
+    args.push("--pretty");
+  }
+  args.push(...subcommandArgs);
+  return args;
+}
+
+// src/cli/CliClient.ts
+var CliClient = class _CliClient {
+  constructor(outputChannel) {
+    this.outputChannel = outputChannel;
+  }
+  get binaryPath() {
+    return vscode.workspace.getConfiguration("srs").get("cli.path", "srs");
+  }
+  get tracing() {
+    return vscode.workspace.getConfiguration("srs").get("trace.cli", false);
+  }
+  // Run a CLI command and return the raw envelope (ok:true or ok:false).
+  async run(repoPath, subcommandArgs, options) {
+    return this._exec(
+      buildArgv(repoPath, subcommandArgs, options),
+      subcommandArgs[0] ?? "unknown",
+      options
+    );
+  }
+  // Run a command WITHOUT injecting --repo (buildRawArgv). For commands that take
+  // file paths as arguments rather than a loaded repo — e.g. `archive unpack`.
+  async runRaw(subcommandArgs, options) {
+    return this._exec(
+      buildRawArgv(subcommandArgs, options),
+      subcommandArgs[0] ?? "unknown",
+      options
+    );
+  }
+  // Spawn the srs binary with a fully-built argv and parse the JSON envelope.
+  async _exec(args, commandHint, options) {
+    const binary = this.binaryPath;
+    if (this.tracing) {
+      this.outputChannel.appendLine(`[srs] ${binary} ${args.join(" ")}`);
+    }
+    return new Promise((resolve2, reject) => {
+      let proc;
+      try {
+        proc = cp.spawn(binary, args, { stdio: ["pipe", "pipe", "pipe"] });
+      } catch (err) {
+        reject(
+          new CliError(
+            `Failed to spawn srs binary '${binary}'. Check srs.cli.path in settings.`,
+            [`Spawn error: ${String(err)}`],
+            commandHint
+          )
+        );
+        return;
+      }
+      let stdout = "";
+      let stderr = "";
+      proc.stdout.on("data", (d) => {
+        stdout += d.toString();
+      });
+      proc.stderr.on("data", (d) => {
+        stderr += d.toString();
+      });
+      if (options?.stdin) {
+        proc.stdin.write(options.stdin);
+      }
+      proc.stdin.end();
+      proc.on("error", (err) => {
+        if (err.code === "ENOENT") {
+          reject(
+            new CliError(
+              `srs binary not found at '${binary}'. Install srs and set srs.cli.path in settings.`,
+              [`Binary not found: ${binary}`],
+              commandHint
+            )
+          );
+        } else {
+          reject(
+            new CliError(
+              `srs process error: ${err.message}`,
+              [err.message],
+              commandHint
+            )
+          );
+        }
+      });
+      proc.on("close", () => {
+        if (this.tracing && stdout) {
+          this.outputChannel.appendLine(`[srs stdout] ${stdout.slice(0, 2e3)}`);
+        }
+        if (stderr) {
+          this.outputChannel.appendLine(`[srs stderr] ${stderr}`);
+        }
+        try {
+          resolve2(parseEnvelope(stdout, commandHint));
+        } catch (err) {
+          reject(err);
+        }
+      });
+    });
+  }
+  // Run and assert ok:true; throw CliError on ok:false.
+  async runOk(repoPath, subcommandArgs, options) {
+    return _CliClient._assertOk(
+      await this.run(repoPath, subcommandArgs, options),
+      subcommandArgs
+    );
+  }
+  // runRaw + assert ok:true; throw CliError on ok:false.
+  async runRawOk(subcommandArgs, options) {
+    return _CliClient._assertOk(
+      await this.runRaw(subcommandArgs, options),
+      subcommandArgs
+    );
+  }
+  static _assertOk(envelope, subcommandArgs) {
+    if (!envelope.ok) {
+      throw new CliError(
+        `srs ${subcommandArgs.join(" ")} failed: ${envelope.diagnostics.join("; ")}`,
+        envelope.diagnostics,
+        subcommandArgs[0] ?? "unknown"
+      );
+    }
+    return envelope.payload;
+  }
+};
+
+// src/repository/RepositoryProvider.ts
+var vscode2 = __toESM(require("vscode"));
+var RepositoryProvider = class {
+  constructor(cli) {
+    this.cli = cli;
+    this._onDidChangeActive = new vscode2.EventEmitter();
+    this.onDidChangeActive = this._onDidChangeActive.event;
+  }
+  get active() {
+    return this._active;
+  }
+  // Probe one path: returns DetectedRepository if srs repo map succeeds, undefined otherwise.
+  // Swallows all errors — any directory that isn't a valid SRS repo returns undefined.
+  async probe(rootPath) {
+    try {
+      const payload = await this.cli.runOk(rootPath, ["repo", "map"]);
+      return {
+        rootPath,
+        title: payload.repoMap.repository.title ?? payload.repoMap.repository.repositoryId ?? rootPath,
+        repositoryId: payload.repoMap.repository.repositoryId ?? rootPath,
+        counts: payload.repoMap.counts
+      };
+    } catch {
+      return void 0;
+    }
+  }
+  // Scan all workspace folders concurrently; return those where probe succeeds.
+  async discoverAll() {
+    const folders = vscode2.workspace.workspaceFolders ?? [];
+    const results = await Promise.all(
+      folders.map((f) => this.probe(f.uri.fsPath))
+    );
+    return results.filter((r) => r !== void 0);
+  }
+  // Set (or clear) the active repository and broadcast the change.
+  setActive(repo) {
+    this._active = repo;
+    vscode2.commands.executeCommand(
+      "setContext",
+      "srs.repositoryActive",
+      repo !== void 0
+    );
+    vscode2.commands.executeCommand(
+      "setContext",
+      "srs.activeRepoIsArchive",
+      repo?.archivePath !== void 0
+    );
+    this._onDidChangeActive.fire(repo);
+  }
+  // Re-probe the current active path and refresh its counts.
+  async refresh() {
+    if (!this._active) {
+      return;
+    }
+    const updated = await this.probe(this._active.rootPath);
+    if (updated) {
+      this.setActive({ ...updated, archivePath: this._active.archivePath });
+    }
+  }
+  dispose() {
+    this._onDidChangeActive.dispose();
+  }
+};
+
+// src/tree/SrsTreeDataProvider.ts
+var vscode3 = __toESM(require("vscode"));
+function entityKindToContext(kind) {
+  return kind.replace(/-([a-z])/g, (_m, c) => c.toUpperCase());
+}
+var GroupNode = class extends vscode3.TreeItem {
+  constructor(kind, label, count) {
+    super(
+      count > 0 ? `${label} (${count})` : label,
+      vscode3.TreeItemCollapsibleState.Collapsed
+    );
+    this.kind = kind;
+    this.contextValue = "srsGroup";
+    this.tooltip = `${label} \u2014 ${count} items`;
+  }
+};
+var EntityNode = class extends vscode3.TreeItem {
+  constructor(entityId, entityKind, label, getArgs) {
+    super(label, vscode3.TreeItemCollapsibleState.None);
+    this.entityId = entityId;
+    this.entityKind = entityKind;
+    this.getArgs = getArgs;
+    this.contextValue = `srsEntity.${entityKindToContext(entityKind)}`;
+    this.tooltip = `${entityKind}: ${entityId}`;
+    this.description = entityId.slice(0, 8);
+    this.command = {
+      command: "srs.openEntityDefault",
+      title: "Open",
+      arguments: [this]
+    };
+  }
+};
+var ENTITY_SPECS = {
+  note: {
+    listArgs: ["note", "list"],
+    extractItems: (p) => p.notes.map((n) => ({
+      id: n.instanceId,
+      label: n.title
+    })),
+    getArgs: (id) => ["note", "get", id]
+  },
+  tag: {
+    listArgs: ["tag", "list"],
+    extractItems: (p) => p.terms.map((t) => ({
+      id: t.id,
+      label: t.label ?? t.key
+    })),
+    getArgs: (id) => ["tag", "get", id]
+  },
+  record: {
+    listArgs: ["record", "list"],
+    extractItems: (p) => p.records.map((r) => ({
+      id: r.instanceId,
+      label: r.displayLabel
+    })),
+    getArgs: (id) => ["record", "get", id]
+  },
+  relation: {
+    listArgs: ["relation", "list"],
+    extractItems: (p) => p.relations.map((r) => ({
+      id: r.relationId,
+      label: `${r.relationType}: ${r.sourceId.slice(0, 8)}\u2192${r.targetId.slice(0, 8)}`
+    })),
+    getArgs: (id) => ["relation", "get", id]
+  },
+  container: {
+    listArgs: ["container", "list"],
+    extractItems: (p) => p.containers.map((c) => ({
+      id: c.containerId,
+      label: c.title
+    })),
+    getArgs: (id) => ["container", "get", id]
+  },
+  field: {
+    listArgs: ["field", "list"],
+    extractItems: (p) => p.fields.map((f) => ({
+      id: f.id,
+      label: `${f.namespace}/${f.name}`
+    })),
+    getArgs: (id) => ["field", "get", id]
+  },
+  type: {
+    listArgs: ["type", "list"],
+    extractItems: (p) => p.types.map((t) => ({
+      id: t.id,
+      label: `${t.namespace}/${t.name}`
+    })),
+    getArgs: (id) => ["type", "get", id]
+  },
+  extension: {
+    listArgs: ["extension", "list"],
+    extractItems: (p) => p.extensions.map((e) => ({
+      id: e.instanceId,
+      label: e.extensionId ?? e.instanceId
+    })),
+    getArgs: (id) => ["extension", "get", id]
+  },
+  protocol: {
+    listArgs: ["protocol", "list"],
+    extractItems: (p) => p.protocols.map((pr) => ({
+      id: pr.instanceId,
+      label: `${pr.namespace}/${pr.name} v${pr.version}`
+    })),
+    getArgs: (id) => ["protocol", "get", id]
+  },
+  blueprint: {
+    listArgs: ["blueprint", "list"],
+    extractItems: (p) => p.blueprints.map((b) => ({
+      id: b.blueprintId,
+      label: `${b.namespace}/${b.name} v${b.version}`
+    })),
+    getArgs: (id) => ["blueprint", "get", id]
+  },
+  view: {
+    listArgs: ["view", "list"],
+    extractItems: (p) => p.views.map((v) => ({
+      id: v.id,
+      label: `${v.namespace}/${v.name}`
+    })),
+    getArgs: (id) => ["view", "get", id]
+  },
+  "document-view": {
+    listArgs: ["document-view", "list"],
+    extractItems: (p) => p.documentViews.map((d) => ({
+      id: d.id,
+      label: `${d.namespace}/${d.name}`
+    })),
+    getArgs: (id) => ["document-view", "get", id]
+  },
+  "relation-type": {
+    listArgs: ["relation-type", "list"],
+    extractItems: (p) => p.relationTypeDefinitions.map((rt) => ({
+      id: rt.id,
+      label: rt.label
+    })),
+    getArgs: (id) => ["relation-type", "get", id]
+  }
+};
+var GROUP_ORDER = [
+  ["note", "Notes"],
+  ["record", "Records"],
+  ["tag", "Tags"],
+  ["container", "Containers"],
+  ["relation", "Relations"],
+  ["type", "Types"],
+  ["field", "Fields"],
+  ["extension", "Extensions"],
+  ["protocol", "Protocols"],
+  ["blueprint", "Blueprints"],
+  ["view", "Views"],
+  ["document-view", "Document Views"],
+  ["relation-type", "Relation Types"]
+];
+var SrsTreeDataProvider = class {
+  constructor(cli, repoProvider, attention) {
+    this.cli = cli;
+    this.repoProvider = repoProvider;
+    this.attention = attention;
+    this._onDidChangeTreeData = new vscode3.EventEmitter();
+    this.onDidChangeTreeData = this._onDidChangeTreeData.event;
+    this._disposables = [];
+    this._disposables.push(
+      repoProvider.onDidChangeActive(() => this.refresh())
+    );
+    if (attention) {
+      this._disposables.push(attention.onDidChange(() => this.refresh()));
+    }
+  }
+  refresh() {
+    this._onDidChangeTreeData.fire();
+  }
+  getTreeItem(element) {
+    return element;
+  }
+  async getChildren(element) {
+    const repo = this.repoProvider.active;
+    if (!repo) {
+      return [];
+    }
+    if (!element) {
+      return GROUP_ORDER.map(([kind, label]) => {
+        const count = this.countFromRepoMap(kind, repo.counts);
+        return new GroupNode(kind, label, count);
+      });
+    }
+    if (element instanceof GroupNode) {
+      return this.loadGroupChildren(element.kind, repo.rootPath);
+    }
+    return [];
+  }
+  // Extract counts for kinds that repo map tracks; 0 for others (loaded lazily on expand)
+  countFromRepoMap(kind, counts) {
+    if (kind === "note")
+      return counts.notes;
+    if (kind === "record")
+      return counts.records;
+    return 0;
+  }
+  async loadGroupChildren(kind, repoPath) {
+    const spec = ENTITY_SPECS[kind];
+    const containerId2 = this.attention?.active?.containerId;
+    try {
+      const payload = await this.cli.runOk(repoPath, spec.listArgs, {
+        containerId: containerId2
+      });
+      const items = spec.extractItems(payload);
+      return items.map(
+        (item) => new EntityNode(item.id, kind, item.label, spec.getArgs(item.id))
+      );
+    } catch {
+      return [];
+    }
+  }
+  dispose() {
+    this._onDidChangeTreeData.dispose();
+    this._disposables.forEach((d) => d.dispose());
+  }
+};
+
+// src/container/AttentionManager.ts
+var vscode4 = __toESM(require("vscode"));
+var STORAGE_KEY = "srs.activeContainer";
+var AttentionManager = class {
+  constructor(workspaceState, cli) {
+    this.workspaceState = workspaceState;
+    this.cli = cli;
+    this._onDidChange = new vscode4.EventEmitter();
+    this.onDidChange = this._onDidChange.event;
+  }
+  get active() {
+    return this._active;
+  }
+  // Load persisted container from workspaceState and verify it still exists.
+  // Call once on activation after the active repository is known.
+  async restore(repoPath) {
+    const stored = this.workspaceState.get(STORAGE_KEY);
+    if (!stored) {
+      return;
+    }
+    try {
+      await this.cli.runOk(repoPath, ["container", "get", stored.containerId]);
+      this._active = stored;
+      this._onDidChange.fire(this._active);
+    } catch {
+      await this.workspaceState.update(STORAGE_KEY, void 0);
+    }
+  }
+  async set(container, repoPath) {
+    await this.cli.runOk(repoPath, [
+      "container",
+      "get",
+      container.containerId
+    ]);
+    this._active = container;
+    await this.workspaceState.update(STORAGE_KEY, container);
+    this._onDidChange.fire(this._active);
+  }
+  async clear() {
+    this._active = void 0;
+    await this.workspaceState.update(STORAGE_KEY, void 0);
+    this._onDidChange.fire(void 0);
+  }
+  dispose() {
+    this._onDidChange.dispose();
+  }
+};
+
+// src/container/ContainerStatusBarItem.ts
+var vscode5 = __toESM(require("vscode"));
+var ContainerStatusBarItem = class {
+  constructor(attention) {
+    this.attention = attention;
+    this._disposables = [];
+    this._item = vscode5.window.createStatusBarItem(
+      vscode5.StatusBarAlignment.Left,
+      100
+    );
+    this._item.command = "srs.setActiveContainer";
+    this._item.tooltip = "SRS: Click to set active container";
+    this._disposables.push(this._item);
+    this._disposables.push(
+      attention.onDidChange(() => this._update())
+    );
+    this._update();
+  }
+  show() {
+    this._item.show();
+  }
+  hide() {
+    this._item.hide();
+  }
+  _update() {
+    const active = this.attention.active;
+    if (active) {
+      this._item.text = `$(package) ${active.title}`;
+      this._item.tooltip = `SRS Container: ${active.title}
+Click to change`;
+    } else {
+      this._item.text = `$(package) No container`;
+      this._item.tooltip = "SRS: No active container. Click to set one.";
+    }
+  }
+  dispose() {
+    this._disposables.forEach((d) => d.dispose());
+  }
+};
+
+// src/schema/SchemaProvider.ts
+var vscode6 = __toESM(require("vscode"));
+var SCHEMA_ASSOCIATIONS = [
+  { glob: "**/manifest.json", schema: "schemas/2.0/manifest.json" },
+  // Instance files are always `.json`. `**` after the folder matches tier-nested
+  // layouts too (e.g. an unpacked archive's records/tier-2/*.json). `.srsj`/`.srs`
+  // are whole-repo bundle extensions, never per-instance files — do not glob them.
+  { glob: "**/records/**/*.json", schema: "schemas/2.0/record.json" },
+  { glob: "**/notes/**/*.json", schema: "schemas/2.0/note.json" },
+  { glob: "**/typed-records/**/*.json", schema: "schemas/2.0/typed-record.json" },
+  { glob: "**/package/fields/*.json", schema: "schemas/2.0/field.json" },
+  { glob: "**/package/types/*.json", schema: "schemas/2.0/type.json" },
+  { glob: "**/package/views/*.json", schema: "schemas/2.0/view.json" },
+  { glob: "**/package/document-views/*.json", schema: "schemas/2.0/document-view.json" },
+  { glob: "**/package/package.json", schema: "schemas/2.0/package-manifest.json" },
+  { glob: "**/relations/relations.json", schema: "schemas/2.0/relations-collection.json" },
+  { glob: "**/containers/*.json", schema: "schemas/2.0/container.json" },
+  { glob: "**/*.meta.json", schema: "schemas/2.0/source-document-meta.json" }
+];
+var SchemaProvider = class {
+  constructor(extensionUri) {
+    this.extensionUri = extensionUri;
+    this._disposables = [];
+    this._register();
+  }
+  _register() {
+    const jsonConfig = vscode6.workspace.getConfiguration("json");
+    const existing = jsonConfig.get("schemas") ?? [];
+    const toAdd = SCHEMA_ASSOCIATIONS.filter(
+      (assoc) => !existing.some((e) => e.fileMatch.includes(assoc.glob))
+    ).map((assoc) => ({
+      fileMatch: [assoc.glob],
+      url: vscode6.Uri.joinPath(this.extensionUri, assoc.schema).toString()
+    }));
+    if (toAdd.length === 0)
+      return;
+    jsonConfig.update(
+      "schemas",
+      [...existing, ...toAdd],
+      vscode6.ConfigurationTarget.Workspace
+    );
+  }
+  dispose() {
+    this._disposables.forEach((d) => d.dispose());
+  }
+};
+
+// src/provider/EntityDocumentProvider.ts
+var vscode7 = __toESM(require("vscode"));
+var ENTITY_SCHEME = "srs-entity";
+function entityUri(repositoryId, kind, entityId) {
+  return vscode7.Uri.from({
+    scheme: ENTITY_SCHEME,
+    authority: repositoryId,
+    path: `/${kind}/${entityId}`
+  });
+}
+function parseEntityUri(uri) {
+  const parts = uri.path.replace(/^\//, "").split("/");
+  return {
+    repositoryId: uri.authority,
+    kind: parts[0] ?? "",
+    entityId: parts[1] ?? ""
+  };
+}
+var EntityDocumentProvider = class {
+  constructor(cli, repoProvider) {
+    this.cli = cli;
+    this.repoProvider = repoProvider;
+    this._onDidChange = new vscode7.EventEmitter();
+    this.onDidChangeEmitter = this._onDidChange;
+    this.onDidChange = this._onDidChange.event;
+  }
+  async provideTextDocumentContent(uri) {
+    const { kind, entityId } = parseEntityUri(uri);
+    const repo = this.repoProvider.active;
+    if (!repo) {
+      return JSON.stringify({ error: "No active SRS repository" }, null, 2);
+    }
+    const getArgs = getArgsFor(kind, entityId);
+    if (!getArgs) {
+      return JSON.stringify({ error: `Unknown entity kind: ${kind}` }, null, 2);
+    }
+    try {
+      const payload = await this.cli.runOk(repo.rootPath, getArgs, {
+        pretty: true
+      });
+      return JSON.stringify(payload, null, 2);
+    } catch (err) {
+      const msg = err instanceof CliError ? err.message : String(err);
+      return JSON.stringify({ error: msg }, null, 2);
+    }
+  }
+  // Call this to force a refresh of an already-open entity document.
+  refresh(uri) {
+    this._onDidChange.fire(uri);
+  }
+  dispose() {
+    this._onDidChange.dispose();
+  }
+};
+function getArgsFor(kind, entityId) {
+  switch (kind) {
+    case "note":
+      return ["note", "get", entityId];
+    case "tag":
+      return ["tag", "get", entityId];
+    case "record":
+      return ["record", "get", entityId];
+    case "relation":
+      return ["relation", "get", entityId];
+    case "container":
+      return ["container", "get", entityId];
+    case "field":
+      return ["field", "get", entityId];
+    case "type":
+      return ["type", "get", entityId];
+    case "extension":
+      return ["extension", "get", entityId];
+    case "protocol":
+      return ["protocol", "get", entityId];
+    case "view":
+      return ["view", "get", entityId];
+    case "document-view":
+      return ["document-view", "get", entityId];
+    case "relation-type":
+      return ["relation-type", "get", entityId];
+    default:
+      return void 0;
+  }
+}
+
+// src/diagnostics/DiagnosticsProvider.ts
+var vscode8 = __toESM(require("vscode"));
+var path = __toESM(require("path"));
+var REPO_DIAGNOSTIC_SOURCE = "SRS";
+var DiagnosticsProvider = class {
+  constructor(cli, repoProvider) {
+    this.cli = cli;
+    this.repoProvider = repoProvider;
+    this._disposables = [];
+    this._collection = vscode8.languages.createDiagnosticCollection("srs");
+    this._disposables.push(this._collection);
+  }
+  // Run validation and populate the DiagnosticCollection.
+  // Called explicitly (e.g. after save) or by commands.
+  async validate() {
+    const repo = this.repoProvider.active;
+    if (!repo) {
+      return;
+    }
+    this._collection.clear();
+    const envelope = await this.cli.run(
+      repo.rootPath,
+      ["repo", "validate"]
+    );
+    if (!envelope.ok) {
+      const uri = vscode8.Uri.file(path.join(repo.rootPath, "manifest.json"));
+      this._collection.set(uri, [
+        new vscode8.Diagnostic(
+          new vscode8.Range(0, 0, 0, 0),
+          envelope.diagnostics.join("; "),
+          vscode8.DiagnosticSeverity.Error
+        )
+      ]);
+      return;
+    }
+    const { diagnostics } = envelope.payload;
+    if (diagnostics.length === 0) {
+      return;
+    }
+    const byUri = /* @__PURE__ */ new Map();
+    for (const d of diagnostics) {
+      const uri = d.path ? vscode8.Uri.file(path.join(repo.rootPath, d.path)).toString() : vscode8.Uri.file(path.join(repo.rootPath, "manifest.json")).toString();
+      const severity = severityFor(d.severity);
+      const diag = new vscode8.Diagnostic(
+        new vscode8.Range(0, 0, 0, 0),
+        d.message,
+        severity
+      );
+      diag.source = REPO_DIAGNOSTIC_SOURCE;
+      if (!byUri.has(uri)) {
+        byUri.set(uri, []);
+      }
+      byUri.get(uri).push(diag);
+    }
+    for (const [uriStr, diags] of byUri) {
+      this._collection.set(vscode8.Uri.parse(uriStr), diags);
+    }
+  }
+  // Clear all diagnostics (e.g. when active repo changes)
+  clear() {
+    this._collection.clear();
+  }
+  dispose() {
+    this._disposables.forEach((d) => d.dispose());
+  }
+};
+function severityFor(s) {
+  switch (s) {
+    case "error":
+      return vscode8.DiagnosticSeverity.Error;
+    case "warning":
+      return vscode8.DiagnosticSeverity.Warning;
+    default:
+      return vscode8.DiagnosticSeverity.Information;
+  }
+}
+
+// src/commands/repositoryCommands.ts
+var vscode9 = __toESM(require("vscode"));
+function registerRepositoryCommands(context, cli, repoProvider, treeProvider, outputChannel, entityProvider, diagnosticsProvider) {
+  context.subscriptions.push(
+    vscode9.commands.registerCommand(
+      "srs.selectRepository",
+      () => cmdSelectRepository(cli, repoProvider)
+    ),
+    vscode9.commands.registerCommand(
+      "srs.refreshRepository",
+      () => cmdRefreshRepository(repoProvider, treeProvider)
+    ),
+    vscode9.commands.registerCommand(
+      "srs.validateRepository",
+      () => cmdValidateRepository(cli, repoProvider, outputChannel, diagnosticsProvider)
+    ),
+    vscode9.commands.registerCommand(
+      "srs.openRepositoryMap",
+      () => cmdOpenRepositoryMap(cli, repoProvider, outputChannel)
+    ),
+    vscode9.commands.registerCommand(
+      "srs.openEntity",
+      (node) => cmdOpenEntity(repoProvider, entityProvider, node)
+    ),
+    vscode9.commands.registerCommand(
+      "srs.openEntityDefault",
+      (node) => cmdOpenEntityDefault(repoProvider, entityProvider, node)
+    )
+  );
+}
+async function cmdSelectRepository(cli, repoProvider) {
+  const discovered = await vscode9.window.withProgress(
+    {
+      location: vscode9.ProgressLocation.Window,
+      title: "SRS: Scanning workspace for repositories\u2026"
+    },
+    () => repoProvider.discoverAll()
+  );
+  if (discovered.length === 0) {
+    const action = "Open Settings";
+    const choice = await vscode9.window.showWarningMessage(
+      "No SRS repositories found. Check that srs is installed and srs.cli.path is set correctly.",
+      action
+    );
+    if (choice === action) {
+      vscode9.commands.executeCommand(
+        "workbench.action.openSettings",
+        "srs.cli.path"
+      );
+    }
+    return;
+  }
+  const items = discovered.map((r) => ({
+    label: r.title,
+    description: r.rootPath,
+    detail: `${r.counts.notes} notes \xB7 ${r.counts.records} records \xB7 ${r.counts.totalInstances} total`,
+    repo: r
+  }));
+  const picked = await vscode9.window.showQuickPick(items, {
+    placeHolder: "Select an SRS repository",
+    matchOnDescription: true
+  });
+  if (picked) {
+    repoProvider.setActive(picked.repo);
+  }
+}
+async function cmdRefreshRepository(repoProvider, treeProvider) {
+  await repoProvider.refresh();
+  treeProvider.refresh();
+}
+async function cmdValidateRepository(cli, repoProvider, outputChannel, diagnosticsProvider) {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode9.window.showWarningMessage(
+      "SRS: No active repository. Run 'SRS: Select Repository' first."
+    );
+    return;
+  }
+  outputChannel.show(true);
+  outputChannel.appendLine(`
+\u2500\u2500 srs repo validate \u2500\u2500 ${repo.rootPath}`);
+  try {
+    const envelope = await cli.run(
+      repo.rootPath,
+      ["repo", "validate"]
+    );
+    if (envelope.ok) {
+      const { summary, diagnostics } = envelope.payload;
+      outputChannel.appendLine(
+        `Checked: ${summary.checked}  Errors: ${summary.errors}  Warnings: ${summary.warnings}`
+      );
+      if (diagnostics.length === 0) {
+        outputChannel.appendLine("\u2713 No issues found.");
+      } else {
+        for (const d of diagnostics) {
+          const sev = (d.severity ?? "info").toUpperCase().padEnd(7);
+          const loc = d.path ? ` [${d.path}]` : "";
+          outputChannel.appendLine(`  ${sev}${loc}: ${d.message}`);
+        }
+      }
+    } else {
+      outputChannel.appendLine("Validation invocation failed:");
+      for (const msg of envelope.diagnostics) {
+        outputChannel.appendLine(`  ${msg}`);
+      }
+    }
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    outputChannel.appendLine(`Error: ${msg}`);
+    vscode9.window.showErrorMessage(`SRS validation error: ${msg}`);
+  }
+  await diagnosticsProvider.validate();
+}
+async function cmdOpenRepositoryMap(cli, repoProvider, outputChannel) {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode9.window.showWarningMessage(
+      "SRS: No active repository. Run 'SRS: Select Repository' first."
+    );
+    return;
+  }
+  outputChannel.show(true);
+  outputChannel.appendLine(`
+\u2500\u2500 srs repo map \u2500\u2500 ${repo.rootPath}`);
+  try {
+    const envelope = await cli.run(repo.rootPath, ["repo", "map"], {
+      pretty: true
+    });
+    outputChannel.appendLine(JSON.stringify(envelope, null, 2));
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    outputChannel.appendLine(`Error: ${msg}`);
+    vscode9.window.showErrorMessage(`SRS: ${msg}`);
+  }
+}
+var PREVIEW_KINDS = /* @__PURE__ */ new Set(["note", "record", "container"]);
+var EDIT_KINDS = /* @__PURE__ */ new Set(["note", "tag", "record"]);
+async function cmdOpenEntityDefault(repoProvider, entityProvider, node) {
+  if (!(node instanceof EntityNode))
+    return;
+  if (PREVIEW_KINDS.has(node.entityKind)) {
+    return vscode9.commands.executeCommand("srs.previewEntity", node);
+  }
+  if (EDIT_KINDS.has(node.entityKind)) {
+    return vscode9.commands.executeCommand("srs.editEntity", node);
+  }
+  return cmdOpenEntity(repoProvider, entityProvider, node);
+}
+async function cmdOpenEntity(repoProvider, entityProvider, node) {
+  if (!(node instanceof EntityNode)) {
+    return;
+  }
+  const repo = repoProvider.active;
+  if (!repo) {
+    return;
+  }
+  try {
+    const uri = entityUri(repo.repositoryId, node.entityKind, node.entityId);
+    const doc = await vscode9.workspace.openTextDocument(uri);
+    await vscode9.window.showTextDocument(doc, {
+      preview: true,
+      viewColumn: vscode9.ViewColumn.Active,
+      preserveFocus: false
+    });
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode9.window.showErrorMessage(`SRS: Failed to open entity: ${msg}`);
+  }
+}
+
+// src/commands/previewCommands.ts
+var vscode12 = __toESM(require("vscode"));
+
+// src/tree/NavigatorTreeDataProvider.ts
+var vscode10 = __toESM(require("vscode"));
+var EmptyNode = class extends vscode10.TreeItem {
+  constructor(message) {
+    super(message, vscode10.TreeItemCollapsibleState.None);
+    this.contextValue = "srsNavEmpty";
+  }
+};
+var RelationTypeGroupNode = class extends vscode10.TreeItem {
+  constructor(relationType, peerIds, direction) {
+    const arrow = direction === "outgoing" ? "\u2192" : "\u2190";
+    super(
+      `${arrow} ${relationType} (${peerIds.length})`,
+      vscode10.TreeItemCollapsibleState.Collapsed
+    );
+    this.relationType = relationType;
+    this.peerIds = peerIds;
+    this.direction = direction;
+    this.contextValue = "srsNavRelGroup";
+    this.tooltip = `${direction} ${relationType} relations`;
+  }
+};
+var RelationRootNode = class extends EntityNode {
+  constructor(entityId, entityKind, label, getArgs) {
+    super(entityId, entityKind, label, getArgs);
+    this.collapsibleState = vscode10.TreeItemCollapsibleState.Collapsed;
+  }
+};
+var DocViewNode = class extends vscode10.TreeItem {
+  constructor(viewId, label, sections) {
+    super(label, vscode10.TreeItemCollapsibleState.Collapsed);
+    this.viewId = viewId;
+    this.sections = sections;
+    this.contextValue = "srsNavDocView";
+    this.tooltip = viewId;
+  }
+};
+var DocViewSectionNode = class extends vscode10.TreeItem {
+  constructor(sectionId, label, semanticObjectType) {
+    super(
+      label,
+      semanticObjectType ? vscode10.TreeItemCollapsibleState.Collapsed : vscode10.TreeItemCollapsibleState.None
+    );
+    this.sectionId = sectionId;
+    this.semanticObjectType = semanticObjectType;
+    this.contextValue = "srsNavSection";
+    this.tooltip = semanticObjectType ? `Type: ${semanticObjectType}` : sectionId;
+  }
+};
+var ContainerRootNode = class extends vscode10.TreeItem {
+  constructor(containerId2, label, containerType) {
+    super(label, vscode10.TreeItemCollapsibleState.Collapsed);
+    this.containerId = containerId2;
+    this.containerType = containerType;
+    this.contextValue = "srsNavContainer";
+    this.description = containerType;
+    this.tooltip = containerId2;
+  }
+};
+var NavigatorTreeDataProvider = class {
+  constructor(cli, repoProvider) {
+    this.cli = cli;
+    this.repoProvider = repoProvider;
+    this._onDidChangeTreeData = new vscode10.EventEmitter();
+    this.onDidChangeTreeData = this._onDidChangeTreeData.event;
+    this._mode = "relations";
+    this._disposables = [];
+    this._disposables.push(
+      repoProvider.onDidChangeActive(() => this.refresh())
+    );
+  }
+  get mode() {
+    return this._mode;
+  }
+  setMode(mode) {
+    this._mode = mode;
+    this.refresh();
+  }
+  refresh() {
+    this._relations = void 0;
+    this._labelMap = void 0;
+    this._onDidChangeTreeData.fire();
+  }
+  getTreeItem(element) {
+    return element;
+  }
+  async getChildren(element) {
+    const repo = this.repoProvider.active;
+    if (!repo)
+      return [new EmptyNode("No active SRS repository")];
+    if (!element) {
+      return this._getRoots(repo.rootPath);
+    }
+    if (element instanceof RelationRootNode) {
+      return this._getRelationGroups(element.entityId, repo.rootPath);
+    }
+    if (element instanceof RelationTypeGroupNode) {
+      return element.peerIds.map(
+        (p) => new EntityNode(
+          p.id,
+          p.kind,
+          p.label,
+          [p.kind === "record" ? "record" : "note", "get", p.id]
+        )
+      );
+    }
+    if (element instanceof DocViewNode) {
+      return element.sections.map(
+        (s) => new DocViewSectionNode(s.sectionId, s.title, s.semanticObjectType)
+      );
+    }
+    if (element instanceof DocViewSectionNode) {
+      return this._getSectionRecords(element.semanticObjectType, repo.rootPath);
+    }
+    if (element instanceof ContainerRootNode) {
+      return this._getContainerMembers(element.containerId, repo.rootPath);
+    }
+    return [];
+  }
+  // ---- Root loaders ----
+  async _getRoots(repoPath) {
+    switch (this._mode) {
+      case "relations":
+        return this._getRelationRoots(repoPath);
+      case "document-views":
+        return this._getDocViewRoots(repoPath);
+      case "containers":
+        return this._getContainerRoots(repoPath);
+    }
+  }
+  async _getRelationRoots(repoPath) {
+    const [relations, labelMap] = await this._ensureRelationData(repoPath);
+    if (relations.length === 0)
+      return [new EmptyNode("No relations in this repository")];
+    const rootIds = new Set(relations.map((r) => r.sourceId));
+    return Array.from(rootIds).map((id) => {
+      const info = labelMap.get(id);
+      return new RelationRootNode(
+        id,
+        info?.kind ?? "record",
+        info?.label ?? id.slice(0, 8),
+        [(info?.kind ?? "record") === "note" ? "note" : "record", "get", id]
+      );
+    });
+  }
+  async _getDocViewRoots(repoPath) {
+    try {
+      const payload = await this.cli.runOk(repoPath, ["document-view", "list"]);
+      if (payload.documentViews.length === 0)
+        return [new EmptyNode("No document views in this repository")];
+      const nodes = await Promise.all(
+        payload.documentViews.map(async (dv) => {
+          const sections = await this._fetchDocViewSections(dv.id, repoPath);
+          return new DocViewNode(dv.id, `${dv.namespace}/${dv.name}`, sections);
+        })
+      );
+      return nodes;
+    } catch {
+      return [new EmptyNode("Failed to load document views")];
+    }
+  }
+  async _fetchDocViewSections(viewId, repoPath) {
+    try {
+      const payload = await this.cli.runOk(repoPath, ["document-view", "get", viewId]);
+      return payload.documentView.sections.map((s) => ({
+        sectionId: s.sectionId,
+        title: s.title,
+        semanticObjectType: s.source?.semanticObjectType
+      }));
+    } catch {
+      return [];
+    }
+  }
+  async _getContainerRoots(repoPath) {
+    try {
+      const payload = await this.cli.runOk(repoPath, ["container", "list"]);
+      if (payload.containers.length === 0)
+        return [new EmptyNode("No containers in this repository")];
+      return payload.containers.map(
+        (c) => new ContainerRootNode(c.containerId, c.title, c.containerType)
+      );
+    } catch {
+      return [new EmptyNode("Failed to load containers")];
+    }
+  }
+  // ---- Child loaders ----
+  async _getRelationGroups(entityId, repoPath) {
+    const [relations, labelMap] = await this._ensureRelationData(repoPath);
+    const outgoing = /* @__PURE__ */ new Map();
+    const incoming = /* @__PURE__ */ new Map();
+    for (const r of relations) {
+      if (r.sourceId === entityId) {
+        const info = labelMap.get(r.targetId);
+        const entry = { id: r.targetId, kind: info?.kind ?? "record", label: info?.label ?? r.targetId.slice(0, 8) };
+        const list = outgoing.get(r.relationType) ?? [];
+        list.push(entry);
+        outgoing.set(r.relationType, list);
+      }
+      if (r.targetId === entityId) {
+        const info = labelMap.get(r.sourceId);
+        const entry = { id: r.sourceId, kind: info?.kind ?? "record", label: info?.label ?? r.sourceId.slice(0, 8) };
+        const list = incoming.get(r.relationType) ?? [];
+        list.push(entry);
+        incoming.set(r.relationType, list);
+      }
+    }
+    const nodes = [];
+    for (const [type, peers] of outgoing) {
+      nodes.push(new RelationTypeGroupNode(type, peers, "outgoing"));
+    }
+    for (const [type, peers] of incoming) {
+      nodes.push(new RelationTypeGroupNode(type, peers, "incoming"));
+    }
+    if (nodes.length === 0)
+      return [new EmptyNode("No relations")];
+    return nodes;
+  }
+  async _getSectionRecords(semanticObjectType, repoPath) {
+    if (!semanticObjectType)
+      return [new EmptyNode("No type binding for this section")];
+    try {
+      const payload = await this.cli.runOk(repoPath, [
+        "record",
+        "list",
+        "--type",
+        semanticObjectType
+      ]);
+      if (payload.records.length === 0)
+        return [new EmptyNode("No records")];
+      return payload.records.map(
+        (r) => new EntityNode(
+          r.instanceId,
+          "record",
+          r.displayLabel,
+          ["record", "get", r.instanceId]
+        )
+      );
+    } catch {
+      return [new EmptyNode(`Failed to load records for ${semanticObjectType}`)];
+    }
+  }
+  async _getContainerMembers(containerId2, repoPath) {
+    try {
+      const payload = await this.cli.runOk(
+        repoPath,
+        ["container", "members", "list", containerId2]
+      );
+      if (payload.memberInstanceIds.length === 0)
+        return [new EmptyNode("No members")];
+      const labelMap = await this._ensureLabelMap(repoPath);
+      return payload.memberInstanceIds.map((id) => {
+        const info = labelMap.get(id);
+        return new EntityNode(
+          id,
+          info?.kind ?? "record",
+          info?.label ?? id.slice(0, 8),
+          [(info?.kind ?? "record") === "note" ? "note" : "record", "get", id]
+        );
+      });
+    } catch {
+      return [new EmptyNode("Failed to load members")];
+    }
+  }
+  // ---- Shared data helpers ----
+  async _ensureRelationData(repoPath) {
+    if (!this._relations) {
+      const payload = await this.cli.runOk(repoPath, ["relation", "list"]);
+      this._relations = payload.relations;
+    }
+    const labelMap = await this._ensureLabelMap(repoPath);
+    return [this._relations, labelMap];
+  }
+  async _ensureLabelMap(repoPath) {
+    if (this._labelMap)
+      return this._labelMap;
+    const map = /* @__PURE__ */ new Map();
+    const [noteResult, recordResult] = await Promise.allSettled([
+      this.cli.runOk(repoPath, ["note", "list"]),
+      this.cli.runOk(repoPath, ["record", "list"])
+    ]);
+    if (noteResult.status === "fulfilled") {
+      for (const n of noteResult.value.notes) {
+        map.set(n.instanceId, { label: n.title, kind: "note" });
+      }
+    }
+    if (recordResult.status === "fulfilled") {
+      for (const r of recordResult.value.records) {
+        map.set(r.instanceId, { label: r.displayLabel, kind: "record" });
+      }
+    }
+    this._labelMap = map;
+    return map;
+  }
+  dispose() {
+    this._onDidChangeTreeData.dispose();
+    this._disposables.forEach((d) => d.dispose());
+  }
+};
+
+// src/preview/PreviewPanel.ts
+var vscode11 = __toESM(require("vscode"));
+var PreviewPanel = class _PreviewPanel {
+  constructor(context, _id, title, html, options) {
+    this._id = _id;
+    this._panel = vscode11.window.createWebviewPanel(
+      "srsPreview",
+      title,
+      { viewColumn: vscode11.ViewColumn.Active, preserveFocus: false },
+      {
+        enableScripts: options?.enableScripts ?? false,
+        localResourceRoots: []
+      }
+    );
+    this._update(html);
+    if (options?.onMessage) {
+      this._setMessageHandler(options.onMessage);
+    }
+    this._panel.onDidDispose(() => {
+      this._messageDisposable?.dispose();
+      _PreviewPanel._panels.delete(this._id);
+    });
+  }
+  static {
+    this._panels = /* @__PURE__ */ new Map();
+  }
+  static show(context, id, title, html, options) {
+    const existing = _PreviewPanel._panels.get(id);
+    if (existing) {
+      existing._panel.reveal(vscode11.ViewColumn.Active);
+      existing._panel.title = title;
+      existing._update(html);
+      if (options?.onMessage) {
+        existing._setMessageHandler(options.onMessage);
+      }
+      return existing;
+    }
+    const panel = new _PreviewPanel(context, id, title, html, options);
+    _PreviewPanel._panels.set(id, panel);
+    return panel;
+  }
+  _setMessageHandler(handler) {
+    this._messageDisposable?.dispose();
+    this._messageDisposable = this._panel.webview.onDidReceiveMessage(handler);
+  }
+  _update(html) {
+    this._panel.webview.html = html;
+  }
+  dispose() {
+    this._panel.dispose();
+  }
+};
+var CSS = `
   <style>
     body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size);
            color: var(--vscode-foreground); background: var(--vscode-editor-background);
@@ -48,30 +1366,302 @@ Click to change`):(this._item.text="$(package) No container",this._item.tooltip=
     .markdown-value strong { font-weight: 600; }
     .markdown-value em { font-style: italic; }
   </style>
-`;function ie(t,e,o){return`<!DOCTYPE html><html><head><meta charset="UTF-8">${o?.enableScripts?`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline';">`:`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';">`}${Vt}<title>${b(t)}</title></head><body>${e}</body></html>`}function b(t){return t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}function Xe(t,e,o){t.subscriptions.push(R.commands.registerCommand("srs.previewEntity",n=>Bt(t,e,o,n)),R.commands.registerCommand("srs.previewRender",n=>qt(t,e,o,n)))}async function Bt(t,e,o,n){if(!(n instanceof T))return;let i=o.active;if(i)try{switch(n.entityKind){case"note":return await Gt(t,e,i.rootPath,n.entityId);case"record":return await jt(t,e,i.rootPath,n.entityId);case"container":return await Ut(t,e,i.rootPath,n.entityId);case"protocol":return await Wt(t,e,i.rootPath,n.entityId);case"blueprint":return await Ht(t,e,i.rootPath,n.entityId);default:R.window.showInformationMessage(`SRS: No preview available for '${n.entityKind}'. Use Open Entity for raw JSON.`)}}catch(r){let s=r instanceof u?r.message:String(r);R.window.showErrorMessage(`SRS: Preview failed: ${s}`)}}async function qt(t,e,o,n){let i=o.active;if(!i){R.window.showWarningMessage("SRS: No active repository.");return}let r;try{r=(await e.runOk(i.rootPath,["document-view","list"])).documentViews}catch(c){let p=c instanceof u?c.message:String(c);R.window.showErrorMessage(`SRS: Failed to list document views: ${p}`);return}let s,a;if(n instanceof T&&n.entityKind==="document-view")s=n.entityId,a=String(n.label);else{if(r.length===0){R.window.showWarningMessage("SRS: No document views defined in this repository.");return}let c=await R.window.showQuickPick(r.map(p=>({label:`${p.namespace}/${p.name}`,description:p.id,view:p})),{placeHolder:"Select a document view to render"});if(!c)return;s=c.view.id,a=c.label}let l=r.find(c=>c.id===s)?.containerType,d;if(l){let c;try{c=(await e.runOk(i.rootPath,["container","list"])).containers.filter(v=>v.containerType===l)}catch(f){let v=f instanceof u?f.message:String(f);R.window.showErrorMessage(`SRS: Failed to list containers: ${v}`);return}if(c.length===0){R.window.showWarningMessage(`SRS: No containers of type "${l}" found.`);return}let p=await R.window.showQuickPick(c.map(f=>({label:f.title,description:f.containerId,id:f.containerId})),{placeHolder:`Select a ${l} to render`});if(!p)return;d=p.id}try{let c=["render","document-view","--view",s];d&&c.push("--container",d);let p=await e.runOk(i.rootPath,c);await Qe(p.rendered,a??s)}catch(c){let p=c instanceof u?c.message:String(c);R.window.showErrorMessage(`SRS: Render failed: ${p}`)}}async function Gt(t,e,o,n){let i=await e.runOk(o,["note","get",n]),{note:r}=i,s=(r.tags??[]).map(c=>`\`${c}\``).join(" "),a=[r.createdAt?`*${r.createdAt.slice(0,10)}*`:"",s].filter(Boolean).join("  \xB7  "),l=(r.sections??[]).map(c=>`## ${c.label??c.name}
+`;
+function wrapHtml(title, body, options) {
+  const csp = options?.enableScripts ? `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline';">` : `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';">`;
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">${csp}${CSS}<title>${esc(title)}</title></head><body>${body}</body></html>`;
+}
+function esc(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
 
-${c.content}`).join(`
+// src/commands/previewCommands.ts
+function registerPreviewCommands(context, cli, repoProvider, attention) {
+  context.subscriptions.push(
+    vscode12.commands.registerCommand(
+      "srs.previewEntity",
+      (node) => cmdPreviewEntity(context, cli, repoProvider, node)
+    ),
+    vscode12.commands.registerCommand(
+      "srs.previewRender",
+      (node) => cmdPreviewRender(context, cli, repoProvider, attention, node)
+    )
+  );
+}
+async function cmdPreviewEntity(context, cli, repoProvider, node) {
+  if (!(node instanceof EntityNode))
+    return;
+  const repo = repoProvider.active;
+  if (!repo)
+    return;
+  try {
+    switch (node.entityKind) {
+      case "note":
+        return await previewNote(context, cli, repo.rootPath, node.entityId);
+      case "record":
+        return await previewRecord(context, cli, repo.rootPath, node.entityId);
+      case "container":
+        return await previewContainer(context, cli, repo.rootPath, node.entityId);
+      case "protocol":
+        return await previewProtocol(context, cli, repo.rootPath, node.entityId);
+      case "blueprint":
+        return await previewBlueprint(context, cli, repo.rootPath, node.entityId);
+      default:
+        vscode12.window.showInformationMessage(
+          `SRS: No preview available for '${node.entityKind}'. Use Open Entity for raw JSON.`
+        );
+    }
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode12.window.showErrorMessage(`SRS: Preview failed: ${msg}`);
+  }
+}
+function resolveContainerContext(node, attention) {
+  if (node instanceof EntityNode && node.entityKind === "container") {
+    return node.entityId;
+  }
+  return attention.active?.containerId;
+}
+function directRenderTarget(node) {
+  if (node instanceof DocViewNode) {
+    return { viewId: node.viewId, viewLabel: String(node.label) };
+  }
+  if (node instanceof EntityNode && node.entityKind === "document-view") {
+    return { viewId: node.entityId, viewLabel: String(node.label) };
+  }
+  return void 0;
+}
+async function cmdPreviewRender(context, cli, repoProvider, attention, node) {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode12.window.showWarningMessage("SRS: No active repository.");
+    return;
+  }
+  let viewId;
+  let viewLabel;
+  let selectedContainerType;
+  const direct = directRenderTarget(node);
+  if (direct) {
+    viewId = direct.viewId;
+    viewLabel = direct.viewLabel;
+    try {
+      const payload = await cli.runOk(repo.rootPath, [
+        "document-view",
+        "list"
+      ]);
+      selectedContainerType = payload.documentViews.find((v) => v.id === viewId)?.containerType;
+    } catch {
+    }
+  } else {
+    const containerCtxId = resolveContainerContext(node, attention);
+    let views = [];
+    try {
+      if (containerCtxId) {
+        const filtered = await cli.runOk(repo.rootPath, [
+          "document-view",
+          "list-for-container",
+          containerCtxId
+        ]);
+        views = filtered.documentViews;
+      }
+      if (views.length === 0) {
+        const full = await cli.runOk(repo.rootPath, [
+          "document-view",
+          "list"
+        ]);
+        views = full.documentViews;
+      }
+    } catch (err) {
+      const msg = err instanceof CliError ? err.message : String(err);
+      vscode12.window.showErrorMessage(`SRS: Failed to list document views: ${msg}`);
+      return;
+    }
+    if (views.length === 0) {
+      vscode12.window.showWarningMessage("SRS: No document views defined in this repository.");
+      return;
+    }
+    const picked = await vscode12.window.showQuickPick(
+      views.map((v) => ({
+        label: `${v.namespace}/${v.name}`,
+        description: `v${v.version}`,
+        detail: v.id,
+        view: v
+      })),
+      {
+        placeHolder: "Select a document view to render",
+        matchOnDescription: true,
+        matchOnDetail: true
+      }
+    );
+    if (!picked)
+      return;
+    viewId = picked.view.id;
+    viewLabel = picked.label;
+    selectedContainerType = picked.view.containerType;
+  }
+  let containerId2;
+  if (selectedContainerType) {
+    let containers;
+    try {
+      const containerPayload = await cli.runOk(repo.rootPath, [
+        "container",
+        "list"
+      ]);
+      containers = containerPayload.containers.filter(
+        (c) => c.containerType === selectedContainerType
+      );
+    } catch (err) {
+      const msg = err instanceof CliError ? err.message : String(err);
+      vscode12.window.showErrorMessage(`SRS: Failed to list containers: ${msg}`);
+      return;
+    }
+    if (containers.length === 0) {
+      vscode12.window.showWarningMessage(
+        `SRS: No containers of type "${selectedContainerType}" found.`
+      );
+      return;
+    }
+    const picked = await vscode12.window.showQuickPick(
+      containers.map((c) => ({ label: c.title, description: c.containerId, id: c.containerId })),
+      { placeHolder: `Select a ${selectedContainerType} to render` }
+    );
+    if (!picked)
+      return;
+    containerId2 = picked.id;
+  }
+  try {
+    const args = ["render", "document-view", "--view", viewId];
+    if (containerId2)
+      args.push("--container", containerId2);
+    const payload = await cli.runOk(repo.rootPath, args);
+    await openMarkdownPreview(payload.rendered, viewLabel ?? viewId);
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode12.window.showErrorMessage(`SRS: Render failed: ${msg}`);
+  }
+}
+async function previewNote(_context, cli, repoPath, id) {
+  const payload = await cli.runOk(repoPath, ["note", "get", id]);
+  const { note } = payload;
+  const tagLine = (note.tags ?? []).map((t) => `\`${t}\``).join(" ");
+  const metaLine = [
+    note.createdAt ? `*${note.createdAt.slice(0, 10)}*` : "",
+    tagLine
+  ].filter(Boolean).join("  \xB7  ");
+  const sectionsMd = (note.sections ?? []).map((s) => `## ${s.label ?? s.name}
 
----
-
-`),d=[`# ${r.title}`,a,l||"*No sections.*"].filter(Boolean).join(`
-
-`);await Qe(d,r.title)}async function jt(t,e,o,n){let i=await e.runOk(o,["record","get",n]),{record:r}=i,s=new Map,a=new Set,l=new Set,d=[],[c,p,f,v]=await Promise.allSettled([e.runOk(o,["type","get",r.typeId]),e.runOk(o,["relation","list"]),e.runOk(o,["note","list"]),e.runOk(o,["record","list"])]);if(c.status==="fulfilled"){let w=c.value.type.fields;for(let E of w)E.repeatable&&a.add(E.fieldId);let x=await Promise.allSettled(w.map(E=>e.runOk(o,["field","get",E.fieldId])));for(let E=0;E<w.length;E++){let H=w[E],Y=x[E],oe=Y.status==="fulfilled"?Y.value.field.name:void 0;s.set(H.fieldId,H.displayLabel??oe??H.fieldId.slice(0,8)),Y.status==="fulfilled"&&Y.value.field.valueType==="text"&&l.add(Y.value.field.id)}}if(p.status==="fulfilled"){let w=new Map;if(f.status==="fulfilled")for(let x of f.value.notes)w.set(x.instanceId,{label:x.title,kind:"note"});if(v.status==="fulfilled")for(let x of v.value.records)w.set(x.instanceId,{label:x.displayLabel,kind:"record"});for(let x of p.value.relations)if(x.sourceId===n){let E=w.get(x.targetId);d.push({relationId:x.relationId,relationType:x.relationType,direction:"outgoing",peerId:x.targetId,peerLabel:E?.label??x.targetId.slice(0,8),peerKind:E?.kind??"note"})}else if(x.targetId===n){let E=w.get(x.sourceId);d.push({relationId:x.relationId,relationType:x.relationType,direction:"incoming",peerId:x.sourceId,peerLabel:E?.label??x.sourceId.slice(0,8),peerKind:E?.kind??"note"})}}let S=`${r.typeNamespace}/${r.typeName} v${r.typeVersion}`,y=r.fieldValues.map(w=>{let x=s.get(w.fieldId)??w.fieldId.slice(0,8),E=l.has(w.fieldId),H;if(a.has(w.fieldId)&&w.entries&&w.entries.length>0)H=`<ul class="repeatable-values">${w.entries.map(Me=>{let We=typeof Me.value=="string"?Me.value:JSON.stringify(Me.value);return E?`<li class="markdown-value" data-md="${b(We)}"></li>`:`<li>${b(We)}</li>`}).join("")}</ul>`;else{let oe=typeof w.value=="string"?w.value:JSON.stringify(w.value);H=E?`<div class="markdown-value" data-md="${b(oe)}"></div>`:b(oe)}return`<div class="${E?"field-row field-row--text":"field-row"}">
-        <div class="field-label">${b(x)}</div>
-        <div class="field-value">${H}</div>
-      </div>`}).join(""),k=r.createdAt?`Created: ${b(r.createdAt.slice(0,10))}`:"",$=d.length===0?'<p class="empty">No relations.</p>':d.map(w=>{let x=w.direction==="outgoing"?"\u2192":"\u2190",E=w.direction==="outgoing"?"to":"from";return`<div class="relation-row">
-          <span class="rel-arrow">${x}</span>
-          <span class="rel-type">${b(w.relationType)}</span>
-          <a class="rel-link" href="#" data-id="${b(w.peerId)}" data-kind="${b(w.peerKind)}" title="${b(w.peerId)}">${b(w.peerLabel)}</a>
-        </div>`}).join(""),G=ie(S,`
-    <h1>${b(S)}</h1>
-    <div class="meta">${b(r.instanceId.slice(0,8))}\u2026 &nbsp;\xB7&nbsp; ${k}</div>
+${s.content}`).join("\n\n---\n\n");
+  const md = [`# ${note.title}`, metaLine, sectionsMd || "*No sections.*"].filter(Boolean).join("\n\n");
+  await openMarkdownPreview(md, note.title);
+}
+async function previewRecord(context, cli, repoPath, id) {
+  const payload = await cli.runOk(repoPath, ["record", "get", id]);
+  const { record } = payload;
+  let labelMap = /* @__PURE__ */ new Map();
+  let repeatableSet = /* @__PURE__ */ new Set();
+  let textFieldSet = /* @__PURE__ */ new Set();
+  let relatedItems = [];
+  const [typeResult, relResult, noteResult, recordListResult] = await Promise.allSettled([
+    cli.runOk(repoPath, ["type", "get", record.typeId]),
+    cli.runOk(repoPath, ["relation", "list"]),
+    cli.runOk(repoPath, ["note", "list"]),
+    cli.runOk(repoPath, ["record", "list"])
+  ]);
+  if (typeResult.status === "fulfilled") {
+    const typeFields = typeResult.value.type.fields;
+    for (const f of typeFields) {
+      if (f.repeatable)
+        repeatableSet.add(f.fieldId);
+    }
+    const fieldResults = await Promise.allSettled(
+      typeFields.map((f) => cli.runOk(repoPath, ["field", "get", f.fieldId]))
+    );
+    for (let i = 0; i < typeFields.length; i++) {
+      const f = typeFields[i];
+      const fr = fieldResults[i];
+      const fieldName = fr.status === "fulfilled" ? fr.value.field.name : void 0;
+      labelMap.set(f.fieldId, f.displayLabel ?? fieldName ?? f.fieldId.slice(0, 8));
+      if (fr.status === "fulfilled" && fr.value.field.valueType === "text") {
+        textFieldSet.add(fr.value.field.id);
+      }
+    }
+  }
+  if (relResult.status === "fulfilled") {
+    const peerLabelMap = /* @__PURE__ */ new Map();
+    if (noteResult.status === "fulfilled") {
+      for (const n of noteResult.value.notes) {
+        peerLabelMap.set(n.instanceId, { label: n.title, kind: "note" });
+      }
+    }
+    if (recordListResult.status === "fulfilled") {
+      for (const r of recordListResult.value.records) {
+        peerLabelMap.set(r.instanceId, { label: r.displayLabel, kind: "record" });
+      }
+    }
+    for (const rel of relResult.value.relations) {
+      if (rel.sourceId === id) {
+        const peer = peerLabelMap.get(rel.targetId);
+        relatedItems.push({
+          relationId: rel.relationId,
+          relationType: rel.relationType,
+          direction: "outgoing",
+          peerId: rel.targetId,
+          peerLabel: peer?.label ?? rel.targetId.slice(0, 8),
+          peerKind: peer?.kind ?? "note"
+        });
+      } else if (rel.targetId === id) {
+        const peer = peerLabelMap.get(rel.sourceId);
+        relatedItems.push({
+          relationId: rel.relationId,
+          relationType: rel.relationType,
+          direction: "incoming",
+          peerId: rel.sourceId,
+          peerLabel: peer?.label ?? rel.sourceId.slice(0, 8),
+          peerKind: peer?.kind ?? "note"
+        });
+      }
+    }
+  }
+  const title = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
+  const rows = record.fieldValues.map((fv2) => {
+    const label = labelMap.get(fv2.fieldId) ?? fv2.fieldId.slice(0, 8);
+    const isText = textFieldSet.has(fv2.fieldId);
+    let valueHtml;
+    if (repeatableSet.has(fv2.fieldId) && fv2.entries && fv2.entries.length > 0) {
+      const items = fv2.entries.map((e) => {
+        const v = typeof e.value === "string" ? e.value : JSON.stringify(e.value);
+        return isText ? `<li class="markdown-value" data-md="${esc(v)}"></li>` : `<li>${esc(v)}</li>`;
+      }).join("");
+      valueHtml = `<ul class="repeatable-values">${items}</ul>`;
+    } else {
+      const v = typeof fv2.value === "string" ? fv2.value : JSON.stringify(fv2.value);
+      valueHtml = isText ? `<div class="markdown-value" data-md="${esc(v)}"></div>` : esc(v);
+    }
+    const rowClass = isText ? "field-row field-row--text" : "field-row";
+    return `<div class="${rowClass}">
+        <div class="field-label">${esc(label)}</div>
+        <div class="field-value">${valueHtml}</div>
+      </div>`;
+  }).join("");
+  const meta = record.createdAt ? `Created: ${esc(record.createdAt.slice(0, 10))}` : "";
+  const relationsHtml = relatedItems.length === 0 ? '<p class="empty">No relations.</p>' : relatedItems.map((r) => {
+    const arrow = r.direction === "outgoing" ? "\u2192" : "\u2190";
+    const dirLabel = r.direction === "outgoing" ? "to" : "from";
+    return `<div class="relation-row">
+          <span class="rel-arrow">${arrow}</span>
+          <span class="rel-type">${esc(r.relationType)}</span>
+          <a class="rel-link" href="#" data-id="${esc(r.peerId)}" data-kind="${esc(r.peerKind)}" title="${esc(r.peerId)}">${esc(r.peerLabel)}</a>
+        </div>`;
+  }).join("");
+  const html = wrapHtml(title, `
+    <h1>${esc(title)}</h1>
+    <div class="meta">${esc(record.instanceId.slice(0, 8))}\u2026 &nbsp;\xB7&nbsp; ${meta}</div>
     <h2>Fields</h2>
-    ${y||'<p class="empty">No field values.</p>'}
+    ${rows || '<p class="empty">No field values.</p>'}
     <h2>Relations</h2>
-    ${$}
+    ${relationsHtml}
     <script>
-      ${zt()}
+      ${markdownRendererScript()}
       document.querySelectorAll('.markdown-value').forEach(function(el) {
         el.innerHTML = renderMarkdown(el.dataset.md || '');
       });
@@ -83,44 +1673,216 @@ ${c.content}`).join(`
         });
       });
     </script>
-  `,{enableScripts:!0});K.show(t,`record:${n}`,S,G,{enableScripts:!0,onMessage:w=>{let x=w;x.type==="openEntity"&&x.id&&x.kind&&R.commands.executeCommand("srs.openEntityById",x.id,x.kind,o)}})}async function Ut(t,e,o,n){let r=(await e.runOk(o,["container","list"])).containers.find(c=>c.containerId===n),s=r?.title??n.slice(0,8),a=[];try{a=(await e.runOk(o,["container","members","list",n])).members}catch{}let l=a.map(c=>`<div class="member-row">${b(c.title??c.instanceId)}</div>`).join(""),d=ie(s,`
-    <h1>${b(s)}</h1>
-    <div class="meta">${r?.containerType?`Type: ${b(r.containerType)} &nbsp;\xB7&nbsp; `:""}${a.length} members</div>
+  `, { enableScripts: true });
+  PreviewPanel.show(context, `record:${id}`, title, html, {
+    enableScripts: true,
+    onMessage: (msg) => {
+      const m = msg;
+      if (m.type === "openEntity" && m.id && m.kind) {
+        vscode12.commands.executeCommand("srs.openEntityById", m.id, m.kind, repoPath);
+      }
+    }
+  });
+}
+async function previewContainer(context, cli, repoPath, id) {
+  const listPayload = await cli.runOk(repoPath, ["container", "list"]);
+  const container = listPayload.containers.find((c) => c.containerId === id);
+  const title = container?.title ?? id.slice(0, 8);
+  let members = [];
+  try {
+    const membersPayload = await cli.runOk(repoPath, [
+      "container",
+      "members",
+      "list",
+      id
+    ]);
+    members = membersPayload.members;
+  } catch {
+  }
+  const rows = members.map((m) => `<div class="member-row">${esc(m.title ?? m.instanceId)}</div>`).join("");
+  const html = wrapHtml(title, `
+    <h1>${esc(title)}</h1>
+    <div class="meta">${container?.containerType ? `Type: ${esc(container.containerType)} &nbsp;\xB7&nbsp; ` : ""}${members.length} members</div>
     <h2>Members</h2>
-    ${l||'<p class="empty">No members.</p>'}
-  `);K.show(t,`container:${n}`,s,d)}async function Wt(t,e,o,n){let[i,r]=await Promise.allSettled([e.runOk(o,["protocol","get",n]),e.runOk(o,["protocol","stages",n])]),s=i.status==="fulfilled"?i.value.protocol:void 0,a=r.status==="fulfilled"?[...r.value.stages].sort(($,G)=>$.order-G.order):[],l=s?.namespace??"",d=s?.name??n.slice(0,8),c=s?.version??"",p=`${l}/${d} v${c}`,f=s?.description?`<p class="description">${b(s.description)}</p>`:"",v=s?.targetType?`<div class="meta">Target type: ${b(s.targetType)}</div>`:"",S=(s?.tags??[]).length>0?`<div class="meta">Tags: ${s.tags.map($=>`<code>${b($)}</code>`).join(" ")}</div>`:"",y=a.length===0?'<p class="empty">No stages defined.</p>':a.map($=>{let G=$.dependsOn.length>0?`<div class="stage-deps">depends on: ${$.dependsOn.map(w=>b(w)).join(", ")}</div>`:"";return`<div class="stage-row">
-          <span class="stage-order">${$.order}</span>
+    ${rows || '<p class="empty">No members.</p>'}
+  `);
+  PreviewPanel.show(context, `container:${id}`, title, html);
+}
+async function previewProtocol(context, cli, repoPath, id) {
+  const [getResult, stagesResult] = await Promise.allSettled([
+    cli.runOk(repoPath, ["protocol", "get", id]),
+    cli.runOk(repoPath, ["protocol", "stages", id])
+  ]);
+  const proto = getResult.status === "fulfilled" ? getResult.value.protocol : void 0;
+  const stages = stagesResult.status === "fulfilled" ? [...stagesResult.value.stages].sort((a, b) => a.order - b.order) : [];
+  const ns = proto?.namespace ?? "";
+  const name = proto?.name ?? id.slice(0, 8);
+  const version = proto?.version ?? "";
+  const title = `${ns}/${name} v${version}`;
+  const descHtml = proto?.description ? `<p class="description">${esc(proto.description)}</p>` : "";
+  const targetHtml = proto?.targetType ? `<div class="meta">Target type: ${esc(proto.targetType)}</div>` : "";
+  const tagsHtml = (proto?.tags ?? []).length > 0 ? `<div class="meta">Tags: ${proto.tags.map((t) => `<code>${esc(t)}</code>`).join(" ")}</div>` : "";
+  const stagesHtml = stages.length === 0 ? '<p class="empty">No stages defined.</p>' : stages.map((s) => {
+    const deps = s.dependsOn.length > 0 ? `<div class="stage-deps">depends on: ${s.dependsOn.map((d) => esc(d)).join(", ")}</div>` : "";
+    return `<div class="stage-row">
+          <span class="stage-order">${s.order}</span>
           <div class="stage-body">
-            <div class="stage-name">${b($.name)}</div>
-            ${G}
+            <div class="stage-name">${esc(s.name)}</div>
+            ${deps}
           </div>
-        </div>`}).join(""),k=ie(p,`
-    <h1>${b(p)}</h1>
-    <div class="meta">${b(n.slice(0,8))}\u2026</div>
-    ${v}
-    ${S}
-    ${f}
-    <h2>Stages (${a.length})</h2>
-    ${y}
-  `);K.show(t,`protocol:${n}`,p,k)}async function Ht(t,e,o,n){let[i,r]=await Promise.allSettled([e.runOk(o,["blueprint","get",n]),e.runOk(o,["blueprint","structure",n])]),s=i.status==="fulfilled"?i.value.blueprint:void 0,a=r.status==="fulfilled"?r.value.relationSpecs:[],l=s?.namespace??"",d=s?.name??n.slice(0,8),c=s?.version??"",p=`${l}/${d} v${c}`,f=s?.description?`<p class="description">${b(s.description)}</p>`:"",v=a.length===0?'<p class="empty">No relation specs defined.</p>':`<table class="specs-table">
+        </div>`;
+  }).join("");
+  const html = wrapHtml(title, `
+    <h1>${esc(title)}</h1>
+    <div class="meta">${esc(id.slice(0, 8))}\u2026</div>
+    ${targetHtml}
+    ${tagsHtml}
+    ${descHtml}
+    <h2>Stages (${stages.length})</h2>
+    ${stagesHtml}
+  `);
+  PreviewPanel.show(context, `protocol:${id}`, title, html);
+}
+async function previewBlueprint(context, cli, repoPath, id) {
+  const [getResult, structureResult] = await Promise.allSettled([
+    cli.runOk(repoPath, ["blueprint", "get", id]),
+    cli.runOk(repoPath, ["blueprint", "structure", id])
+  ]);
+  const bp = getResult.status === "fulfilled" ? getResult.value.blueprint : void 0;
+  const specs = structureResult.status === "fulfilled" ? structureResult.value.relationSpecs : [];
+  const ns = bp?.namespace ?? "";
+  const name = bp?.name ?? id.slice(0, 8);
+  const version = bp?.version ?? "";
+  const title = `${ns}/${name} v${version}`;
+  const descHtml = bp?.description ? `<p class="description">${esc(bp.description)}</p>` : "";
+  const specsHtml = specs.length === 0 ? '<p class="empty">No relation specs defined.</p>' : `<table class="specs-table">
         <thead><tr><th>Relation type</th><th>Source type</th><th>Target type</th><th>Cardinality</th><th>Required</th></tr></thead>
         <tbody>
-          ${a.map(y=>`<tr>
-            <td>${b(y.relationType)}</td>
-            <td><code>${b(y.sourceTypeId.slice(0,8))}\u2026</code></td>
-            <td><code>${b(y.targetTypeId.slice(0,8))}\u2026</code></td>
-            <td>${y.cardinality?b(y.cardinality):"\u2014"}</td>
-            <td>${y.required?"yes":"\u2014"}</td>
+          ${specs.map((s) => `<tr>
+            <td>${esc(s.relationType)}</td>
+            <td><code>${esc(s.sourceTypeId.slice(0, 8))}\u2026</code></td>
+            <td><code>${esc(s.targetTypeId.slice(0, 8))}\u2026</code></td>
+            <td>${s.cardinality ? esc(s.cardinality) : "\u2014"}</td>
+            <td>${s.required ? "yes" : "\u2014"}</td>
           </tr>`).join("")}
         </tbody>
-      </table>`,S=ie(p,`
-    <h1>${b(p)}</h1>
-    <div class="meta">${b(n.slice(0,8))}\u2026</div>
-    ${f}
-    <h2>Structure (${a.length} relation spec${a.length===1?"":"s"})</h2>
-    ${v}
-  `);K.show(t,`blueprint:${n}`,p,S)}async function Qe(t,e){let o=await R.workspace.openTextDocument({content:t,language:"markdown"});await R.window.showTextDocument(o,{viewColumn:R.ViewColumn.Active,preview:!0,preserveFocus:!1}),await R.commands.executeCommand("markdown.showPreview",o.uri)}function zt(){return["function renderMarkdown(md) {","  if (!md) return '';","  var h = md.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');","  h = h.replace(/```[\\w]*\\n([\\s\\S]*?)```/g, function(_,c){ return '<pre><code>'+c+'</code></pre>'; });","  h = h.replace(/^#{6}\\s+(.+)$/mg,'<h6>$1</h6>');","  h = h.replace(/^#{5}\\s+(.+)$/mg,'<h5>$1</h5>');","  h = h.replace(/^#{4}\\s+(.+)$/mg,'<h4>$1</h4>');","  h = h.replace(/^#{3}\\s+(.+)$/mg,'<h3>$1</h3>');","  h = h.replace(/^#{2}\\s+(.+)$/mg,'<h4>$1</h4>');","  h = h.replace(/^#\\s+(.+)$/mg,'<h5>$1</h5>');","  h = h.replace(/^---+$/mg,'<hr>');","  h = h.replace(/`([^`]+)`/g,'<code>$1</code>');","  h = h.replace(/\\*\\*\\*(.+?)\\*\\*\\*/g,'<strong><em>$1</em></strong>');","  h = h.replace(/\\*\\*(.+?)\\*\\*/g,'<strong>$1</strong>');","  h = h.replace(/\\*([^*]+)\\*/g,'<em>$1</em>');","  h = h.replace(/((?:^[*-]\\s+.+$\\n?)+)/mg, function(b){","    return '<ul>'+b.trim().split('\\n').map(function(l){return '<li>'+l.replace(/^[*-]\\s+/,'')+' </li>';}).join('')+'</ul>';","  });","  h = h.replace(/((?:^\\d+\\.\\s+.+$\\n?)+)/mg, function(b){","    return '<ol>'+b.trim().split('\\n').map(function(l){return '<li>'+l.replace(/^\\d+\\.\\s+/,'')+' </li>';}).join('')+'</ol>';","  });","  h = h.replace(/(?:^(?!<)\\S[^\\n]*$\\n?)+/mg, function(b){","    var t=b.trim(); return t ? '<p>'+t.replace(/\\n/g,' ')+'</p>' : '';","  });","  return h;","}"].join(`
-`)}var g=h(require("vscode"));var re=h(require("vscode"));var U=class t{constructor(e,o,n,i,r){this._id=o;this._onSave=r,this._panel=re.window.createWebviewPanel("srsEditor",n,{viewColumn:re.ViewColumn.Active,preserveFocus:!1},{enableScripts:!0,localResourceRoots:[]}),this._update(i),this._panel.webview.onDidReceiveMessage(async s=>{if(s.type==="cancel"){this.dispose();return}if(s.type==="save")try{await this._onSave(s.data),this.dispose()}catch(a){let l=a instanceof u?a.diagnostics:[String(a)];this._panel.webview.postMessage({type:"error",messages:l})}}),this._panel.onDidDispose(()=>{t._panels.delete(this._id)})}static{this._panels=new Map}static show(e,o,n,i,r){let s=t._panels.get(o);if(s)return s._panel.reveal(re.ViewColumn.Active),s._panel.title=n,s._onSave=r,s._update(i),s;let a=new t(e,o,n,i,r);return t._panels.set(o,a),a}_update(e){this._panel.webview.html=e}dispose(){this._panel.dispose()}};var Kt=`
+      </table>`;
+  const html = wrapHtml(title, `
+    <h1>${esc(title)}</h1>
+    <div class="meta">${esc(id.slice(0, 8))}\u2026</div>
+    ${descHtml}
+    <h2>Structure (${specs.length} relation spec${specs.length === 1 ? "" : "s"})</h2>
+    ${specsHtml}
+  `);
+  PreviewPanel.show(context, `blueprint:${id}`, title, html);
+}
+async function openMarkdownPreview(markdown, _title) {
+  const doc = await vscode12.workspace.openTextDocument({
+    content: markdown,
+    language: "markdown"
+  });
+  await vscode12.window.showTextDocument(doc, {
+    viewColumn: vscode12.ViewColumn.Active,
+    preview: true,
+    preserveFocus: false
+  });
+  await vscode12.commands.executeCommand("markdown.showPreview", doc.uri);
+}
+function markdownRendererScript() {
+  return [
+    "function renderMarkdown(md) {",
+    "  if (!md) return '';",
+    "  var h = md.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');",
+    "  h = h.replace(/```[\\w]*\\n([\\s\\S]*?)```/g, function(_,c){ return '<pre><code>'+c+'</code></pre>'; });",
+    "  h = h.replace(/^#{6}\\s+(.+)$/mg,'<h6>$1</h6>');",
+    "  h = h.replace(/^#{5}\\s+(.+)$/mg,'<h5>$1</h5>');",
+    "  h = h.replace(/^#{4}\\s+(.+)$/mg,'<h4>$1</h4>');",
+    "  h = h.replace(/^#{3}\\s+(.+)$/mg,'<h3>$1</h3>');",
+    "  h = h.replace(/^#{2}\\s+(.+)$/mg,'<h4>$1</h4>');",
+    "  h = h.replace(/^#\\s+(.+)$/mg,'<h5>$1</h5>');",
+    "  h = h.replace(/^---+$/mg,'<hr>');",
+    "  h = h.replace(/`([^`]+)`/g,'<code>$1</code>');",
+    "  h = h.replace(/\\*\\*\\*(.+?)\\*\\*\\*/g,'<strong><em>$1</em></strong>');",
+    "  h = h.replace(/\\*\\*(.+?)\\*\\*/g,'<strong>$1</strong>');",
+    "  h = h.replace(/\\*([^*]+)\\*/g,'<em>$1</em>');",
+    "  h = h.replace(/((?:^[*-]\\s+.+$\\n?)+)/mg, function(b){",
+    "    return '<ul>'+b.trim().split('\\n').map(function(l){return '<li>'+l.replace(/^[*-]\\s+/,'')+' </li>';}).join('')+'</ul>';",
+    "  });",
+    "  h = h.replace(/((?:^\\d+\\.\\s+.+$\\n?)+)/mg, function(b){",
+    "    return '<ol>'+b.trim().split('\\n').map(function(l){return '<li>'+l.replace(/^\\d+\\.\\s+/,'')+' </li>';}).join('')+'</ol>';",
+    "  });",
+    "  h = h.replace(/(?:^(?!<)\\S[^\\n]*$\\n?)+/mg, function(b){",
+    "    var t=b.trim(); return t ? '<p>'+t.replace(/\\n/g,' ')+'</p>' : '';",
+    "  });",
+    "  return h;",
+    "}"
+  ].join("\n");
+}
+
+// src/commands/editCommands.ts
+var vscode14 = __toESM(require("vscode"));
+
+// src/webview/EntityEditorPanel.ts
+var vscode13 = __toESM(require("vscode"));
+var EntityEditorPanel = class _EntityEditorPanel {
+  constructor(_context, _id, title, html, onSave) {
+    this._id = _id;
+    this._onSave = onSave;
+    this._panel = vscode13.window.createWebviewPanel(
+      "srsEditor",
+      title,
+      { viewColumn: vscode13.ViewColumn.Active, preserveFocus: false },
+      {
+        enableScripts: true,
+        localResourceRoots: []
+      }
+    );
+    this._update(html);
+    this._panel.webview.onDidReceiveMessage(async (msg) => {
+      if (msg.type === "cancel") {
+        this.dispose();
+        return;
+      }
+      if (msg.type === "save") {
+        try {
+          await this._onSave(msg.data);
+          this.dispose();
+        } catch (err) {
+          const messages = err instanceof CliError ? err.diagnostics : [String(err)];
+          this._panel.webview.postMessage({ type: "error", messages });
+        }
+      }
+    });
+    this._panel.onDidDispose(() => {
+      _EntityEditorPanel._panels.delete(this._id);
+    });
+  }
+  static {
+    this._panels = /* @__PURE__ */ new Map();
+  }
+  static show(context, id, title, html, onSave) {
+    const existing = _EntityEditorPanel._panels.get(id);
+    if (existing) {
+      existing._panel.reveal(vscode13.ViewColumn.Active);
+      existing._panel.title = title;
+      existing._onSave = onSave;
+      existing._update(html);
+      return existing;
+    }
+    const panel = new _EntityEditorPanel(context, id, title, html, onSave);
+    _EntityEditorPanel._panels.set(id, panel);
+    return panel;
+  }
+  _update(html) {
+    this._panel.webview.html = html;
+  }
+  dispose() {
+    this._panel.dispose();
+  }
+};
+
+// src/webview/forms.ts
+var REPEAT_ENTRY_JS = `
   function wireRemoveEntry(btn) {
     btn.addEventListener('click', function() {
       btn.closest('[data-repeat-entry]').remove();
@@ -143,7 +1905,17 @@ ${c.content}`).join(`
       addEntry(btn.getAttribute('data-target'), parseInt(btn.getAttribute('data-rows') || '2', 10));
     });
   });
-`;function se(t){return t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}function _(t){return se(t)}function qe(t){return t.replace(/&/g,"&amp;").replace(/</g,"&lt;")}var Jt=`
+`;
+function esc2(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function escAttr(s) {
+  return esc2(s);
+}
+function escText(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+}
+var FORM_CSS = `
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     body {
@@ -266,7 +2038,8 @@ ${c.content}`).join(`
     }
     #error-banner.visible { display: block; }
   </style>
-`,Yt=`
+`;
+var FORM_JS = `
   <script>
     const vscode = acquireVsCodeApi();
 
@@ -289,55 +2062,46 @@ ${c.content}`).join(`
       }
     });
   </script>
-`,Xt=`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">`;function Q(t,e){return`<!DOCTYPE html>
+`;
+var CSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">`;
+function formWrapHtml(title, body) {
+  return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
-  ${Xt}
-  ${Jt}
-  <title>${se(t)}</title>
+  ${CSP}
+  ${FORM_CSS}
+  <title>${esc2(title)}</title>
 </head>
 <body>
-  <h1>${se(t)}</h1>
+  <h1>${esc2(title)}</h1>
   <div id="error-banner"></div>
   <form id="editor-form" novalidate>
-    ${e}
+    ${body}
     <div class="button-row">
       <button type="submit">Save</button>
       <button type="button" id="btn-cancel">Cancel</button>
     </div>
   </form>
-  ${Yt}
+  ${FORM_JS}
 </body>
-</html>`}function Ze(t){let e=t.sections??[],o=(t.tags??[]).join(", "),n=e.map(r=>`
+</html>`;
+}
+function buildNoteForm(note) {
+  const sections = note.sections ?? [];
+  const tagsValue = (note.tags ?? []).join(", ");
+  const sectionHtml = sections.map((s) => `
     <div class="section-group" data-section>
       <div class="field">
         <div class="section-header">
-          <input type="text" class="section-name-input" placeholder="Section name (e.g. body)" value="${_(r.name)}" required>
-          <input type="text" class="section-label-input" placeholder="Label (optional)" value="${_(r.label??"")}">
+          <input type="text" class="section-name-input" placeholder="Section name (e.g. body)" value="${escAttr(s.name)}" required>
+          <input type="text" class="section-label-input" placeholder="Label (optional)" value="${escAttr(s.label ?? "")}">
           <button type="button" class="btn-remove-section" title="Remove section">\u2715</button>
         </div>
-        <textarea class="section-content-input" rows="6">${qe(r.content)}</textarea>
+        <textarea class="section-content-input" rows="6">${escText(s.content)}</textarea>
       </div>
-    </div>`).join("");return`
-    <div class="field">
-      <label>Title <span class="required-mark">*</span></label>
-      <input type="text" name="title" value="${_(t.title)}" required autofocus>
-    </div>
-    <div class="field">
-      <label>Tags</label>
-      <input type="text" name="tags" value="${_(o)}">
-      <div class="hint">Comma-separated slugs, e.g. purpose, origin</div>
-    </div>
-    <div id="sections-container">
-      ${n}
-    </div>
-    <div class="field">
-      <button type="button" id="btn-add-section">+ Add Section</button>
-    </div>
-    <input type="hidden" name="instanceId" value="${_(t.instanceId)}">
-    <input type="hidden" name="createdAt" value="${_(t.createdAt??"")}">
-    
+    </div>`).join("");
+  const collectJs = `
   <script>
     function collectFormData() {
       const form = document.getElementById('editor-form');
@@ -385,20 +2149,29 @@ ${c.content}`).join(`
 
     document.querySelectorAll('.btn-remove-section').forEach(wireRemoveButton);
     document.getElementById('btn-add-section').addEventListener('click', addSection);
-  </script>`}function et(t){return`
+  </script>`;
+  return `
     <div class="field">
-      <label>Slug <span class="required-mark">*</span></label>
-      <input type="text" name="slug" value="${_(t.slug)}" required
-             pattern="[a-z0-9]+(-[a-z0-9]+)*" autofocus>
-      <div class="hint">Kebab-case, e.g. needs-review</div>
+      <label>Title <span class="required-mark">*</span></label>
+      <input type="text" name="title" value="${escAttr(note.title)}" required autofocus>
     </div>
     <div class="field">
-      <label>Display Label</label>
-      <input type="text" name="label" value="${_(t.label??"")}">
+      <label>Tags</label>
+      <input type="text" name="tags" value="${escAttr(tagsValue)}">
+      <div class="hint">Comma-separated slugs, e.g. purpose, origin</div>
     </div>
-    <input type="hidden" name="instanceId" value="${_(t.instanceId)}">
-    <input type="hidden" name="createdAt" value="${_(t.createdAt??"")}">
-    
+    <div id="sections-container">
+      ${sectionHtml}
+    </div>
+    <div class="field">
+      <button type="button" id="btn-add-section">+ Add Section</button>
+    </div>
+    <input type="hidden" name="instanceId" value="${escAttr(note.instanceId)}">
+    <input type="hidden" name="createdAt" value="${escAttr(note.createdAt ?? "")}">
+    ${collectJs}`;
+}
+function buildTagForm(tag) {
+  const collectJs = `
   <script>
     function collectFormData() {
       const form = document.getElementById('editor-form');
@@ -408,25 +2181,76 @@ ${c.content}`).join(`
       const createdAt = form.querySelector('[name="createdAt"]').value || undefined;
       return { instanceId, slug, label: labelRaw || undefined, createdAt };
     }
-  </script>`}function tt(t,e){let o=[...e].sort((d,c)=>d.order-c.order),n=new Map,i=new Map;for(let d of t.fieldValues)d.entries&&d.entries.length>0?i.set(d.fieldId,d.entries.map(c=>typeof c.value=="string"?c.value:JSON.stringify(c.value))):n.set(d.fieldId,typeof d.value=="string"?d.value:JSON.stringify(d.value));let r=o.map((d,c)=>{let p=d.displayLabel??d.fieldId.slice(0,8),f=d.required?' <span class="required-mark">*</span>':"",v=d.minItems!=null?` min ${d.minItems}`:"",S=d.maxItems!=null?` max ${d.maxItems}`:"",y=v||S?`<div class="hint">Repeatable${v}${S}</div>`:"";if(d.repeatable){let $=(i.get(d.fieldId)??(n.has(d.fieldId)?[n.get(d.fieldId)]:[""])).map(G=>`
+  </script>`;
+  return `
+    <div class="field">
+      <label>Slug <span class="required-mark">*</span></label>
+      <input type="text" name="slug" value="${escAttr(tag.slug)}" required
+             pattern="[a-z0-9]+(-[a-z0-9]+)*" autofocus>
+      <div class="hint">Kebab-case, e.g. needs-review</div>
+    </div>
+    <div class="field">
+      <label>Display Label</label>
+      <input type="text" name="label" value="${escAttr(tag.label ?? "")}">
+    </div>
+    <input type="hidden" name="instanceId" value="${escAttr(tag.instanceId)}">
+    <input type="hidden" name="createdAt" value="${escAttr(tag.createdAt ?? "")}">
+    ${collectJs}`;
+}
+function buildRecordForm(record, fields) {
+  const sorted = [...fields].sort((a, b) => a.order - b.order);
+  const currentScalar = /* @__PURE__ */ new Map();
+  const currentEntries = /* @__PURE__ */ new Map();
+  for (const fv2 of record.fieldValues) {
+    if (fv2.entries && fv2.entries.length > 0) {
+      currentEntries.set(
+        fv2.fieldId,
+        fv2.entries.map((e) => typeof e.value === "string" ? e.value : JSON.stringify(e.value))
+      );
+    } else {
+      currentScalar.set(
+        fv2.fieldId,
+        typeof fv2.value === "string" ? fv2.value : JSON.stringify(fv2.value)
+      );
+    }
+  }
+  const fieldHtml = sorted.map((f, i) => {
+    const label = f.displayLabel ?? f.fieldId.slice(0, 8);
+    const requiredMark = f.required ? ` <span class="required-mark">*</span>` : "";
+    const minHint = f.minItems != null ? ` min ${f.minItems}` : "";
+    const maxHint = f.maxItems != null ? ` max ${f.maxItems}` : "";
+    const repeatHint = minHint || maxHint ? `<div class="hint">Repeatable${minHint}${maxHint}</div>` : "";
+    if (f.repeatable) {
+      const entries = currentEntries.get(f.fieldId) ?? (currentScalar.has(f.fieldId) ? [currentScalar.get(f.fieldId)] : [""]);
+      const entryInputs = entries.map((v) => `
         <div class="repeat-entry" data-repeat-entry>
-          <textarea class="repeat-value" rows="2">${qe(G)}</textarea>
+          <textarea class="repeat-value" rows="2">${escText(v)}</textarea>
           <button type="button" class="btn-remove-entry" title="Remove">\u2715</button>
-        </div>`).join("");return`
-    <div class="field" data-field-index="${c}" data-repeatable>
-      <label>${se(p)}${f}</label>
-      <div class="repeat-list" id="repeat-list-${c}">${$}</div>
-      <button type="button" class="btn-add-entry" data-target="repeat-list-${c}">+ Add value</button>
-      ${y}
-      <input type="hidden" name="field_id_${c}" value="${_(d.fieldId)}">
-    </div>`}else{let k=n.get(d.fieldId)??"",$=d.required?" required":"";return`
-    <div class="field" data-field-index="${c}">
-      <label>${se(p)}${f}</label>
-      <textarea name="field_value_${c}" rows="2"${$}>${qe(k)}</textarea>
-      <input type="hidden" name="field_id_${c}" value="${_(d.fieldId)}">
-    </div>`}}).join(""),s=o.length,a=o.map((d,c)=>d.repeatable?c:-1).filter(d=>d>=0),l=`
+        </div>`).join("");
+      return `
+    <div class="field" data-field-index="${i}" data-repeatable>
+      <label>${esc2(label)}${requiredMark}</label>
+      <div class="repeat-list" id="repeat-list-${i}">${entryInputs}</div>
+      <button type="button" class="btn-add-entry" data-target="repeat-list-${i}">+ Add value</button>
+      ${repeatHint}
+      <input type="hidden" name="field_id_${i}" value="${escAttr(f.fieldId)}">
+    </div>`;
+    } else {
+      const value = currentScalar.get(f.fieldId) ?? "";
+      const required = f.required ? ` required` : "";
+      return `
+    <div class="field" data-field-index="${i}">
+      <label>${esc2(label)}${requiredMark}</label>
+      <textarea name="field_value_${i}" rows="2"${required}>${escText(value)}</textarea>
+      <input type="hidden" name="field_id_${i}" value="${escAttr(f.fieldId)}">
+    </div>`;
+    }
+  }).join("");
+  const fieldCount = sorted.length;
+  const repeatableIndices = sorted.map((f, i) => f.repeatable ? i : -1).filter((i) => i >= 0);
+  const collectJs = `
   <script>
-    var repeatableIndices = ${JSON.stringify(a)};
+    var repeatableIndices = ${JSON.stringify(repeatableIndices)};
 
     function collectFormData() {
       var form = document.getElementById('editor-form');
@@ -461,27 +2285,887 @@ ${c.content}`).join(`
                createdAt: createdAt, fieldValues: fieldValues };
     }
 
-    ${Kt.trim()}
-  </script>`;return`
-    ${r}
-    <input type="hidden" name="instanceId" value="${_(t.instanceId)}">
-    <input type="hidden" name="typeId" value="${_(t.typeId)}">
-    <input type="hidden" name="typeName" value="${_(t.typeName)}">
-    <input type="hidden" name="typeNamespace" value="${_(t.typeNamespace)}">
-    <input type="hidden" name="typeVersion" value="${_(String(t.typeVersion))}">
-    <input type="hidden" name="createdAt" value="${_(t.createdAt??"")}">
-    <input type="hidden" name="fieldCount" value="${s}">
-    ${l}`}function ot(t,e,o,n){t.subscriptions.push(g.commands.registerCommand("srs.editEntity",i=>Qt(t,e,o,n,i)),g.commands.registerCommand("srs.createRelation",()=>oo(e,o,n)),g.commands.registerCommand("srs.createRelationType",()=>no(e,o,n)),g.commands.registerCommand("srs.updateRelationType",()=>io(e,o,n)),g.commands.registerCommand("srs.deleteRelationType",()=>ro(e,o,n)))}async function Qt(t,e,o,n,i){if(!(i instanceof T)){g.window.showWarningMessage("SRS: Select an entity in the SRS tree to edit.");return}let r=o.active;if(r)try{switch(i.entityKind){case"note":await Zt(t,e,r.rootPath,i.entityId,n);break;case"tag":await eo(t,e,r.rootPath,i.entityId,n);break;case"record":await to(t,e,r.rootPath,i.entityId,n);break;default:g.window.showInformationMessage(`SRS: No form editor for '${i.entityKind}'. Open the entity JSON to edit directly.`)}}catch(s){let a=s instanceof u?s.message:String(s);g.window.showErrorMessage(`SRS: Edit failed: ${a}`)}}async function Zt(t,e,o,n,i){let s=(await e.runOk(o,["note","get",n])).note,a={instanceId:s.instanceId,title:s.title,tags:s.tags,createdAt:s.createdAt,sections:s.sections},l=Q(s.title,Ze(a));U.show(t,`note:${n}`,s.title,l,async d=>{let c=d,p=await e.runOk(o,["note","get",n]);p.note.title!==s.title&&await g.window.showWarningMessage(`SRS: Note was modified since you opened it (title changed to "${p.note.title}"). Overwrite?`,{modal:!0},"Overwrite")!=="Overwrite"||(await e.runOk(o,["note","update",n],{stdin:JSON.stringify(c)}),i.refresh())})}async function eo(t,e,o,n,i){let s=(await e.runOk(o,["tag","get",n])).tagDefinition,a={instanceId:s.instanceId,slug:s.slug,label:s.label,createdAt:s.createdAt},l=Q(`Edit Tag: ${s.slug}`,et(a));U.show(t,`tag:${n}`,`Edit Tag: ${s.slug}`,l,async d=>{let c=d;(await e.runOk(o,["tag","get",n])).tagDefinition.slug!==s.slug&&await g.window.showWarningMessage("SRS: Tag was modified since you opened it. Overwrite?",{modal:!0},"Overwrite")!=="Overwrite"||(await e.runOk(o,["tag","update",n],{stdin:JSON.stringify(c)}),i.refresh())})}async function to(t,e,o,n,i){let s=(await e.runOk(o,["record","get",n])).record,l=(await e.runOk(o,["type","get",s.typeId])).type.fields,d=await Promise.allSettled(l.map(S=>e.runOk(o,["field","get",S.fieldId]))),c={instanceId:s.instanceId,typeId:s.typeId,typeName:s.typeName,typeNamespace:s.typeNamespace,typeVersion:s.typeVersion,createdAt:s.createdAt,fieldValues:s.fieldValues},p=l.map((S,y)=>{let k=d[y],$=k.status==="fulfilled"?k.value.field.name:void 0;return{fieldId:S.fieldId,displayLabel:S.displayLabel??$,order:S.order,required:S.required,repeatable:S.repeatable,minItems:S.minItems,maxItems:S.maxItems}}),f=`${s.typeNamespace}/${s.typeName} v${s.typeVersion}`,v=Q(f,tt(c,p));U.show(t,`record:${n}`,f,v,async S=>{let y=S;(await e.runOk(o,["record","get",n])).record.fieldValues.length!==s.fieldValues.length&&await g.window.showWarningMessage("SRS: Record was modified since you opened it. Overwrite?",{modal:!0},"Overwrite")!=="Overwrite"||(await e.runOk(o,["record","update",n],{stdin:JSON.stringify(y)}),i.refresh())})}async function oo(t,e,o){let n=e.active;if(!n){g.window.showWarningMessage("SRS: No active repository.");return}let i=[];try{i=(await t.runOk(n.rootPath,["relation-type","list"])).relationTypeDefinitions}catch{}let r=["contains","depends-on","supersedes","refines","derived-from","evidences","precedes"],s=i.length>0?i.map(v=>({label:v.label,description:v.relationType,value:v.relationType})):r.map(v=>({label:v,description:"",value:v})),a=await g.window.showQuickPick(s,{placeHolder:"Select relation type"});if(!a)return;let l=await so(t,n.rootPath);if(l.length===0){g.window.showWarningMessage("SRS: No instances found to relate. Create some notes or records first.");return}let d=await g.window.showQuickPick(l,{placeHolder:"Select source instance",matchOnDescription:!0});if(!d)return;let c=await g.window.showQuickPick(l.filter(v=>v.id!==d.id),{placeHolder:"Select target instance",matchOnDescription:!0});if(!c)return;let{randomUUID:p}=await import("crypto"),f=JSON.stringify({relationId:p(),relationType:a.value,sourceInstanceId:d.id,targetInstanceId:c.id,createdAt:new Date().toISOString()});try{await t.runOk(n.rootPath,["relation","create"],{stdin:f}),o.refresh(),g.window.showInformationMessage(`SRS: Relation '${a.value}' created.`)}catch(v){let S=v instanceof u?v.message:String(v);g.window.showErrorMessage(`SRS: Failed to create relation: ${S}`)}}async function no(t,e,o){let n=e.active;if(!n){g.window.showWarningMessage("SRS: No active repository.");return}let{randomUUID:i}=await import("crypto"),r=JSON.stringify({id:i(),version:1,relationType:"namespace/name",namespace:"com.example",label:"My relation type",description:"Description of what this relation means.",category:"association",createdAt:new Date().toISOString()},null,2),s=await g.workspace.openTextDocument({content:r,language:"json"});if(await g.window.showTextDocument(s),await g.window.showInformationMessage("SRS: Edit the relation type definition above, then click Create.","Create","Cancel")!=="Create")return;let l=s.getText();try{await t.runOk(n.rootPath,["relation-type","create"],{stdin:l}),o.refresh(),g.window.showInformationMessage("SRS: Relation type created.")}catch(d){let c=d instanceof u?d.message:String(d);g.window.showErrorMessage(`SRS: Failed to create relation type: ${c}`)}}async function io(t,e,o){let n=e.active;if(!n){g.window.showWarningMessage("SRS: No active repository.");return}let i=await nt(t,n.rootPath);if(!i)return;let r=await t.runOk(n.rootPath,["relation-type","get",i.id]),s=await g.workspace.openTextDocument({content:JSON.stringify(r.relationTypeDefinition,null,2),language:"json"});if(await g.window.showTextDocument(s),await g.window.showInformationMessage(`SRS: Edit '${i.label}', then click Update.`,"Update","Cancel")!=="Update")return;let l=s.getText();try{await t.runOk(n.rootPath,["relation-type","update",i.id],{stdin:l}),o.refresh(),g.window.showInformationMessage("SRS: Relation type updated.")}catch(d){let c=d instanceof u?d.message:String(d);g.window.showErrorMessage(`SRS: Failed to update relation type: ${c}`)}}async function ro(t,e,o){let n=e.active;if(!n){g.window.showWarningMessage("SRS: No active repository.");return}let i=await nt(t,n.rootPath);if(!(!i||await g.window.showWarningMessage(`SRS: Delete relation type '${i.label}' (${i.relationType})? This will fail if any stored relations reference it.`,{modal:!0},"Delete")!=="Delete"))try{await t.runOk(n.rootPath,["relation-type","delete",i.id]),o.refresh(),g.window.showInformationMessage("SRS: Relation type deleted.")}catch(s){let a=s instanceof u?s.message:String(s);g.window.showErrorMessage(`SRS: Failed to delete relation type: ${a}`)}}async function nt(t,e){let o=[];try{o=(await t.runOk(e,["relation-type","list"])).relationTypeDefinitions}catch(i){let r=i instanceof u?i.message:String(i);g.window.showErrorMessage(`SRS: Could not load relation types: ${r}`);return}if(o.length===0){g.window.showWarningMessage("SRS: No relation type definitions found in this repository.");return}let n=o.map(i=>({label:i.label,description:i.relationType,id:i.id,relationType:i.relationType}));return g.window.showQuickPick(n,{placeHolder:"Select relation type"})}async function so(t,e){let o=[];try{let n=await t.runOk(e,["note","list"]);for(let i of n.notes)o.push({label:i.title,description:`note \xB7 ${i.instanceId.slice(0,8)}`,id:i.instanceId})}catch{}try{let n=await t.runOk(e,["record","list"]);for(let i of n.records)o.push({label:i.displayLabel,description:`record \xB7 ${i.instanceId.slice(0,8)}`,id:i.instanceId})}catch{}return o}var A=h(require("vscode"));function it(t,e,o,n,i){t.subscriptions.push(A.commands.registerCommand("srs.setActiveContainer",()=>ao(e,o,n)),A.commands.registerCommand("srs.clearActiveContainer",()=>co(n,i)),A.commands.registerCommand("srs.createContainer",()=>lo(e,o,n,i)))}async function ao(t,e,o){let n=e.active;if(!n){A.window.showWarningMessage("SRS: No active repository. Run 'SRS: Select Repository' first.");return}let i;try{i=(await t.runOk(n.rootPath,["container","list"])).containers}catch(l){let d=l instanceof u?l.message:String(l);A.window.showErrorMessage(`SRS: Failed to list containers: ${d}`);return}if(i.length===0){let l="Create Container";await A.window.showInformationMessage("SRS: No containers found in the active repository.",l)===l&&A.commands.executeCommand("srs.createContainer");return}let r=i.map(l=>({label:l.title,description:l.containerType,detail:l.containerId,container:l})),s={label:"$(circle-slash) Clear active container",description:"",detail:"",container:null},a=await A.window.showQuickPick([s,...r],{placeHolder:"Select a container to set as active"});if(a){if(a.container===null){await o.clear();return}try{await o.set({containerId:a.container.containerId,title:a.container.title},n.rootPath)}catch(l){let d=l instanceof u?l.message:String(l);A.window.showErrorMessage(`SRS: Failed to set active container: ${d}`)}}}async function co(t,e){await t.clear(),e.refresh()}async function lo(t,e,o,n){let i=e.active;if(!i){A.window.showWarningMessage("SRS: No active repository. Run 'SRS: Select Repository' first.");return}let r=await A.window.showInputBox({title:"SRS: Create Container",prompt:"Container title",placeHolder:"e.g. Sprint 42",validateInput:p=>p.trim()?void 0:"Title is required"});if(!r)return;let s=await A.window.showInputBox({title:"SRS: Create Container",prompt:"Container type (optional)",placeHolder:"e.g. sprint, milestone, epic"}),{randomUUID:a}=await import("crypto"),l=a(),d=new Date().toISOString(),c=JSON.stringify({containerId:l,title:r.trim(),containerType:s?.trim()||void 0,memberInstanceIds:[],rootInstanceIds:[],createdAt:d});try{await t.runOk(i.rootPath,["container","create"],{stdin:c}),n.refresh();let p="Set as Active";await A.window.showInformationMessage(`SRS: Container '${r}' created.`,p)===p&&await o.set({containerId:l,title:r.trim()},i.rootPath)}catch(p){let f=p instanceof u?p.message:String(p);A.window.showErrorMessage(`SRS: Failed to create container: ${f}`)}}var P=h(require("vscode"));function rt(t,e,o,n,i){t.subscriptions.push(P.commands.registerCommand("srs.createNote",()=>po(e,o,n,i)),P.commands.registerCommand("srs.createTag",()=>uo(e,o,i)),P.commands.registerCommand("srs.createRecord",()=>mo(e,o,n,i)),P.commands.registerCommand("srs.deleteEntity",r=>go(e,o,i,r)))}function Ge(t){let e=t.active;if(!e){P.window.showWarningMessage("SRS: No active repository. Run 'SRS: Select Repository' first.");return}return e}function st(t){return t.active?.containerId}async function po(t,e,o,n){let i=Ge(e);if(!i)return;let r=await P.window.showInputBox({title:"SRS: Create Note",prompt:"Note title",placeHolder:"e.g. Architecture Decision: Use CLI bridge",validateInput:c=>c.trim()?void 0:"Title is required"});if(!r)return;let{randomUUID:s}=await import("crypto"),a=s(),l=new Date().toISOString(),d=JSON.stringify({instanceId:a,title:r.trim(),sections:[{name:"body",content:"",label:"Body"}],tags:[],createdAt:l});try{let c=st(o);await t.runOk(i.rootPath,["note","create"],{stdin:d,containerId:c}),n.refresh(),P.window.showInformationMessage(`SRS: Note '${r}' created.`)}catch(c){let p=c instanceof u?c.message:String(c);P.window.showErrorMessage(`SRS: Failed to create note: ${p}`)}}async function uo(t,e,o){let n=Ge(e);if(!n)return;let i=await P.window.showInputBox({title:"SRS: Create Tag",prompt:"Tag slug (kebab-case identifier)",placeHolder:"e.g. needs-review",validateInput:c=>/^[a-z0-9]+(-[a-z0-9]+)*$/.test(c.trim())?void 0:"Slug must be kebab-case (e.g. my-tag)"});if(!i)return;let r=await P.window.showInputBox({title:"SRS: Create Tag",prompt:"Display label (optional)",placeHolder:"e.g. Needs Review"}),{randomUUID:s}=await import("crypto"),a=s(),l=new Date().toISOString(),d=JSON.stringify({instanceId:a,slug:i.trim(),label:r?.trim()||void 0,createdAt:l});try{await t.runOk(n.rootPath,["tag","create"],{stdin:d}),o.refresh(),P.window.showInformationMessage(`SRS: Tag '${i}' created.`)}catch(c){let p=c instanceof u?c.message:String(c);P.window.showErrorMessage(`SRS: Failed to create tag: ${p}`)}}async function mo(t,e,o,n){let i=Ge(e);if(!i)return;let r;try{r=(await t.runOk(i.rootPath,["type","list"])).types}catch(d){let c=d instanceof u?d.message:String(d);P.window.showErrorMessage(`SRS: Failed to list types: ${c}`);return}if(r.length===0){P.window.showWarningMessage("SRS: No types defined in the active repository.");return}let s=r.map(d=>({label:`${d.namespace}/${d.name}`,description:`v${d.version}`,detail:d.id,type:d})),a=await P.window.showQuickPick(s,{placeHolder:"Select a type for the new record",matchOnDescription:!0,matchOnDetail:!0});if(!a)return;let l=`${a.type.namespace}/${a.type.name}`;try{let d=st(o);await t.runOk(i.rootPath,["record","create","--type",l,"--version",String(a.type.version)],{stdin:JSON.stringify({fieldValues:[]}),containerId:d}),n.refresh(),P.window.showInformationMessage(`SRS: Record of type '${l}' created.`)}catch(d){let c=d instanceof u?d.message:String(d);P.window.showErrorMessage(`SRS: Failed to create record: ${c}`)}}async function go(t,e,o,n){if(!(n instanceof T)){P.window.showWarningMessage("SRS: Select an entity in the SRS tree to delete.");return}let i=e.active;if(!i||await P.window.showWarningMessage(`SRS: Delete ${n.entityKind} '${n.label}'?`,{modal:!0},"Delete")!=="Delete")return;let s=vo(n.entityKind,n.entityId);if(!s){P.window.showErrorMessage(`SRS: Delete not supported for '${n.entityKind}'.`);return}try{await t.runOk(i.rootPath,s),o.refresh(),P.window.showInformationMessage(`SRS: ${n.entityKind} deleted.`)}catch(a){if(a instanceof u&&a.diagnostics.some(l=>l.includes("CannotDeleteInUse")||l.includes("used by")))P.window.showErrorMessage(`SRS: Cannot delete ${n.entityKind} '${n.label}' \u2014 it is referenced by other entities. Remove those references first.
+    ${REPEAT_ENTRY_JS.trim()}
+  </script>`;
+  return `
+    ${fieldHtml}
+    <input type="hidden" name="instanceId" value="${escAttr(record.instanceId)}">
+    <input type="hidden" name="typeId" value="${escAttr(record.typeId)}">
+    <input type="hidden" name="typeName" value="${escAttr(record.typeName)}">
+    <input type="hidden" name="typeNamespace" value="${escAttr(record.typeNamespace)}">
+    <input type="hidden" name="typeVersion" value="${escAttr(String(record.typeVersion))}">
+    <input type="hidden" name="createdAt" value="${escAttr(record.createdAt ?? "")}">
+    <input type="hidden" name="fieldCount" value="${fieldCount}">
+    ${collectJs}`;
+}
 
-Details: ${a.diagnostics.join(`
-`)}`,{modal:!0});else{let l=a instanceof u?a.message:String(a);P.window.showErrorMessage(`SRS: Failed to delete entity: ${l}`)}}}function vo(t,e){switch(t){case"note":return["note","delete",e];case"tag":return["tag","delete",e];case"record":return["record","delete",e];case"relation":return["relation","delete",e];case"container":return["container","delete",e];case"protocol":return["protocol","delete",e];case"blueprint":return["blueprint","delete",e];default:return}}var B=h(require("vscode"));var J=h(require("vscode")),Ie=class t{constructor(e,o,n,i){this._context=e;this._key=o;this._repoPath=i;this._panel=J.window.createWebviewPanel("srsGraph",`Relations: ${n}`,{viewColumn:J.ViewColumn.Active,preserveFocus:!1},{enableScripts:!0,localResourceRoots:[],retainContextWhenHidden:!0}),this._panel.webview.onDidReceiveMessage(r=>{r.type==="openEntity"&&typeof r.id=="string"&&J.commands.executeCommand("srs.openEntityById",r.id,r.kind??"note",this._repoPath)}),this._panel.onDidDispose(()=>{t._panels.delete(this._key)})}static{this._panels=new Map}static async show(e,o,n,i){let r=`graph:${n}`,s=t._panels.get(r);if(s){s._panel.reveal(J.ViewColumn.Active),await s._load(o,n);return}let a=new t(e,r,i,n);t._panels.set(r,a),await a._load(o,n)}async _load(e,o){this._panel.webview.html=yo();try{let[n,i,r]=await Promise.all([e.runOk(o,["relation","list"]),e.runOk(o,["note","list"]).catch(()=>({notes:[]})),e.runOk(o,["record","list"]).catch(()=>({records:[]}))]),s=new Map,a=new Map;for(let p of i.notes)s.set(p.instanceId,p.title),a.set(p.instanceId,"note");for(let p of r.records)s.set(p.instanceId,p.displayLabel),a.set(p.instanceId,"record");let l=new Set,d=[];for(let p of n.relations)l.add(p.sourceId),l.add(p.targetId),d.push({id:p.relationId,source:p.sourceId,target:p.targetId,label:p.relationType});let c=Array.from(l).map(p=>({id:p,label:s.get(p)??p.slice(0,8),kind:a.get(p)??"note"}));this._panel.webview.html=ho(c,d)}catch(n){this._panel.webview.html=fo(String(n))}}dispose(){this._panel.dispose()}};function yo(){return`<!DOCTYPE html><html><head><meta charset="UTF-8">
+// src/commands/editCommands.ts
+function registerEditCommands(context, cli, repoProvider, treeProvider) {
+  context.subscriptions.push(
+    vscode14.commands.registerCommand(
+      "srs.editEntity",
+      (node) => cmdEditEntity(context, cli, repoProvider, treeProvider, node)
+    ),
+    vscode14.commands.registerCommand(
+      "srs.createRelation",
+      () => cmdCreateRelation(cli, repoProvider, treeProvider)
+    ),
+    vscode14.commands.registerCommand(
+      "srs.createRelationType",
+      () => cmdCreateRelationType(cli, repoProvider, treeProvider)
+    ),
+    vscode14.commands.registerCommand(
+      "srs.updateRelationType",
+      () => cmdUpdateRelationType(cli, repoProvider, treeProvider)
+    ),
+    vscode14.commands.registerCommand(
+      "srs.deleteRelationType",
+      () => cmdDeleteRelationType(cli, repoProvider, treeProvider)
+    )
+  );
+}
+async function cmdEditEntity(context, cli, repoProvider, treeProvider, node) {
+  if (!(node instanceof EntityNode)) {
+    vscode14.window.showWarningMessage(
+      "SRS: Select an entity in the SRS tree to edit."
+    );
+    return;
+  }
+  const repo = repoProvider.active;
+  if (!repo)
+    return;
+  try {
+    switch (node.entityKind) {
+      case "note":
+        await editNote(context, cli, repo.rootPath, node.entityId, treeProvider);
+        break;
+      case "tag":
+        await editTag(context, cli, repo.rootPath, node.entityId, treeProvider);
+        break;
+      case "record":
+        await editRecord(context, cli, repo.rootPath, node.entityId, treeProvider);
+        break;
+      default:
+        vscode14.window.showInformationMessage(
+          `SRS: No form editor for '${node.entityKind}'. Open the entity JSON to edit directly.`
+        );
+    }
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode14.window.showErrorMessage(`SRS: Edit failed: ${msg}`);
+  }
+}
+async function editNote(context, cli, repoPath, id, treeProvider) {
+  const payload = await cli.runOk(repoPath, ["note", "get", id]);
+  const note = payload.note;
+  const noteData = {
+    instanceId: note.instanceId,
+    title: note.title,
+    tags: note.tags,
+    createdAt: note.createdAt,
+    sections: note.sections
+  };
+  const html = formWrapHtml(note.title, buildNoteForm(noteData));
+  EntityEditorPanel.show(context, `note:${id}`, note.title, html, async (data) => {
+    const d = data;
+    const refetch = await cli.runOk(repoPath, ["note", "get", id]);
+    if (refetch.note.title !== note.title) {
+      const proceed = await vscode14.window.showWarningMessage(
+        `SRS: Note was modified since you opened it (title changed to "${refetch.note.title}"). Overwrite?`,
+        { modal: true },
+        "Overwrite"
+      );
+      if (proceed !== "Overwrite")
+        return;
+    }
+    await cli.runOk(repoPath, ["note", "update", id], {
+      stdin: JSON.stringify(d)
+    });
+    treeProvider.refresh();
+  });
+}
+async function editTag(context, cli, repoPath, id, treeProvider) {
+  const payload = await cli.runOk(repoPath, ["tag", "get", id]);
+  const tag = payload.tagDefinition;
+  const tagData = {
+    instanceId: tag.instanceId,
+    slug: tag.slug,
+    label: tag.label,
+    createdAt: tag.createdAt
+  };
+  const html = formWrapHtml(`Edit Tag: ${tag.slug}`, buildTagForm(tagData));
+  EntityEditorPanel.show(context, `tag:${id}`, `Edit Tag: ${tag.slug}`, html, async (data) => {
+    const d = data;
+    const refetch = await cli.runOk(repoPath, ["tag", "get", id]);
+    if (refetch.tagDefinition.slug !== tag.slug) {
+      const proceed = await vscode14.window.showWarningMessage(
+        `SRS: Tag was modified since you opened it. Overwrite?`,
+        { modal: true },
+        "Overwrite"
+      );
+      if (proceed !== "Overwrite")
+        return;
+    }
+    await cli.runOk(repoPath, ["tag", "update", id], {
+      stdin: JSON.stringify(d)
+    });
+    treeProvider.refresh();
+  });
+}
+async function editRecord(context, cli, repoPath, id, treeProvider) {
+  const payload = await cli.runOk(repoPath, ["record", "get", id]);
+  const record = payload.record;
+  const typePayload = await cli.runOk(repoPath, [
+    "type",
+    "get",
+    record.typeId
+  ]);
+  const typeFields = typePayload.type.fields;
+  const fieldResults = await Promise.allSettled(
+    typeFields.map((f) => cli.runOk(repoPath, ["field", "get", f.fieldId]))
+  );
+  const recordData = {
+    instanceId: record.instanceId,
+    typeId: record.typeId,
+    typeName: record.typeName,
+    typeNamespace: record.typeNamespace,
+    typeVersion: record.typeVersion,
+    createdAt: record.createdAt,
+    fieldValues: record.fieldValues
+  };
+  const fieldData = typeFields.map((f, i) => {
+    const fr = fieldResults[i];
+    const fieldName = fr.status === "fulfilled" ? fr.value.field.name : void 0;
+    return {
+      fieldId: f.fieldId,
+      displayLabel: f.displayLabel ?? fieldName,
+      order: f.order,
+      required: f.required,
+      repeatable: f.repeatable,
+      minItems: f.minItems,
+      maxItems: f.maxItems
+    };
+  });
+  const panelTitle = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
+  const html = formWrapHtml(panelTitle, buildRecordForm(recordData, fieldData));
+  EntityEditorPanel.show(context, `record:${id}`, panelTitle, html, async (data) => {
+    const d = data;
+    const refetch = await cli.runOk(repoPath, ["record", "get", id]);
+    if (refetch.record.fieldValues.length !== record.fieldValues.length) {
+      const proceed = await vscode14.window.showWarningMessage(
+        `SRS: Record was modified since you opened it. Overwrite?`,
+        { modal: true },
+        "Overwrite"
+      );
+      if (proceed !== "Overwrite")
+        return;
+    }
+    await cli.runOk(repoPath, ["record", "update", id], {
+      stdin: JSON.stringify(d)
+    });
+    treeProvider.refresh();
+  });
+}
+async function cmdCreateRelation(cli, repoProvider, treeProvider) {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode14.window.showWarningMessage("SRS: No active repository.");
+    return;
+  }
+  let relationTypes = [];
+  try {
+    const payload = await cli.runOk(repo.rootPath, [
+      "relation-type",
+      "list"
+    ]);
+    relationTypes = payload.relationTypeDefinitions;
+  } catch {
+  }
+  const CANONICAL_TYPES = [
+    "contains",
+    "depends-on",
+    "supersedes",
+    "refines",
+    "derived-from",
+    "evidences",
+    "precedes"
+  ];
+  const typeItems = relationTypes.length > 0 ? relationTypes.map((rt) => ({
+    label: rt.label,
+    description: rt.relationType,
+    value: rt.relationType
+  })) : CANONICAL_TYPES.map((t) => ({ label: t, description: "", value: t }));
+  const pickedType = await vscode14.window.showQuickPick(typeItems, {
+    placeHolder: "Select relation type"
+  });
+  if (!pickedType)
+    return;
+  const instanceItems = await buildInstanceItems(cli, repo.rootPath);
+  if (instanceItems.length === 0) {
+    vscode14.window.showWarningMessage(
+      "SRS: No instances found to relate. Create some notes or records first."
+    );
+    return;
+  }
+  const source = await vscode14.window.showQuickPick(instanceItems, {
+    placeHolder: "Select source instance",
+    matchOnDescription: true
+  });
+  if (!source)
+    return;
+  const target = await vscode14.window.showQuickPick(
+    instanceItems.filter((i) => i.id !== source.id),
+    { placeHolder: "Select target instance", matchOnDescription: true }
+  );
+  if (!target)
+    return;
+  const { randomUUID } = await import("crypto");
+  const relationJson = JSON.stringify({
+    relationId: randomUUID(),
+    relationType: pickedType.value,
+    sourceInstanceId: source.id,
+    targetInstanceId: target.id,
+    createdAt: (/* @__PURE__ */ new Date()).toISOString()
+  });
+  try {
+    await cli.runOk(repo.rootPath, ["relation", "create"], {
+      stdin: relationJson
+    });
+    treeProvider.refresh();
+    vscode14.window.showInformationMessage(
+      `SRS: Relation '${pickedType.value}' created.`
+    );
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode14.window.showErrorMessage(`SRS: Failed to create relation: ${msg}`);
+  }
+}
+async function cmdCreateRelationType(cli, repoProvider, treeProvider) {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode14.window.showWarningMessage("SRS: No active repository.");
+    return;
+  }
+  const { randomUUID } = await import("crypto");
+  const scaffold = JSON.stringify(
+    {
+      id: randomUUID(),
+      version: 1,
+      relationType: "namespace/name",
+      namespace: "com.example",
+      label: "My relation type",
+      description: "Description of what this relation means.",
+      category: "association",
+      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+    },
+    null,
+    2
+  );
+  const doc = await vscode14.workspace.openTextDocument({
+    content: scaffold,
+    language: "json"
+  });
+  await vscode14.window.showTextDocument(doc);
+  const answer = await vscode14.window.showInformationMessage(
+    "SRS: Edit the relation type definition above, then click Create.",
+    "Create",
+    "Cancel"
+  );
+  if (answer !== "Create")
+    return;
+  const content = doc.getText();
+  try {
+    await cli.runOk(repo.rootPath, ["relation-type", "create"], {
+      stdin: content
+    });
+    treeProvider.refresh();
+    vscode14.window.showInformationMessage("SRS: Relation type created.");
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode14.window.showErrorMessage(`SRS: Failed to create relation type: ${msg}`);
+  }
+}
+async function cmdUpdateRelationType(cli, repoProvider, treeProvider) {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode14.window.showWarningMessage("SRS: No active repository.");
+    return;
+  }
+  const picked = await pickRelationType(cli, repo.rootPath);
+  if (!picked)
+    return;
+  const payload = await cli.runOk(repo.rootPath, [
+    "relation-type",
+    "get",
+    picked.id
+  ]);
+  const doc = await vscode14.workspace.openTextDocument({
+    content: JSON.stringify(payload.relationTypeDefinition, null, 2),
+    language: "json"
+  });
+  await vscode14.window.showTextDocument(doc);
+  const answer = await vscode14.window.showInformationMessage(
+    `SRS: Edit '${picked.label}', then click Update.`,
+    "Update",
+    "Cancel"
+  );
+  if (answer !== "Update")
+    return;
+  const content = doc.getText();
+  try {
+    await cli.runOk(repo.rootPath, ["relation-type", "update", picked.id], {
+      stdin: content
+    });
+    treeProvider.refresh();
+    vscode14.window.showInformationMessage("SRS: Relation type updated.");
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode14.window.showErrorMessage(`SRS: Failed to update relation type: ${msg}`);
+  }
+}
+async function cmdDeleteRelationType(cli, repoProvider, treeProvider) {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode14.window.showWarningMessage("SRS: No active repository.");
+    return;
+  }
+  const picked = await pickRelationType(cli, repo.rootPath);
+  if (!picked)
+    return;
+  const confirm = await vscode14.window.showWarningMessage(
+    `SRS: Delete relation type '${picked.label}' (${picked.relationType})? This will fail if any stored relations reference it.`,
+    { modal: true },
+    "Delete"
+  );
+  if (confirm !== "Delete")
+    return;
+  try {
+    await cli.runOk(repo.rootPath, ["relation-type", "delete", picked.id]);
+    treeProvider.refresh();
+    vscode14.window.showInformationMessage("SRS: Relation type deleted.");
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode14.window.showErrorMessage(`SRS: Failed to delete relation type: ${msg}`);
+  }
+}
+async function pickRelationType(cli, repoPath) {
+  let defs = [];
+  try {
+    const payload = await cli.runOk(repoPath, ["relation-type", "list"]);
+    defs = payload.relationTypeDefinitions;
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode14.window.showErrorMessage(`SRS: Could not load relation types: ${msg}`);
+    return void 0;
+  }
+  if (defs.length === 0) {
+    vscode14.window.showWarningMessage("SRS: No relation type definitions found in this repository.");
+    return void 0;
+  }
+  const items = defs.map((rt) => ({
+    label: rt.label,
+    description: rt.relationType,
+    id: rt.id,
+    relationType: rt.relationType
+  }));
+  return vscode14.window.showQuickPick(items, { placeHolder: "Select relation type" });
+}
+async function buildInstanceItems(cli, repoPath) {
+  const items = [];
+  try {
+    const notes = await cli.runOk(repoPath, ["note", "list"]);
+    for (const n of notes.notes) {
+      items.push({ label: n.title, description: `note \xB7 ${n.instanceId.slice(0, 8)}`, id: n.instanceId });
+    }
+  } catch {
+  }
+  try {
+    const records = await cli.runOk(repoPath, ["record", "list"]);
+    for (const r of records.records) {
+      items.push({
+        label: r.displayLabel,
+        description: `record \xB7 ${r.instanceId.slice(0, 8)}`,
+        id: r.instanceId
+      });
+    }
+  } catch {
+  }
+  return items;
+}
+
+// src/commands/containerCommands.ts
+var vscode15 = __toESM(require("vscode"));
+function registerContainerCommands(context, cli, repoProvider, attention, treeProvider) {
+  context.subscriptions.push(
+    vscode15.commands.registerCommand(
+      "srs.setActiveContainer",
+      () => cmdSetActiveContainer(cli, repoProvider, attention)
+    ),
+    vscode15.commands.registerCommand(
+      "srs.clearActiveContainer",
+      () => cmdClearActiveContainer(attention, treeProvider)
+    ),
+    vscode15.commands.registerCommand(
+      "srs.createContainer",
+      () => cmdCreateContainer(cli, repoProvider, attention, treeProvider)
+    )
+  );
+}
+async function cmdSetActiveContainer(cli, repoProvider, attention) {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode15.window.showWarningMessage(
+      "SRS: No active repository. Run 'SRS: Select Repository' first."
+    );
+    return;
+  }
+  let containers;
+  try {
+    const payload = await cli.runOk(repo.rootPath, [
+      "container",
+      "list"
+    ]);
+    containers = payload.containers;
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode15.window.showErrorMessage(`SRS: Failed to list containers: ${msg}`);
+    return;
+  }
+  if (containers.length === 0) {
+    const action = "Create Container";
+    const choice = await vscode15.window.showInformationMessage(
+      "SRS: No containers found in the active repository.",
+      action
+    );
+    if (choice === action) {
+      vscode15.commands.executeCommand("srs.createContainer");
+    }
+    return;
+  }
+  const items = containers.map((c) => ({
+    label: c.title,
+    description: c.containerType,
+    detail: c.containerId,
+    container: c
+  }));
+  const CLEAR_ITEM = {
+    label: "$(circle-slash) Clear active container",
+    description: "",
+    detail: "",
+    container: null
+  };
+  const picked = await vscode15.window.showQuickPick(
+    [CLEAR_ITEM, ...items],
+    { placeHolder: "Select a container to set as active" }
+  );
+  if (!picked) {
+    return;
+  }
+  if (picked.container === null) {
+    await attention.clear();
+    return;
+  }
+  try {
+    await attention.set(
+      { containerId: picked.container.containerId, title: picked.container.title },
+      repo.rootPath
+    );
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode15.window.showErrorMessage(`SRS: Failed to set active container: ${msg}`);
+  }
+}
+async function cmdClearActiveContainer(attention, treeProvider) {
+  await attention.clear();
+  treeProvider.refresh();
+}
+async function cmdCreateContainer(cli, repoProvider, attention, treeProvider) {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode15.window.showWarningMessage(
+      "SRS: No active repository. Run 'SRS: Select Repository' first."
+    );
+    return;
+  }
+  const title = await vscode15.window.showInputBox({
+    title: "SRS: Create Container",
+    prompt: "Container title",
+    placeHolder: "e.g. Sprint 42",
+    validateInput: (v) => v.trim() ? void 0 : "Title is required"
+  });
+  if (!title) {
+    return;
+  }
+  const containerType = await vscode15.window.showInputBox({
+    title: "SRS: Create Container",
+    prompt: "Container type (optional)",
+    placeHolder: "e.g. sprint, milestone, epic"
+  });
+  const { randomUUID } = await import("crypto");
+  const containerId2 = randomUUID();
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const containerJson = JSON.stringify({
+    containerId: containerId2,
+    title: title.trim(),
+    containerType: containerType?.trim() || void 0,
+    memberInstanceIds: [],
+    rootInstanceIds: [],
+    createdAt: now
+  });
+  try {
+    await cli.runOk(repo.rootPath, ["container", "create"], {
+      stdin: containerJson
+    });
+    treeProvider.refresh();
+    const setActive = "Set as Active";
+    const choice = await vscode15.window.showInformationMessage(
+      `SRS: Container '${title}' created.`,
+      setActive
+    );
+    if (choice === setActive) {
+      await attention.set({ containerId: containerId2, title: title.trim() }, repo.rootPath);
+    }
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode15.window.showErrorMessage(`SRS: Failed to create container: ${msg}`);
+  }
+}
+
+// src/commands/mutationCommands.ts
+var vscode16 = __toESM(require("vscode"));
+function registerMutationCommands(context, cli, repoProvider, attention, treeProvider) {
+  context.subscriptions.push(
+    vscode16.commands.registerCommand(
+      "srs.createNote",
+      () => cmdCreateNote(cli, repoProvider, attention, treeProvider)
+    ),
+    vscode16.commands.registerCommand(
+      "srs.createTag",
+      () => cmdCreateTag(cli, repoProvider, treeProvider)
+    ),
+    vscode16.commands.registerCommand(
+      "srs.createRecord",
+      () => cmdCreateRecord(cli, repoProvider, attention, treeProvider)
+    ),
+    vscode16.commands.registerCommand(
+      "srs.deleteEntity",
+      (node) => cmdDeleteEntity(cli, repoProvider, treeProvider, node)
+    )
+  );
+}
+function requireActiveRepo(repoProvider) {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode16.window.showWarningMessage(
+      "SRS: No active repository. Run 'SRS: Select Repository' first."
+    );
+    return void 0;
+  }
+  return repo;
+}
+function containerId(attention) {
+  return attention.active?.containerId;
+}
+async function cmdCreateNote(cli, repoProvider, attention, treeProvider) {
+  const repo = requireActiveRepo(repoProvider);
+  if (!repo)
+    return;
+  const title = await vscode16.window.showInputBox({
+    title: "SRS: Create Note",
+    prompt: "Note title",
+    placeHolder: "e.g. Architecture Decision: Use CLI bridge",
+    validateInput: (v) => v.trim() ? void 0 : "Title is required"
+  });
+  if (!title)
+    return;
+  const { randomUUID } = await import("crypto");
+  const instanceId = randomUUID();
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const noteJson = JSON.stringify({
+    instanceId,
+    title: title.trim(),
+    sections: [{ name: "body", content: "", label: "Body" }],
+    tags: [],
+    createdAt: now
+  });
+  try {
+    const cid = containerId(attention);
+    await cli.runOk(repo.rootPath, ["note", "create"], {
+      stdin: noteJson,
+      containerId: cid
+    });
+    treeProvider.refresh();
+    vscode16.window.showInformationMessage(`SRS: Note '${title}' created.`);
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode16.window.showErrorMessage(`SRS: Failed to create note: ${msg}`);
+  }
+}
+async function cmdCreateTag(cli, repoProvider, treeProvider) {
+  const repo = requireActiveRepo(repoProvider);
+  if (!repo)
+    return;
+  const slug = await vscode16.window.showInputBox({
+    title: "SRS: Create Tag",
+    prompt: "Tag slug (kebab-case identifier)",
+    placeHolder: "e.g. needs-review",
+    validateInput: (v) => /^[a-z0-9]+(-[a-z0-9]+)*$/.test(v.trim()) ? void 0 : "Slug must be kebab-case (e.g. my-tag)"
+  });
+  if (!slug)
+    return;
+  const label = await vscode16.window.showInputBox({
+    title: "SRS: Create Tag",
+    prompt: "Display label (optional)",
+    placeHolder: "e.g. Needs Review"
+  });
+  const { randomUUID } = await import("crypto");
+  const instanceId = randomUUID();
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const tagJson = JSON.stringify({
+    instanceId,
+    slug: slug.trim(),
+    label: label?.trim() || void 0,
+    createdAt: now
+  });
+  try {
+    await cli.runOk(repo.rootPath, ["tag", "create"], {
+      stdin: tagJson
+    });
+    treeProvider.refresh();
+    vscode16.window.showInformationMessage(`SRS: Tag '${slug}' created.`);
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode16.window.showErrorMessage(`SRS: Failed to create tag: ${msg}`);
+  }
+}
+async function cmdCreateRecord(cli, repoProvider, attention, treeProvider) {
+  const repo = requireActiveRepo(repoProvider);
+  if (!repo)
+    return;
+  let types;
+  try {
+    const payload = await cli.runOk(repo.rootPath, [
+      "type",
+      "list"
+    ]);
+    types = payload.types;
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode16.window.showErrorMessage(`SRS: Failed to list types: ${msg}`);
+    return;
+  }
+  if (types.length === 0) {
+    vscode16.window.showWarningMessage(
+      "SRS: No types defined in the active repository."
+    );
+    return;
+  }
+  const typeItems = types.map((t) => ({
+    label: `${t.namespace}/${t.name}`,
+    description: `v${t.version}`,
+    detail: t.id,
+    type: t
+  }));
+  const picked = await vscode16.window.showQuickPick(typeItems, {
+    placeHolder: "Select a type for the new record",
+    matchOnDescription: true,
+    matchOnDetail: true
+  });
+  if (!picked)
+    return;
+  const typeName = `${picked.type.namespace}/${picked.type.name}`;
+  try {
+    const cid = containerId(attention);
+    await cli.runOk(
+      repo.rootPath,
+      ["record", "create", "--type", typeName, "--version", String(picked.type.version)],
+      {
+        stdin: JSON.stringify({ fieldValues: [] }),
+        containerId: cid
+      }
+    );
+    treeProvider.refresh();
+    vscode16.window.showInformationMessage(
+      `SRS: Record of type '${typeName}' created.`
+    );
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode16.window.showErrorMessage(`SRS: Failed to create record: ${msg}`);
+  }
+}
+async function cmdDeleteEntity(cli, repoProvider, treeProvider, node) {
+  if (!(node instanceof EntityNode)) {
+    vscode16.window.showWarningMessage(
+      "SRS: Select an entity in the SRS tree to delete."
+    );
+    return;
+  }
+  const repo = repoProvider.active;
+  if (!repo)
+    return;
+  const confirmed = await vscode16.window.showWarningMessage(
+    `SRS: Delete ${node.entityKind} '${node.label}'?`,
+    { modal: true },
+    "Delete"
+  );
+  if (confirmed !== "Delete")
+    return;
+  const deleteArgs = deleteArgsFor(node.entityKind, node.entityId);
+  if (!deleteArgs) {
+    vscode16.window.showErrorMessage(
+      `SRS: Delete not supported for '${node.entityKind}'.`
+    );
+    return;
+  }
+  try {
+    await cli.runOk(repo.rootPath, deleteArgs);
+    treeProvider.refresh();
+    vscode16.window.showInformationMessage(
+      `SRS: ${node.entityKind} deleted.`
+    );
+  } catch (err) {
+    if (err instanceof CliError && err.diagnostics.some(
+      (d) => d.includes("CannotDeleteInUse") || d.includes("used by")
+    )) {
+      vscode16.window.showErrorMessage(
+        `SRS: Cannot delete ${node.entityKind} '${node.label}' \u2014 it is referenced by other entities. Remove those references first.
+
+Details: ${err.diagnostics.join("\n")}`,
+        { modal: true }
+      );
+    } else {
+      const msg = err instanceof CliError ? err.message : String(err);
+      vscode16.window.showErrorMessage(`SRS: Failed to delete entity: ${msg}`);
+    }
+  }
+}
+function deleteArgsFor(kind, id) {
+  switch (kind) {
+    case "note":
+      return ["note", "delete", id];
+    case "tag":
+      return ["tag", "delete", id];
+    case "record":
+      return ["record", "delete", id];
+    case "relation":
+      return ["relation", "delete", id];
+    case "container":
+      return ["container", "delete", id];
+    case "protocol":
+      return ["protocol", "delete", id];
+    case "blueprint":
+      return ["blueprint", "delete", id];
+    default:
+      return void 0;
+  }
+}
+
+// src/commands/graphCommands.ts
+var vscode18 = __toESM(require("vscode"));
+
+// src/graph/GraphPanel.ts
+var vscode17 = __toESM(require("vscode"));
+var GraphPanel = class _GraphPanel {
+  constructor(_context, _key, title, _repoPath) {
+    this._context = _context;
+    this._key = _key;
+    this._repoPath = _repoPath;
+    this._panel = vscode17.window.createWebviewPanel(
+      "srsGraph",
+      `Relations: ${title}`,
+      { viewColumn: vscode17.ViewColumn.Active, preserveFocus: false },
+      {
+        enableScripts: true,
+        localResourceRoots: [],
+        retainContextWhenHidden: true
+      }
+    );
+    this._panel.webview.onDidReceiveMessage((msg) => {
+      if (msg.type === "openEntity" && typeof msg.id === "string") {
+        vscode17.commands.executeCommand("srs.openEntityById", msg.id, msg.kind ?? "note", this._repoPath);
+      }
+    });
+    this._panel.onDidDispose(() => {
+      _GraphPanel._panels.delete(this._key);
+    });
+  }
+  static {
+    this._panels = /* @__PURE__ */ new Map();
+  }
+  static async show(context, cli, repoPath, repoTitle) {
+    const key = `graph:${repoPath}`;
+    const existing = _GraphPanel._panels.get(key);
+    if (existing) {
+      existing._panel.reveal(vscode17.ViewColumn.Active);
+      await existing._load(cli, repoPath);
+      return;
+    }
+    const instance = new _GraphPanel(context, key, repoTitle, repoPath);
+    _GraphPanel._panels.set(key, instance);
+    await instance._load(cli, repoPath);
+  }
+  async _load(cli, repoPath) {
+    this._panel.webview.html = loadingHtml();
+    try {
+      const [relPayload, notePayload, recordPayload] = await Promise.all([
+        cli.runOk(repoPath, ["relation", "list"]),
+        cli.runOk(repoPath, ["note", "list"]).catch(() => ({ notes: [] })),
+        cli.runOk(repoPath, ["record", "list"]).catch(() => ({ records: [] }))
+      ]);
+      const labelMap = /* @__PURE__ */ new Map();
+      const kindMap = /* @__PURE__ */ new Map();
+      for (const n of notePayload.notes) {
+        labelMap.set(n.instanceId, n.title);
+        kindMap.set(n.instanceId, "note");
+      }
+      for (const r of recordPayload.records) {
+        labelMap.set(r.instanceId, r.displayLabel);
+        kindMap.set(r.instanceId, "record");
+      }
+      const nodeIds = /* @__PURE__ */ new Set();
+      const edges = [];
+      for (const r of relPayload.relations) {
+        nodeIds.add(r.sourceId);
+        nodeIds.add(r.targetId);
+        edges.push({
+          id: r.relationId,
+          source: r.sourceId,
+          target: r.targetId,
+          label: r.relationType
+        });
+      }
+      const nodes = Array.from(nodeIds).map((id) => ({
+        id,
+        label: labelMap.get(id) ?? id.slice(0, 8),
+        kind: kindMap.get(id) ?? "note"
+      }));
+      this._panel.webview.html = graphHtml(nodes, edges);
+    } catch (err) {
+      this._panel.webview.html = errorHtml(String(err));
+    }
+  }
+  dispose() {
+    this._panel.dispose();
+  }
+};
+function loadingHtml() {
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
   <style>body{display:flex;align-items:center;justify-content:center;height:100vh;margin:0;
   font-family:var(--vscode-font-family);color:var(--vscode-foreground);
   background:var(--vscode-editor-background)}</style>
-  </head><body><p>Loading relation graph\u2026</p></body></html>`}function fo(t){return`<!DOCTYPE html><html><head><meta charset="UTF-8">
+  </head><body><p>Loading relation graph\u2026</p></body></html>`;
+}
+function errorHtml(msg) {
+  const safe = msg.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
   <style>body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);
   background:var(--vscode-editor-background);padding:2em}</style>
-  </head><body><h2>Failed to load graph</h2><pre>${t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</pre></body></html>`}function ho(t,e){let o=JSON.stringify(t),n=JSON.stringify(e);return`<!DOCTYPE html>
+  </head><body><h2>Failed to load graph</h2><pre>${safe}</pre></body></html>`;
+}
+function graphHtml(nodes, edges) {
+  const nodesJson = JSON.stringify(nodes);
+  const edgesJson = JSON.stringify(edges);
+  return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
@@ -554,8 +3238,8 @@ Details: ${a.diagnostics.join(`
 </svg>
 <script>
 (function() {
-  const NODES = ${o};
-  const EDGES = ${n};
+  const NODES = ${nodesJson};
+  const EDGES = ${edgesJson};
 
   const vscode = acquireVsCodeApi();
 
@@ -806,16 +3490,393 @@ Details: ${a.diagnostics.join(`
 })();
 </script>
 </body>
-</html>`}function at(t,e,o,n){t.subscriptions.push(B.commands.registerCommand("srs.showRelationGraph",()=>wo(t,e,o)),B.commands.registerCommand("srs.openEntityById",(i,r,s)=>bo(i,r,s,o,n)))}async function wo(t,e,o){let n=o.active;if(!n){B.window.showWarningMessage("SRS: No active repository. Run 'SRS: Select Repository' first.");return}try{await Ie.show(t,e,n.rootPath,n.title)}catch(i){let r=i instanceof u?i.message:String(i);B.window.showErrorMessage(`SRS: Failed to open relation graph: ${r}`)}}async function bo(t,e,o,n,i){let r=n.active;if(!r)return;let s=e;try{let a=Se(r.repositoryId,s,t),l=await B.workspace.openTextDocument(a);await B.window.showTextDocument(l,{preview:!0,viewColumn:B.ViewColumn.Beside,preserveFocus:!1})}catch(a){let l=a instanceof u?a.message:String(a);B.window.showErrorMessage(`SRS: Failed to open entity: ${l}`)}}var N=h(require("vscode"));var L=class extends N.TreeItem{constructor(e){super(e,N.TreeItemCollapsibleState.None),this.contextValue="srsNavEmpty"}},ae=class extends N.TreeItem{constructor(o,n,i){super(`${i==="outgoing"?"\u2192":"\u2190"} ${o} (${n.length})`,N.TreeItemCollapsibleState.Collapsed);this.relationType=o;this.peerIds=n;this.direction=i;this.contextValue="srsNavRelGroup",this.tooltip=`${i} ${o} relations`}},Pe=class extends T{constructor(e,o,n,i){super(e,o,n,i),this.collapsibleState=N.TreeItemCollapsibleState.Collapsed}},ke=class extends N.TreeItem{constructor(o,n,i){super(n,N.TreeItemCollapsibleState.Collapsed);this.viewId=o;this.sections=i;this.contextValue="srsNavDocView",this.tooltip=o}},Re=class extends N.TreeItem{constructor(o,n,i){super(n,i?N.TreeItemCollapsibleState.Collapsed:N.TreeItemCollapsibleState.None);this.sectionId=o;this.semanticObjectType=i;this.contextValue="srsNavSection",this.tooltip=i?`Type: ${i}`:o}},$e=class extends N.TreeItem{constructor(o,n,i){super(n,N.TreeItemCollapsibleState.Collapsed);this.containerId=o;this.containerType=i;this.contextValue="srsNavContainer",this.description=i,this.tooltip=o}},Ee=class{constructor(e,o){this.cli=e;this.repoProvider=o;this._onDidChangeTreeData=new N.EventEmitter;this.onDidChangeTreeData=this._onDidChangeTreeData.event;this._mode="relations";this._disposables=[];this._disposables.push(o.onDidChangeActive(()=>this.refresh()))}get mode(){return this._mode}setMode(e){this._mode=e,this.refresh()}refresh(){this._relations=void 0,this._labelMap=void 0,this._onDidChangeTreeData.fire()}getTreeItem(e){return e}async getChildren(e){let o=this.repoProvider.active;return o?e?e instanceof Pe?this._getRelationGroups(e.entityId,o.rootPath):e instanceof ae?e.peerIds.map(n=>new T(n.id,n.kind,n.label,[n.kind==="record"?"record":"note","get",n.id])):e instanceof ke?e.sections.map(n=>new Re(n.sectionId,n.title,n.semanticObjectType)):e instanceof Re?this._getSectionRecords(e.semanticObjectType,o.rootPath):e instanceof $e?this._getContainerMembers(e.containerId,o.rootPath):[]:this._getRoots(o.rootPath):[new L("No active SRS repository")]}async _getRoots(e){switch(this._mode){case"relations":return this._getRelationRoots(e);case"document-views":return this._getDocViewRoots(e);case"containers":return this._getContainerRoots(e)}}async _getRelationRoots(e){let[o,n]=await this._ensureRelationData(e);if(o.length===0)return[new L("No relations in this repository")];let i=new Set(o.map(r=>r.sourceId));return Array.from(i).map(r=>{let s=n.get(r);return new Pe(r,s?.kind??"record",s?.label??r.slice(0,8),[(s?.kind??"record")==="note"?"note":"record","get",r])})}async _getDocViewRoots(e){try{let o=await this.cli.runOk(e,["document-view","list"]);return o.documentViews.length===0?[new L("No document views in this repository")]:await Promise.all(o.documentViews.map(async i=>{let r=await this._fetchDocViewSections(i.id,e);return new ke(i.id,`${i.namespace}/${i.name}`,r)}))}catch{return[new L("Failed to load document views")]}}async _fetchDocViewSections(e,o){try{return(await this.cli.runOk(o,["document-view","get",e])).documentView.sections.map(i=>({sectionId:i.sectionId,title:i.title,semanticObjectType:i.source?.semanticObjectType}))}catch{return[]}}async _getContainerRoots(e){try{let o=await this.cli.runOk(e,["container","list"]);return o.containers.length===0?[new L("No containers in this repository")]:o.containers.map(n=>new $e(n.containerId,n.title,n.containerType))}catch{return[new L("Failed to load containers")]}}async _getRelationGroups(e,o){let[n,i]=await this._ensureRelationData(o),r=new Map,s=new Map;for(let l of n){if(l.sourceId===e){let d=i.get(l.targetId),c={id:l.targetId,kind:d?.kind??"record",label:d?.label??l.targetId.slice(0,8)},p=r.get(l.relationType)??[];p.push(c),r.set(l.relationType,p)}if(l.targetId===e){let d=i.get(l.sourceId),c={id:l.sourceId,kind:d?.kind??"record",label:d?.label??l.sourceId.slice(0,8)},p=s.get(l.relationType)??[];p.push(c),s.set(l.relationType,p)}}let a=[];for(let[l,d]of r)a.push(new ae(l,d,"outgoing"));for(let[l,d]of s)a.push(new ae(l,d,"incoming"));return a.length===0?[new L("No relations")]:a}async _getSectionRecords(e,o){if(!e)return[new L("No type binding for this section")];try{let n=await this.cli.runOk(o,["record","list","--type",e]);return n.records.length===0?[new L("No records")]:n.records.map(i=>new T(i.instanceId,"record",i.displayLabel,["record","get",i.instanceId]))}catch{return[new L(`Failed to load records for ${e}`)]}}async _getContainerMembers(e,o){try{let n=await this.cli.runOk(o,["container","members","list",e]);if(n.memberInstanceIds.length===0)return[new L("No members")];let i=await this._ensureLabelMap(o);return n.memberInstanceIds.map(r=>{let s=i.get(r);return new T(r,s?.kind??"record",s?.label??r.slice(0,8),[(s?.kind??"record")==="note"?"note":"record","get",r])})}catch{return[new L("Failed to load members")]}}async _ensureRelationData(e){if(!this._relations){let n=await this.cli.runOk(e,["relation","list"]);this._relations=n.relations}let o=await this._ensureLabelMap(e);return[this._relations,o]}async _ensureLabelMap(e){if(this._labelMap)return this._labelMap;let o=new Map,[n,i]=await Promise.allSettled([this.cli.runOk(e,["note","list"]),this.cli.runOk(e,["record","list"])]);if(n.status==="fulfilled")for(let r of n.value.notes)o.set(r.instanceId,{label:r.title,kind:"note"});if(i.status==="fulfilled")for(let r of i.value.records)o.set(r.instanceId,{label:r.displayLabel,kind:"record"});return this._labelMap=o,o}dispose(){this._onDidChangeTreeData.dispose(),this._disposables.forEach(e=>e.dispose())}};var Z=h(require("vscode"));function dt(t,e){t.subscriptions.push(Z.commands.registerCommand("srs.navigatorRelations",()=>je(e,"relations")),Z.commands.registerCommand("srs.navigatorDocumentViews",()=>je(e,"document-views")),Z.commands.registerCommand("srs.navigatorContainers",()=>je(e,"containers")),Z.commands.registerCommand("srs.navigatorRefresh",()=>e.refresh()))}function je(t,e){t.setMode(e),Z.commands.executeCommand("setContext","srs.navigatorMode",e)}var q=h(require("vscode"));var m={slug:"2e3be0f8-0497-4754-a8b2-62ce6b05493f",title:"e5b359b0-8f8b-4807-bae9-b841adbd6248",subtitle:"9bb3d21d-3a02-4b87-863d-99fdfcdb8a3e",body:"cd97f7d2-29e4-435e-a991-9be8281d6a78",blocks:"dabb80dc-a04e-48e9-afd8-37a6410bd43b",heading:"9629c9b5-3b17-4766-b3d3-b2890902821a",callout:"138e40f4-888b-49ed-9c26-bedc9567e806",listItems:"e5e6ebce-8dfe-446f-a7fd-e329d4f5d67e",outro:"04ce57ec-46bc-4e1e-9238-34bf7247905a",itemTerm:"a02b147b-4319-4cdd-b263-781640c93fcb",itemBody:"6fafae71-f6f1-4e83-b091-19765517ff80",columns:"15d81030-07db-40a7-9885-d23b1d6b39f7",rows:"876daf6a-aefa-421c-80b5-2e3c3a4c6397",subheading:"4523e0e0-f7b6-4c72-9f30-b526ca74799e",tableLabel:"920fd0a2-5fb2-40c4-9362-7c6c86ab8ccd",widths:"8d98614d-f420-4597-90fd-c141e8584b06"},Te={guide:"8f138dd6",sectionText:"4408a98e",sectionList:"76cdc3fb",sectionTable:"d8d09d3b"};function V(t,e){let o=t.fieldValues.find(n=>n.fieldId===e);return o==null?"":typeof o.value=="string"?o.value:""}function So(t,e){let o=new Set(t.filter(r=>[...e.values()].includes(r))),n=[],i=t.find(r=>!o.has(r));for(;i&&n.length<=t.length;)n.push(i),i=e.get(i);for(let r of t)n.includes(r)||n.push(r);return n}function xo(t){let e=t.slice(0,8);if(e===Te.sectionText)return"text";if(e===Te.sectionList)return"list";if(e===Te.sectionTable)return"table";throw new Error(`Unknown section typeId prefix: ${e} (${t})`)}function Co(t){let e=xo(t.typeId),o={instanceId:t.instanceId,typeId:t.typeId,typeVersion:t.typeVersion,type:e,heading:V(t,m.heading),slug:V(t,m.slug)};if(e==="text")o.body=V(t,m.body),o.callout=V(t,m.callout);else if(e==="list")o.body=V(t,m.body),o.listItems=V(t,m.listItems),o.outro=V(t,m.outro);else if(e==="table"){o.body=V(t,m.body);let n=t.groupValues?.find(r=>r.groupId==="tables");o.tables=(n?.entries??[]).map(r=>{let s=S=>r.fieldValues.find(y=>y.fieldId===S)?.value,a=[],l=[],d;try{a=JSON.parse(String(s(m.columns)??"[]"))}catch{a=[]}try{l=JSON.parse(String(s(m.rows)??"[]"))}catch{l=[]}let c=s(m.widths);if(c)try{d=JSON.parse(String(c))}catch{}let p={columns:a,rows:l},f=s(m.subheading),v=s(m.tableLabel);return typeof f=="string"&&f&&(p.subheading=f),typeof v=="string"&&v&&(p.label=v),d&&(p.widths=d),p});let i=t.groupValues?.find(r=>r.groupId==="items");o.items=(i?.entries??[]).map(r=>{let s=r.fieldValues.find(l=>l.fieldId===m.itemTerm)?.value,a=r.fieldValues.find(l=>l.fieldId===m.itemBody)?.value;return{term:typeof s=="string"&&s?s:void 0,body:typeof a=="string"?a:""}}),o.outro=V(t,m.outro)}return o}async function ct(t,e,o){let n=await t.runOk(e,["container","get",o]),{memberInstanceIds:i,rootInstanceIds:r}=n.container,s=r[0],a=await Promise.all(i.map(y=>t.runOk(e,["record","get",y]).then(k=>k.record))),l=await t.runOk(e,["relation","list"]),d=new Map;for(let y of l.relations)y.relationType==="precedes"&&d.set(y.sourceId,y.targetId);let c=a.find(y=>y.instanceId===s);if(!c)throw new Error(`Guide record ${s} not found in container members`);let p=i.filter(y=>y!==s),f=So(p,d),v=new Map(a.map(y=>[y.instanceId,y])),S=f.map(y=>{let k=v.get(y);if(!k)throw new Error(`Section record ${y} missing`);return Co(k)});return{containerId:o,guideInstanceId:s,guideTypeId:c.typeId,guideTypeVersion:c.typeVersion,slug:V(c,m.slug),title:V(c,m.title),subtitle:V(c,m.subtitle),body:V(c,m.body),sections:S}}function lt(t){return t.filter(([,e])=>e!==void 0&&e!=="").map(([e,o])=>({fieldId:e,value:o}))}function Io(t){return{instanceId:t.guideInstanceId,typeId:t.guideTypeId,typeVersion:t.guideTypeVersion,fieldValues:lt([[m.slug,t.slug],[m.title,t.title],[m.subtitle,t.subtitle],[m.body,t.body]])}}function Po(t){let e=[[m.heading,t.heading],[m.slug,t.slug]];t.type==="text"?e.push([m.body,t.body],[m.callout,t.callout]):t.type==="list"?e.push([m.body,t.body],[m.listItems,t.listItems],[m.outro,t.outro]):t.type==="table"&&e.push([m.body,t.body],[m.outro,t.outro]);let o=lt(e),n=[];return t.type==="table"&&(t.items!==void 0&&n.push({groupId:"items",entries:t.items.map(i=>({fieldValues:[...i.term?[{fieldId:m.itemTerm,value:i.term}]:[],{fieldId:m.itemBody,value:i.body}]}))}),t.tables!==void 0&&n.push({groupId:"tables",entries:t.tables.map(i=>({fieldValues:[{fieldId:m.columns,value:JSON.stringify(i.columns??[])},{fieldId:m.rows,value:JSON.stringify(i.rows)},...i.subheading?[{fieldId:m.subheading,value:i.subheading}]:[],...i.label?[{fieldId:m.tableLabel,value:i.label}]:[],...i.widths?[{fieldId:m.widths,value:JSON.stringify(i.widths)}]:[]]}))})),{instanceId:t.instanceId,typeId:t.typeId,typeVersion:t.typeVersion,fieldValues:o,...n.length>0?{groupValues:n}:{}}}async function pt(t,e,o){let n=[{id:o.guideInstanceId,input:Io(o)},...o.sections.map(i=>({id:i.instanceId,input:Po(i)}))];for(let{id:i,input:r}of n)await t.runOk(e,["record","update",i],{stdin:JSON.stringify(r)})}function de(t){return t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}function M(t){return de(t)}function Ue(t){return t.replace(/&/g,"&amp;").replace(/</g,"&lt;")}var ko={text:"text",list:"list",table:"table"};function W(t,e,o,n={}){let i=n.required?' <span class="required-mark">*</span>':"",r=n.required?" required":"",s=n.rows??2,a=n.hint?`<div class="hint">${de(n.hint)}</div>`:"";return`
+</html>`;
+}
+
+// src/commands/graphCommands.ts
+function registerGraphCommands(context, cli, repoProvider, entityProvider) {
+  context.subscriptions.push(
+    vscode18.commands.registerCommand(
+      "srs.showRelationGraph",
+      () => cmdShowRelationGraph(context, cli, repoProvider)
+    ),
+    vscode18.commands.registerCommand(
+      "srs.openEntityById",
+      (id, kind, repoPath) => cmdOpenEntityById(id, kind, repoPath, repoProvider, entityProvider)
+    )
+  );
+}
+async function cmdShowRelationGraph(context, cli, repoProvider) {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode18.window.showWarningMessage(
+      "SRS: No active repository. Run 'SRS: Select Repository' first."
+    );
+    return;
+  }
+  try {
+    await GraphPanel.show(context, cli, repo.rootPath, repo.title);
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode18.window.showErrorMessage(`SRS: Failed to open relation graph: ${msg}`);
+  }
+}
+async function cmdOpenEntityById(id, kind, repoPath, repoProvider, entityProvider) {
+  const repo = repoProvider.active;
+  if (!repo)
+    return;
+  const entityKind = kind;
+  try {
+    const uri = entityUri(repo.repositoryId, entityKind, id);
+    const doc = await vscode18.workspace.openTextDocument(uri);
+    await vscode18.window.showTextDocument(doc, {
+      preview: true,
+      viewColumn: vscode18.ViewColumn.Beside,
+      preserveFocus: false
+    });
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode18.window.showErrorMessage(`SRS: Failed to open entity: ${msg}`);
+  }
+}
+
+// src/commands/navigatorCommands.ts
+var vscode19 = __toESM(require("vscode"));
+function registerNavigatorCommands(context, navigator) {
+  context.subscriptions.push(
+    vscode19.commands.registerCommand(
+      "srs.navigatorRelations",
+      () => setMode(navigator, "relations")
+    ),
+    vscode19.commands.registerCommand(
+      "srs.navigatorDocumentViews",
+      () => setMode(navigator, "document-views")
+    ),
+    vscode19.commands.registerCommand(
+      "srs.navigatorContainers",
+      () => setMode(navigator, "containers")
+    ),
+    vscode19.commands.registerCommand(
+      "srs.navigatorRefresh",
+      () => navigator.refresh()
+    )
+  );
+}
+function setMode(navigator, mode) {
+  navigator.setMode(mode);
+  vscode19.commands.executeCommand("setContext", "srs.navigatorMode", mode);
+}
+
+// src/webview/guides/guideEditorCommands.ts
+var vscode20 = __toESM(require("vscode"));
+
+// src/webview/guides/guideTypes.ts
+var F = {
+  slug: "2e3be0f8-0497-4754-a8b2-62ce6b05493f",
+  title: "e5b359b0-8f8b-4807-bae9-b841adbd6248",
+  subtitle: "9bb3d21d-3a02-4b87-863d-99fdfcdb8a3e",
+  body: "cd97f7d2-29e4-435e-a991-9be8281d6a78",
+  // universal prose: guide intro + section body
+  blocks: "dabb80dc-a04e-48e9-afd8-37a6410bd43b",
+  heading: "9629c9b5-3b17-4766-b3d3-b2890902821a",
+  callout: "138e40f4-888b-49ed-9c26-bedc9567e806",
+  listItems: "e5e6ebce-8dfe-446f-a7fd-e329d4f5d67e",
+  outro: "04ce57ec-46bc-4e1e-9238-34bf7247905a",
+  // closing prose: was confirmation (list) + note (table)
+  itemTerm: "a02b147b-4319-4cdd-b263-781640c93fcb",
+  // was tipTitle — term/title for items group entries
+  itemBody: "6fafae71-f6f1-4e83-b091-19765517ff80",
+  // was tip — body for items group entries
+  // table block fields — used in groupValues["tables"] entries
+  columns: "15d81030-07db-40a7-9885-d23b1d6b39f7",
+  rows: "876daf6a-aefa-421c-80b5-2e3c3a4c6397",
+  subheading: "4523e0e0-f7b6-4c72-9f30-b526ca74799e",
+  tableLabel: "920fd0a2-5fb2-40c4-9362-7c6c86ab8ccd",
+  widths: "8d98614d-f420-4597-90fd-c141e8584b06"
+};
+var TYPE_PREFIX = {
+  guide: "8f138dd6",
+  sectionText: "4408a98e",
+  sectionList: "76cdc3fb",
+  sectionTable: "d8d09d3b"
+};
+
+// src/webview/guides/guideLoader.ts
+function fv(record, fieldId) {
+  const entry = record.fieldValues.find((e) => e.fieldId === fieldId);
+  if (entry == null)
+    return "";
+  return typeof entry.value === "string" ? entry.value : "";
+}
+function sortByPrecedes(ids, precedesMap) {
+  const hasIncoming = new Set(ids.filter((id) => [...precedesMap.values()].includes(id)));
+  const result = [];
+  let cur = ids.find((id) => !hasIncoming.has(id));
+  while (cur && result.length <= ids.length) {
+    result.push(cur);
+    cur = precedesMap.get(cur);
+  }
+  for (const id of ids) {
+    if (!result.includes(id))
+      result.push(id);
+  }
+  return result;
+}
+function sectionTypeFromPrefix(typeId) {
+  const p = typeId.slice(0, 8);
+  if (p === TYPE_PREFIX.sectionText)
+    return "text";
+  if (p === TYPE_PREFIX.sectionList)
+    return "list";
+  if (p === TYPE_PREFIX.sectionTable)
+    return "table";
+  throw new Error(`Unknown section typeId prefix: ${p} (${typeId})`);
+}
+function toSectionDoc(record) {
+  const type = sectionTypeFromPrefix(record.typeId);
+  const section = {
+    instanceId: record.instanceId,
+    typeId: record.typeId,
+    typeVersion: record.typeVersion,
+    type,
+    heading: fv(record, F.heading),
+    slug: fv(record, F.slug)
+  };
+  if (type === "text") {
+    section.body = fv(record, F.body);
+    section.callout = fv(record, F.callout);
+  } else if (type === "list") {
+    section.body = fv(record, F.body);
+    section.listItems = fv(record, F.listItems);
+    section.outro = fv(record, F.outro);
+  } else if (type === "table") {
+    section.body = fv(record, F.body);
+    const tablesGroup = record.groupValues?.find((gv) => gv.groupId === "tables");
+    section.tables = (tablesGroup?.entries ?? []).map((entry) => {
+      const fval = (id) => entry.fieldValues.find((e) => e.fieldId === id)?.value;
+      let columns = [];
+      let rows = [];
+      let widths;
+      try {
+        columns = JSON.parse(String(fval(F.columns) ?? "[]"));
+      } catch {
+        columns = [];
+      }
+      try {
+        rows = JSON.parse(String(fval(F.rows) ?? "[]"));
+      } catch {
+        rows = [];
+      }
+      const widthsRaw = fval(F.widths);
+      if (widthsRaw) {
+        try {
+          widths = JSON.parse(String(widthsRaw));
+        } catch {
+        }
+      }
+      const block = { columns, rows };
+      const sub = fval(F.subheading);
+      const lbl = fval(F.tableLabel);
+      if (typeof sub === "string" && sub)
+        block.subheading = sub;
+      if (typeof lbl === "string" && lbl)
+        block.label = lbl;
+      if (widths)
+        block.widths = widths;
+      return block;
+    });
+    const itemsGroup = record.groupValues?.find((gv) => gv.groupId === "items");
+    section.items = (itemsGroup?.entries ?? []).map((entry) => {
+      const term = entry.fieldValues.find((e) => e.fieldId === F.itemTerm)?.value;
+      const body = entry.fieldValues.find((e) => e.fieldId === F.itemBody)?.value;
+      return {
+        term: typeof term === "string" && term ? term : void 0,
+        body: typeof body === "string" ? body : ""
+      };
+    });
+    section.outro = fv(record, F.outro);
+  }
+  return section;
+}
+async function loadGuide(cli, repoPath, containerId2) {
+  const containerPayload = await cli.runOk(repoPath, [
+    "container",
+    "get",
+    containerId2
+  ]);
+  const { memberInstanceIds, rootInstanceIds } = containerPayload.container;
+  const guideId = rootInstanceIds[0];
+  const records = await Promise.all(
+    memberInstanceIds.map(
+      (id) => cli.runOk(repoPath, ["record", "get", id]).then((p) => p.record)
+    )
+  );
+  const relPayload = await cli.runOk(repoPath, ["relation", "list"]);
+  const precedesMap = /* @__PURE__ */ new Map();
+  for (const rel of relPayload.relations) {
+    if (rel.relationType === "precedes") {
+      precedesMap.set(rel.sourceId, rel.targetId);
+    }
+  }
+  const guideRecord = records.find((r) => r.instanceId === guideId);
+  if (!guideRecord) {
+    throw new Error(`Guide record ${guideId} not found in container members`);
+  }
+  const sectionIds = memberInstanceIds.filter((id) => id !== guideId);
+  const sortedSectionIds = sortByPrecedes(sectionIds, precedesMap);
+  const recordById = new Map(records.map((r) => [r.instanceId, r]));
+  const sections = sortedSectionIds.map((id) => {
+    const r = recordById.get(id);
+    if (!r)
+      throw new Error(`Section record ${id} missing`);
+    return toSectionDoc(r);
+  });
+  return {
+    containerId: containerId2,
+    guideInstanceId: guideId,
+    guideTypeId: guideRecord.typeId,
+    guideTypeVersion: guideRecord.typeVersion,
+    slug: fv(guideRecord, F.slug),
+    title: fv(guideRecord, F.title),
+    subtitle: fv(guideRecord, F.subtitle),
+    body: fv(guideRecord, F.body),
+    sections
+  };
+}
+
+// src/webview/guides/guideSaver.ts
+function buildFieldValues(pairs) {
+  return pairs.filter(([, v]) => v !== void 0 && v !== "").map(([fieldId, value]) => ({ fieldId, value }));
+}
+function guideUpdateInput(guide) {
+  return {
+    instanceId: guide.guideInstanceId,
+    typeId: guide.guideTypeId,
+    typeVersion: guide.guideTypeVersion,
+    fieldValues: buildFieldValues([
+      [F.slug, guide.slug],
+      [F.title, guide.title],
+      [F.subtitle, guide.subtitle],
+      [F.body, guide.body]
+    ])
+  };
+}
+function sectionUpdateInput(section) {
+  const pairs = [
+    [F.heading, section.heading],
+    [F.slug, section.slug]
+  ];
+  if (section.type === "text") {
+    pairs.push([F.body, section.body], [F.callout, section.callout]);
+  } else if (section.type === "list") {
+    pairs.push([F.body, section.body], [F.listItems, section.listItems], [F.outro, section.outro]);
+  } else if (section.type === "table") {
+    pairs.push([F.body, section.body], [F.outro, section.outro]);
+  }
+  const fieldValues = buildFieldValues(pairs);
+  const groupValues = [];
+  if (section.type === "table") {
+    if (section.items !== void 0) {
+      groupValues.push({
+        groupId: "items",
+        entries: section.items.map((item) => ({
+          fieldValues: [
+            ...item.term ? [{ fieldId: F.itemTerm, value: item.term }] : [],
+            { fieldId: F.itemBody, value: item.body }
+          ]
+        }))
+      });
+    }
+    if (section.tables !== void 0) {
+      groupValues.push({
+        groupId: "tables",
+        entries: section.tables.map((t) => ({
+          fieldValues: [
+            { fieldId: F.columns, value: JSON.stringify(t.columns ?? []) },
+            { fieldId: F.rows, value: JSON.stringify(t.rows) },
+            ...t.subheading ? [{ fieldId: F.subheading, value: t.subheading }] : [],
+            ...t.label ? [{ fieldId: F.tableLabel, value: t.label }] : [],
+            ...t.widths ? [{ fieldId: F.widths, value: JSON.stringify(t.widths) }] : []
+          ]
+        }))
+      });
+    }
+  }
+  return {
+    instanceId: section.instanceId,
+    typeId: section.typeId,
+    typeVersion: section.typeVersion,
+    fieldValues,
+    ...groupValues.length > 0 ? { groupValues } : {}
+  };
+}
+async function saveGuide(cli, repoPath, guide) {
+  const updates = [
+    { id: guide.guideInstanceId, input: guideUpdateInput(guide) },
+    ...guide.sections.map((s) => ({ id: s.instanceId, input: sectionUpdateInput(s) }))
+  ];
+  for (const { id, input } of updates) {
+    await cli.runOk(repoPath, ["record", "update", id], {
+      stdin: JSON.stringify(input)
+    });
+  }
+}
+
+// src/webview/guides/guideForm.ts
+function esc3(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function escAttr2(s) {
+  return esc3(s);
+}
+function escText2(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+}
+var TYPE_LABEL = {
+  text: "text",
+  list: "list",
+  table: "table"
+};
+function textField(label, name, value, opts = {}) {
+  const req = opts.required ? ` <span class="required-mark">*</span>` : "";
+  const reqAttr = opts.required ? " required" : "";
+  const rows = opts.rows ?? 2;
+  const hint = opts.hint ? `<div class="hint">${esc3(opts.hint)}</div>` : "";
+  return `
     <div class="field">
-      <label>${de(t)}${i}</label>
-      <textarea name="${M(e)}" rows="${s}"${r}>${Ue(o)}</textarea>
-      ${a}
-    </div>`}function De(t,e,o,n={}){let i=n.required?' <span class="required-mark">*</span>':"",r=n.required?" required":"";return`
+      <label>${esc3(label)}${req}</label>
+      <textarea name="${escAttr2(name)}" rows="${rows}"${reqAttr}>${escText2(value)}</textarea>
+      ${hint}
+    </div>`;
+}
+function inputField(label, name, value, opts = {}) {
+  const req = opts.required ? ` <span class="required-mark">*</span>` : "";
+  const reqAttr = opts.required ? " required" : "";
+  return `
     <div class="field">
-      <label>${de(t)}${i}</label>
-      <input type="text" name="${M(e)}" value="${M(o)}"${r}>
-    </div>`}function Ro(t,e){return[W("Body",`s_${e}_body`,t.body??"",{required:!0,rows:5}),W("Callout",`s_${e}_callout`,t.callout??"",{rows:2})].join("")}function $o(t,e){return[W("Body",`s_${e}_body`,t.body??"",{rows:3}),W("Items",`s_${e}_listItems`,t.listItems??"",{required:!0,rows:4,hint:"One item per line"}),W("Outro",`s_${e}_outro`,t.outro??"",{rows:2})].join("")}function Eo(t,e){return`
+      <label>${esc3(label)}${req}</label>
+      <input type="text" name="${escAttr2(name)}" value="${escAttr2(value)}"${reqAttr}>
+    </div>`;
+}
+function textSectionFields(s, i) {
+  return [
+    textField("Body", `s_${i}_body`, s.body ?? "", { required: true, rows: 5 }),
+    textField("Callout", `s_${i}_callout`, s.callout ?? "", { rows: 2 })
+  ].join("");
+}
+function listSectionFields(s, i) {
+  return [
+    textField("Body", `s_${i}_body`, s.body ?? "", { rows: 3 }),
+    textField("Items", `s_${i}_listItems`, s.listItems ?? "", {
+      required: true,
+      rows: 4,
+      hint: "One item per line"
+    }),
+    textField("Outro", `s_${i}_outro`, s.outro ?? "", { rows: 2 })
+  ].join("");
+}
+function itemEntryHtml(term, body) {
+  return `
     <div class="section-group" data-item-entry>
       <div class="section-header">
         <span style="flex:1;font-size:0.8em;color:var(--vscode-descriptionForeground);text-transform:uppercase;letter-spacing:0.05em">Item</span>
@@ -823,49 +3884,84 @@ Details: ${a.diagnostics.join(`
       </div>
       <div class="field">
         <label>Term <span style="font-weight:400;text-transform:none">(optional)</span></label>
-        <input type="text" class="item-term" placeholder="e.g. Why" value="${M(t)}">
+        <input type="text" class="item-term" placeholder="e.g. Why" value="${escAttr2(term)}">
       </div>
       <div class="field">
         <label>Body</label>
-        <textarea class="item-body" rows="3">${Ue(e)}</textarea>
+        <textarea class="item-body" rows="3">${escText2(body)}</textarea>
       </div>
-    </div>`}function To(t,e,o){let n=t.columns??[],i=n.length>0?n.length:t.rows.length>0?t.rows[0].length:2,r=n.length>0?`<thead><tr>${n.map(a=>`<th><input type="text" class="te-col-header" value="${M(a)}" placeholder="Header"></th>`).join("")}<th class="te-action-col"></th></tr></thead>`:"",s=(t.rows??[]).map(a=>`<tr>${a.map(l=>`<td><input type="text" class="te-cell" value="${M(l)}"></td>`).join("")}<td class="te-action-col"><button type="button" class="btn-remove-row" title="Remove row">\u2715</button></td></tr>`).join("");return`
-    <div class="table-block" data-table-section="${e}" data-table-idx="${o}" data-col-count="${i}">
+    </div>`;
+}
+function tableBlockHtml(t, si, ti) {
+  const cols = t.columns ?? [];
+  const colCount = cols.length > 0 ? cols.length : t.rows.length > 0 ? t.rows[0].length : 2;
+  const headerHtml = cols.length > 0 ? `<thead><tr>${cols.map((c) => `<th><input type="text" class="te-col-header" value="${escAttr2(c)}" placeholder="Header"></th>`).join("")}<th class="te-action-col"></th></tr></thead>` : "";
+  const bodyHtml = (t.rows ?? []).map(
+    (row) => `<tr>${row.map((cell) => `<td><input type="text" class="te-cell" value="${escAttr2(cell)}"></td>`).join("")}<td class="te-action-col"><button type="button" class="btn-remove-row" title="Remove row">\u2715</button></td></tr>`
+  ).join("");
+  return `
+    <div class="table-block" data-table-section="${si}" data-table-idx="${ti}" data-col-count="${colCount}">
       <div class="table-block-meta">
         <div class="field">
           <label>Subheading <span style="font-weight:400;text-transform:none">(optional)</span></label>
-          <input type="text" class="te-subheading" value="${M(t.subheading??"")}">
+          <input type="text" class="te-subheading" value="${escAttr2(t.subheading ?? "")}">
         </div>
         <div class="field">
           <label>Label <span style="font-weight:400;text-transform:none">(optional, shown above the table)</span></label>
-          <textarea class="te-label" rows="2">${Ue(t.label??"")}</textarea>
+          <textarea class="te-label" rows="2">${escText2(t.label ?? "")}</textarea>
         </div>
       </div>
       <div class="te-table-wrap">
         <table class="te-table">
-          ${r}
-          <tbody>${s}</tbody>
+          ${headerHtml}
+          <tbody>${bodyHtml}</tbody>
         </table>
       </div>
       <button type="button" class="btn-add-row">+ Add row</button>
-    </div>`}function Do(t,e){let n=(t.tables??[]).map((a,l)=>To(a,e,l)).join(""),r=(t.items??[]).map(a=>Eo(a.term??"",a.body)).join(""),s=`
+    </div>`;
+}
+function tableSectionFields(s, i) {
+  const tables = s.tables ?? [];
+  const tableBlocksHtml = tables.map((t, ti) => tableBlockHtml(t, i, ti)).join("");
+  const items = s.items ?? [];
+  const itemEntries = items.map((item) => itemEntryHtml(item.term ?? "", item.body)).join("");
+  const itemBlock = `
     <div class="field">
       <label>Items</label>
-      <div id="items-list-${e}">${r}</div>
-      <button type="button" class="btn-add-entry" data-items-section="${e}">+ Add item</button>
-    </div>`;return[W("Body",`s_${e}_body`,t.body??"",{rows:3}),`<div class="field"><label>Tables</label><div class="table-blocks" id="table-blocks-${e}">${n}</div><button type="button" class="btn-add-entry btn-add-table" data-table-section="${e}">+ Add table</button></div>`,s,W("Outro",`s_${e}_outro`,t.outro??"",{rows:2})].join("")}function _o(t,e){let o=ko[t.type],n="";return t.type==="text"?n=Ro(t,e):t.type==="list"?n=$o(t,e):t.type==="table"&&(n=Do(t,e)),`
-    <div class="section-block" data-section-index="${e}">
+      <div id="items-list-${i}">${itemEntries}</div>
+      <button type="button" class="btn-add-entry" data-items-section="${i}">+ Add item</button>
+    </div>`;
+  return [
+    textField("Body", `s_${i}_body`, s.body ?? "", { rows: 3 }),
+    `<div class="field"><label>Tables</label><div class="table-blocks" id="table-blocks-${i}">${tableBlocksHtml}</div><button type="button" class="btn-add-entry btn-add-table" data-table-section="${i}">+ Add table</button></div>`,
+    itemBlock,
+    textField("Outro", `s_${i}_outro`, s.outro ?? "", { rows: 2 })
+  ].join("");
+}
+function sectionBlock(s, i) {
+  const typeLabel = TYPE_LABEL[s.type];
+  let typeFields = "";
+  if (s.type === "text")
+    typeFields = textSectionFields(s, i);
+  else if (s.type === "list")
+    typeFields = listSectionFields(s, i);
+  else if (s.type === "table")
+    typeFields = tableSectionFields(s, i);
+  return `
+    <div class="section-block" data-section-index="${i}">
       <div class="section-block-header">
-        <span class="section-type-badge">${de(o)}</span>
+        <span class="section-type-badge">${esc3(typeLabel)}</span>
       </div>
-      ${De("Heading",`s_${e}_heading`,t.heading,{required:!0})}
-      ${De("Slug (id)",`s_${e}_slug`,t.slug)}
-      ${n}
-      <input type="hidden" name="s_${e}_instanceId" value="${M(t.instanceId)}">
-      <input type="hidden" name="s_${e}_typeId" value="${M(t.typeId)}">
-      <input type="hidden" name="s_${e}_typeVersion" value="${M(String(t.typeVersion))}">
-      <input type="hidden" name="s_${e}_type" value="${M(t.type)}">
-    </div>`}var Ao=`
+      ${inputField("Heading", `s_${i}_heading`, s.heading, { required: true })}
+      ${inputField("Slug (id)", `s_${i}_slug`, s.slug)}
+      ${typeFields}
+      <input type="hidden" name="s_${i}_instanceId" value="${escAttr2(s.instanceId)}">
+      <input type="hidden" name="s_${i}_typeId" value="${escAttr2(s.typeId)}">
+      <input type="hidden" name="s_${i}_typeVersion" value="${escAttr2(String(s.typeVersion))}">
+      <input type="hidden" name="s_${i}_type" value="${escAttr2(s.type)}">
+    </div>`;
+}
+var GUIDE_JS = `
 <script>
 function collectFormData() {
   var form = document.getElementById('editor-form');
@@ -1035,7 +4131,8 @@ document.addEventListener('click', function(e) {
 });
 
 
-</script>`,No=`
+</script>`;
+var GUIDE_CSS = `
 <style>
   .guide-meta { margin-bottom: 2em; }
   .guide-meta h2 { font-size: 1em; text-transform: uppercase; letter-spacing: 0.06em;
@@ -1142,22 +4239,525 @@ document.addEventListener('click', function(e) {
     border-color: var(--vscode-focusBorder);
     color: var(--vscode-foreground);
   }
-</style>`;function ut(t){let e=t.sections.map((n,i)=>_o(n,i)).join(""),o=`
-    ${No}
+</style>`;
+function buildGuideForm(guide) {
+  const sectionsHtml = guide.sections.map((s, i) => sectionBlock(s, i)).join("");
+  const body = `
+    ${GUIDE_CSS}
     <div class="guide-meta">
       <h2>Guide</h2>
-      ${De("Title","guide_title",t.title,{required:!0})}
-      ${De("Subtitle","guide_subtitle",t.subtitle)}
-      ${W("Body","guide_body",t.body,{rows:4})}
+      ${inputField("Title", "guide_title", guide.title, { required: true })}
+      ${inputField("Subtitle", "guide_subtitle", guide.subtitle)}
+      ${textField("Body", "guide_body", guide.body, { rows: 4 })}
     </div>
-    <p class="sections-heading">Sections (${t.sections.length})</p>
+    <p class="sections-heading">Sections (${guide.sections.length})</p>
     <div class="sections-list">
-      ${e}
+      ${sectionsHtml}
     </div>
-    <input type="hidden" name="containerId" value="${M(t.containerId)}">
-    <input type="hidden" name="guideInstanceId" value="${M(t.guideInstanceId)}">
-    <input type="hidden" name="guideTypeId" value="${M(t.guideTypeId)}">
-    <input type="hidden" name="guideTypeVersion" value="${M(String(t.guideTypeVersion))}">
-    <input type="hidden" name="guide_slug" value="${M(t.slug)}">
-    <input type="hidden" name="sectionCount" value="${t.sections.length}">
-    ${Ao}`;return Q(t.title,o)}function mt(t,e,o,n){t.subscriptions.push(q.commands.registerCommand("srs.editGuide",()=>Mo(t,e,o,n)))}async function Mo(t,e,o,n){let i=o.active?.rootPath;if(!i){q.window.showWarningMessage("SRS: No repository selected.");return}let r;try{r=(await e.runOk(i,["container","list"])).containers.filter(l=>l.containerType==="guide")}catch(a){q.window.showErrorMessage(`SRS: Could not load containers \u2014 ${String(a)}`);return}if(r.length===0){q.window.showInformationMessage("SRS: No guide containers found in this repository.");return}let s=await q.window.showQuickPick(r.map(a=>({label:a.title,description:a.containerId,id:a.containerId})),{placeHolder:"Select a guide to edit"});s&&await q.window.withProgress({location:q.ProgressLocation.Notification,title:`Loading guide: ${s.label}`},async()=>{let a;try{a=await ct(e,i,s.id)}catch(d){q.window.showErrorMessage(`SRS: Failed to load guide \u2014 ${String(d)}`);return}let l=ut(a);U.show(t,`guide:${s.id}`,a.title,l,async d=>{await pt(e,i,d),n.refresh(),q.window.showInformationMessage(`SRS: Guide "${a.title}" saved.`)})})}var O=h(require("vscode"));var gt=h(require("crypto")),ee=h(require("path"));function vt(t){let e=ee.resolve(t),n=ee.basename(e,ee.extname(e)).replace(/[^A-Za-z0-9._-]/g,"_").slice(0,40)||"archive",i=gt.createHash("sha1").update(e).digest("hex").slice(0,12);return`${n}-${i}`}var _e=class{constructor(e,o,n){this.context=e;this.cli=o;this.repoProvider=n;this._dirty=!1;this._onDidChangeDirty=new O.EventEmitter;this.onDidChangeDirty=this._onDidChangeDirty.event;this._disposables=[this._onDidChangeDirty];this._disposables.push(n.onDidChangeActive(i=>{this._current&&i?.rootPath!==this._current.workdir&&this._teardown()}))}get isDirty(){return this._dirty}get activeArchivePath(){return this._current?.archivePath}async openArchive(e){let o=this._workdirFor(e),n=O.Uri.joinPath(this.context.globalStorageUri,"archives");await O.workspace.fs.createDirectory(n),await this._deleteIfExists(O.Uri.file(o)),await this.cli.runRawOk(["archive","unpack",e,"--target",o]);let i=await this.repoProvider.probe(o);if(!i)throw new u(`Unpacked archive at ${o} did not load as a valid SRS repository.`,["archive unpack produced an unloadable repository"],"archive unpack");this._teardown();let r=this._startWatching(o);this._current={archivePath:e,workdir:o,watcher:r},this._setDirty(!1),this.repoProvider.setActive({...i,archivePath:e})}async saveActive(){let e=this.repoProvider.active;return e?.archivePath?(await this.cli.runOk(e.rootPath,["archive","pack","--output",e.archivePath]),this._setDirty(!1),!0):(O.window.showWarningMessage("SRS: The active repository is not opened from a .srs archive. Use 'SRS: Export Repository to .srs' instead."),!1)}async exportActive(e){let o=this.repoProvider.active;if(!o)throw new u("No active SRS repository to export.",["no active repository"],"archive pack");return this.cli.runOk(o.rootPath,["archive","pack","--output",e])}_workdirFor(e){return O.Uri.joinPath(this.context.globalStorageUri,"archives",vt(e)).fsPath}_startWatching(e){let o=O.workspace.createFileSystemWatcher(new O.RelativePattern(O.Uri.file(e),"**/*")),n=()=>this._setDirty(!0);return o.onDidChange(n),o.onDidCreate(n),o.onDidDelete(n),o}_teardown(){this._current?.watcher.dispose(),this._current=void 0,this._setDirty(!1)}_setDirty(e){this._dirty!==e&&(this._dirty=e,this._onDidChangeDirty.fire())}async _deleteIfExists(e){try{await O.workspace.fs.delete(e,{recursive:!0,useTrash:!1})}catch{}}dispose(){this._current?.watcher.dispose(),this._disposables.forEach(e=>e.dispose())}};var Ne=h(require("vscode")),yt=h(require("path")),Ae=class{constructor(e,o){this.archiveManager=e;this.repoProvider=o;this._disposables=[];this._item=Ne.window.createStatusBarItem(Ne.StatusBarAlignment.Left,99),this._item.command="srs.saveArchive",this._disposables.push(this._item),this._disposables.push(e.onDidChangeDirty(()=>this._update()),o.onDidChangeActive(()=>this._update())),this._update()}_update(){let e=this.repoProvider.active?.archivePath;if(!e){this._item.hide();return}let o=yt.basename(e);this.archiveManager.isDirty?(this._item.text=`$(archive) \u25CF ${o}`,this._item.tooltip=`SRS: ${o} has unsaved changes \u2014 click to save to .srs`):(this._item.text=`$(archive) ${o}`,this._item.tooltip=`SRS: ${o} (saved) \u2014 click to re-pack to .srs`),this._item.show()}dispose(){this._disposables.forEach(e=>e.dispose())}};var C=h(require("vscode")),te=h(require("path"));function ft(t,e,o,n){t.subscriptions.push(C.commands.registerCommand("srs.openArchive",()=>Oo(o,n)),C.commands.registerCommand("srs.saveArchive",()=>Lo(n)),C.commands.registerCommand("srs.exportArchive",()=>Fo(o,n)))}async function Oo(t,e){let o=await C.window.showOpenDialog({canSelectMany:!1,openLabel:"Open SRS Archive",filters:{"SRS Archive":["srs"],"SRS Bundle (legacy)":["srsj"],"All Files":["*"]}});if(!o||o.length===0)return;let n=o[0].fsPath,i=te.basename(n),r=te.extname(n).toLowerCase()===".srsj";try{await C.window.withProgress({location:C.ProgressLocation.Window,title:`SRS: Opening ${i}\u2026`},async()=>{if(r){let s=await t.probe(n);if(!s)throw new u(`${i} did not load as a valid SRS repository.`,["repo map failed on the selected file"],"repo map");t.setActive(s)}else await e.openArchive(n)}),r&&C.window.showInformationMessage(`SRS: Opened legacy bundle ${i}. Use 'SRS: Export Repository to .srs' to save it in the .srs format.`)}catch(s){let a=s instanceof u?s.message:String(s);C.window.showErrorMessage(`SRS: Failed to open ${i}: ${a}`)}}async function Lo(t){let e=t.activeArchivePath?te.basename(t.activeArchivePath):".srs";try{await C.window.withProgress({location:C.ProgressLocation.Window,title:`SRS: Saving ${e}\u2026`},()=>t.saveActive())&&C.window.showInformationMessage(`SRS: Saved ${e}.`)}catch(o){let n=o instanceof u?o.message:String(o);C.window.showErrorMessage(`SRS: Failed to save ${e}: ${n}`)}}async function Fo(t,e){let o=t.active;if(!o){C.window.showWarningMessage("SRS: No active repository. Open or select a repository first.");return}let n=await C.window.showSaveDialog({saveLabel:"Export .srs",filters:{"SRS Archive":["srs"]},defaultUri:Vo(o.archivePath,o.title)});if(!n)return;let i=te.basename(n.fsPath);try{let r=await C.window.withProgress({location:C.ProgressLocation.Window,title:`SRS: Exporting ${i}\u2026`},()=>e.exportActive(n.fsPath));C.window.showInformationMessage(`SRS: Exported ${i} (${Bo(r.fileSizeBytes)}).`)}catch(r){let s=r instanceof u?r.message:String(r);C.window.showErrorMessage(`SRS: Failed to export ${i}: ${s}`)}}function Vo(t,e){if(t)return C.Uri.file(t);let o=e.replace(/[^A-Za-z0-9._-]+/g,"-").replace(/^-+|-+$/g,"")||"repository",n=C.workspace.workspaceFolders?.[0];return n?C.Uri.joinPath(n.uri,`${o}.srs`):C.Uri.file(`${o}.srs`)}function Bo(t){return t<1024?`${t} B`:t<1024*1024?`${(t/1024).toFixed(1)} KB`:`${(t/(1024*1024)).toFixed(1)} MB`}async function qo(t){let e=F.window.createOutputChannel("SRS");t.subscriptions.push(e);let o=new le(e),n=new pe(o),i=new ve(t.workspaceState,o),r=new me(o,n,i),s=new Ee(o,n),a=new ye(i),l=new he(t.extensionUri),d=new we(o,n),c=new Ce(o,n),p=new _e(t,o,n),f=new Ae(p,n);t.subscriptions.push(n,r,s,i,a,l,d,c,p,f,F.workspace.registerTextDocumentContentProvider(Be,d));let v=F.window.createTreeView("srsRepositoryTree",{treeDataProvider:r,showCollapseAll:!0});t.subscriptions.push(v);let S=F.window.createTreeView("srsNavigatorTree",{treeDataProvider:s,showCollapseAll:!0});t.subscriptions.push(S),F.commands.executeCommand("setContext","srs.navigatorMode","relations"),n.onDidChangeActive(k=>{v.title=k?`SRS: ${k.title}`:"SRS Repository",k?a.show():(a.hide(),c.clear())}),t.subscriptions.push(F.workspace.onDidSaveTextDocument(k=>{let $=n.active;!$||!F.workspace.getConfiguration("srs").get("validate.onSave",!0)||k.uri.fsPath.startsWith($.rootPath)&&c.validate()})),Je(t,o,n,r,e,d,c),it(t,o,n,i,r),rt(t,o,n,i,r),Xe(t,o,n),ot(t,o,n,r),at(t,o,n,d),dt(t,s),mt(t,o,n,r),ft(t,o,n,p),await Go(o,n);let y=n.active;y&&(await i.restore(y.rootPath),a.show())}async function Go(t,e){let n=F.workspace.getConfiguration("srs").get("repository.path",null);if(n){let r=await e.probe(n);if(r)e.setActive(r);else{let s="Open Settings";await F.window.showWarningMessage(`SRS: Configured path '${n}' is not a valid SRS repository.`,s)===s&&F.commands.executeCommand("workbench.action.openSettings","srs.repository.path")}return}let i=await e.discoverAll();i.length===1?e.setActive(i[0]):i.length>1&&F.window.showInformationMessage(`SRS: Found ${i.length} repositories in workspace. Use 'SRS: Select Repository' to choose one.`)}function jo(){}0&&(module.exports={activate,deactivate});
+    <input type="hidden" name="containerId" value="${escAttr2(guide.containerId)}">
+    <input type="hidden" name="guideInstanceId" value="${escAttr2(guide.guideInstanceId)}">
+    <input type="hidden" name="guideTypeId" value="${escAttr2(guide.guideTypeId)}">
+    <input type="hidden" name="guideTypeVersion" value="${escAttr2(String(guide.guideTypeVersion))}">
+    <input type="hidden" name="guide_slug" value="${escAttr2(guide.slug)}">
+    <input type="hidden" name="sectionCount" value="${guide.sections.length}">
+    ${GUIDE_JS}`;
+  return formWrapHtml(guide.title, body);
+}
+
+// src/webview/guides/guideEditorCommands.ts
+function registerGuideEditorCommands(context, cli, repoProvider, treeProvider) {
+  context.subscriptions.push(
+    vscode20.commands.registerCommand(
+      "srs.editGuide",
+      () => cmdEditGuide(context, cli, repoProvider, treeProvider)
+    )
+  );
+}
+async function cmdEditGuide(context, cli, repoProvider, treeProvider) {
+  const repoPath = repoProvider.active?.rootPath;
+  if (!repoPath) {
+    vscode20.window.showWarningMessage("SRS: No repository selected.");
+    return;
+  }
+  let containers;
+  try {
+    const payload = await cli.runOk(repoPath, ["container", "list"]);
+    containers = payload.containers.filter((c) => c.containerType === "guide");
+  } catch (err) {
+    vscode20.window.showErrorMessage(`SRS: Could not load containers \u2014 ${String(err)}`);
+    return;
+  }
+  if (containers.length === 0) {
+    vscode20.window.showInformationMessage("SRS: No guide containers found in this repository.");
+    return;
+  }
+  const picked = await vscode20.window.showQuickPick(
+    containers.map((c) => ({ label: c.title, description: c.containerId, id: c.containerId })),
+    { placeHolder: "Select a guide to edit" }
+  );
+  if (!picked)
+    return;
+  await vscode20.window.withProgress(
+    { location: vscode20.ProgressLocation.Notification, title: `Loading guide: ${picked.label}` },
+    async () => {
+      let guide;
+      try {
+        guide = await loadGuide(cli, repoPath, picked.id);
+      } catch (err) {
+        vscode20.window.showErrorMessage(`SRS: Failed to load guide \u2014 ${String(err)}`);
+        return;
+      }
+      const html = buildGuideForm(guide);
+      EntityEditorPanel.show(
+        context,
+        `guide:${picked.id}`,
+        guide.title,
+        html,
+        async (data) => {
+          await saveGuide(cli, repoPath, data);
+          treeProvider.refresh();
+          vscode20.window.showInformationMessage(`SRS: Guide "${guide.title}" saved.`);
+        }
+      );
+    }
+  );
+}
+
+// src/archive/ArchiveManager.ts
+var vscode21 = __toESM(require("vscode"));
+
+// src/archive/workdir.ts
+var crypto = __toESM(require("crypto"));
+var path2 = __toESM(require("path"));
+function archiveWorkdirName(archivePath) {
+  const abs = path2.resolve(archivePath);
+  const base = path2.basename(abs, path2.extname(abs));
+  const safe = base.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 40) || "archive";
+  const hash = crypto.createHash("sha1").update(abs).digest("hex").slice(0, 12);
+  return `${safe}-${hash}`;
+}
+
+// src/archive/ArchiveManager.ts
+var ArchiveManager = class {
+  constructor(context, cli, repoProvider) {
+    this.context = context;
+    this.cli = cli;
+    this.repoProvider = repoProvider;
+    this._dirty = false;
+    this._onDidChangeDirty = new vscode21.EventEmitter();
+    this.onDidChangeDirty = this._onDidChangeDirty.event;
+    this._disposables = [this._onDidChangeDirty];
+    this._disposables.push(
+      repoProvider.onDidChangeActive((repo) => {
+        if (this._current && repo?.rootPath !== this._current.workdir) {
+          this._teardown();
+        }
+      })
+    );
+  }
+  get isDirty() {
+    return this._dirty;
+  }
+  get activeArchivePath() {
+    return this._current?.archivePath;
+  }
+  // Unpack a `.srs` archive into a fresh working copy and activate it.
+  async openArchive(archivePath) {
+    const workdir = this._workdirFor(archivePath);
+    const archivesRoot = vscode21.Uri.joinPath(
+      this.context.globalStorageUri,
+      "archives"
+    );
+    await vscode21.workspace.fs.createDirectory(archivesRoot);
+    await this._deleteIfExists(vscode21.Uri.file(workdir));
+    await this.cli.runRawOk([
+      "archive",
+      "unpack",
+      archivePath,
+      "--target",
+      workdir
+    ]);
+    const repo = await this.repoProvider.probe(workdir);
+    if (!repo) {
+      throw new CliError(
+        `Unpacked archive at ${workdir} did not load as a valid SRS repository.`,
+        ["archive unpack produced an unloadable repository"],
+        "archive unpack"
+      );
+    }
+    this._teardown();
+    const watcher = this._startWatching(workdir);
+    this._current = { archivePath, workdir, watcher };
+    this._setDirty(false);
+    this.repoProvider.setActive({ ...repo, archivePath });
+  }
+  // Repack the active archive-backed working copy into its source `.srs`.
+  // Returns false (with a warning) if the active repo isn't archive-backed.
+  async saveActive() {
+    const repo = this.repoProvider.active;
+    if (!repo?.archivePath) {
+      vscode21.window.showWarningMessage(
+        "SRS: The active repository is not opened from a .srs archive. Use 'SRS: Export Repository to .srs' instead."
+      );
+      return false;
+    }
+    await this.cli.runOk(repo.rootPath, [
+      "archive",
+      "pack",
+      "--output",
+      repo.archivePath
+    ]);
+    this._setDirty(false);
+    return true;
+  }
+  // Pack the active repository (any kind — directory, working copy, or .srsj) into
+  // a `.srs` at a user-chosen path. Does not change the active repo or dirty state.
+  async exportActive(targetPath) {
+    const repo = this.repoProvider.active;
+    if (!repo) {
+      throw new CliError(
+        "No active SRS repository to export.",
+        ["no active repository"],
+        "archive pack"
+      );
+    }
+    return this.cli.runOk(repo.rootPath, [
+      "archive",
+      "pack",
+      "--output",
+      targetPath
+    ]);
+  }
+  _workdirFor(archivePath) {
+    return vscode21.Uri.joinPath(
+      this.context.globalStorageUri,
+      "archives",
+      archiveWorkdirName(archivePath)
+    ).fsPath;
+  }
+  _startWatching(workdir) {
+    const watcher = vscode21.workspace.createFileSystemWatcher(
+      new vscode21.RelativePattern(vscode21.Uri.file(workdir), "**/*")
+    );
+    const markDirty = () => this._setDirty(true);
+    watcher.onDidChange(markDirty);
+    watcher.onDidCreate(markDirty);
+    watcher.onDidDelete(markDirty);
+    return watcher;
+  }
+  _teardown() {
+    this._current?.watcher.dispose();
+    this._current = void 0;
+    this._setDirty(false);
+  }
+  _setDirty(value) {
+    if (this._dirty === value)
+      return;
+    this._dirty = value;
+    this._onDidChangeDirty.fire();
+  }
+  async _deleteIfExists(uri) {
+    try {
+      await vscode21.workspace.fs.delete(uri, {
+        recursive: true,
+        useTrash: false
+      });
+    } catch {
+    }
+  }
+  dispose() {
+    this._current?.watcher.dispose();
+    this._disposables.forEach((d) => d.dispose());
+  }
+};
+
+// src/archive/ArchiveStatusBarItem.ts
+var vscode22 = __toESM(require("vscode"));
+var path3 = __toESM(require("path"));
+var ArchiveStatusBarItem = class {
+  constructor(archiveManager, repoProvider) {
+    this.archiveManager = archiveManager;
+    this.repoProvider = repoProvider;
+    this._disposables = [];
+    this._item = vscode22.window.createStatusBarItem(
+      vscode22.StatusBarAlignment.Left,
+      99
+    );
+    this._item.command = "srs.saveArchive";
+    this._disposables.push(this._item);
+    this._disposables.push(
+      archiveManager.onDidChangeDirty(() => this._update()),
+      repoProvider.onDidChangeActive(() => this._update())
+    );
+    this._update();
+  }
+  _update() {
+    const archivePath = this.repoProvider.active?.archivePath;
+    if (!archivePath) {
+      this._item.hide();
+      return;
+    }
+    const name = path3.basename(archivePath);
+    if (this.archiveManager.isDirty) {
+      this._item.text = `$(archive) \u25CF ${name}`;
+      this._item.tooltip = `SRS: ${name} has unsaved changes \u2014 click to save to .srs`;
+    } else {
+      this._item.text = `$(archive) ${name}`;
+      this._item.tooltip = `SRS: ${name} (saved) \u2014 click to re-pack to .srs`;
+    }
+    this._item.show();
+  }
+  dispose() {
+    this._disposables.forEach((d) => d.dispose());
+  }
+};
+
+// src/commands/archiveCommands.ts
+var vscode23 = __toESM(require("vscode"));
+var path4 = __toESM(require("path"));
+function registerArchiveCommands(context, cli, repoProvider, archiveManager) {
+  context.subscriptions.push(
+    vscode23.commands.registerCommand(
+      "srs.openArchive",
+      () => cmdOpenArchive(repoProvider, archiveManager)
+    ),
+    vscode23.commands.registerCommand(
+      "srs.saveArchive",
+      () => cmdSaveArchive(archiveManager)
+    ),
+    vscode23.commands.registerCommand(
+      "srs.exportArchive",
+      () => cmdExportArchive(repoProvider, archiveManager)
+    )
+  );
+}
+async function cmdOpenArchive(repoProvider, archiveManager) {
+  const picked = await vscode23.window.showOpenDialog({
+    canSelectMany: false,
+    openLabel: "Open SRS Archive",
+    filters: {
+      "SRS Archive": ["srs"],
+      "SRS Bundle (legacy)": ["srsj"],
+      "All Files": ["*"]
+    }
+  });
+  if (!picked || picked.length === 0)
+    return;
+  const fsPath = picked[0].fsPath;
+  const name = path4.basename(fsPath);
+  const isLegacyBundle = path4.extname(fsPath).toLowerCase() === ".srsj";
+  try {
+    await vscode23.window.withProgress(
+      { location: vscode23.ProgressLocation.Window, title: `SRS: Opening ${name}\u2026` },
+      async () => {
+        if (isLegacyBundle) {
+          const repo = await repoProvider.probe(fsPath);
+          if (!repo) {
+            throw new CliError(
+              `${name} did not load as a valid SRS repository.`,
+              ["repo map failed on the selected file"],
+              "repo map"
+            );
+          }
+          repoProvider.setActive(repo);
+        } else {
+          await archiveManager.openArchive(fsPath);
+        }
+      }
+    );
+    if (isLegacyBundle) {
+      vscode23.window.showInformationMessage(
+        `SRS: Opened legacy bundle ${name}. Use 'SRS: Export Repository to .srs' to save it in the .srs format.`
+      );
+    }
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode23.window.showErrorMessage(`SRS: Failed to open ${name}: ${msg}`);
+  }
+}
+async function cmdSaveArchive(archiveManager) {
+  const name = archiveManager.activeArchivePath ? path4.basename(archiveManager.activeArchivePath) : ".srs";
+  try {
+    const saved = await vscode23.window.withProgress(
+      { location: vscode23.ProgressLocation.Window, title: `SRS: Saving ${name}\u2026` },
+      () => archiveManager.saveActive()
+    );
+    if (saved) {
+      vscode23.window.showInformationMessage(`SRS: Saved ${name}.`);
+    }
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode23.window.showErrorMessage(`SRS: Failed to save ${name}: ${msg}`);
+  }
+}
+async function cmdExportArchive(repoProvider, archiveManager) {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode23.window.showWarningMessage(
+      "SRS: No active repository. Open or select a repository first."
+    );
+    return;
+  }
+  const target = await vscode23.window.showSaveDialog({
+    saveLabel: "Export .srs",
+    filters: { "SRS Archive": ["srs"] },
+    defaultUri: defaultExportUri(repo.archivePath, repo.title)
+  });
+  if (!target)
+    return;
+  const name = path4.basename(target.fsPath);
+  try {
+    const payload = await vscode23.window.withProgress(
+      { location: vscode23.ProgressLocation.Window, title: `SRS: Exporting ${name}\u2026` },
+      () => archiveManager.exportActive(target.fsPath)
+    );
+    vscode23.window.showInformationMessage(
+      `SRS: Exported ${name} (${formatBytes(payload.fileSizeBytes)}).`
+    );
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode23.window.showErrorMessage(`SRS: Failed to export ${name}: ${msg}`);
+  }
+}
+function defaultExportUri(archivePath, title) {
+  if (archivePath)
+    return vscode23.Uri.file(archivePath);
+  const safe = title.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "repository";
+  const folder = vscode23.workspace.workspaceFolders?.[0];
+  return folder ? vscode23.Uri.joinPath(folder.uri, `${safe}.srs`) : vscode23.Uri.file(`${safe}.srs`);
+}
+function formatBytes(bytes) {
+  if (bytes < 1024)
+    return `${bytes} B`;
+  if (bytes < 1024 * 1024)
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// src/extension.ts
+async function activate(context) {
+  const outputChannel = vscode24.window.createOutputChannel("SRS");
+  context.subscriptions.push(outputChannel);
+  const cli = new CliClient(outputChannel);
+  const repoProvider = new RepositoryProvider(cli);
+  const attention = new AttentionManager(context.workspaceState, cli);
+  const treeProvider = new SrsTreeDataProvider(cli, repoProvider, attention);
+  const navigatorProvider = new NavigatorTreeDataProvider(cli, repoProvider);
+  const statusBarItem = new ContainerStatusBarItem(attention);
+  const schemaProvider = new SchemaProvider(context.extensionUri);
+  const entityDocProvider = new EntityDocumentProvider(cli, repoProvider);
+  const diagnosticsProvider = new DiagnosticsProvider(cli, repoProvider);
+  const archiveManager = new ArchiveManager(context, cli, repoProvider);
+  const archiveStatusBarItem = new ArchiveStatusBarItem(archiveManager, repoProvider);
+  context.subscriptions.push(
+    repoProvider,
+    treeProvider,
+    navigatorProvider,
+    attention,
+    statusBarItem,
+    schemaProvider,
+    entityDocProvider,
+    diagnosticsProvider,
+    archiveManager,
+    archiveStatusBarItem,
+    vscode24.workspace.registerTextDocumentContentProvider(
+      ENTITY_SCHEME,
+      entityDocProvider
+    )
+  );
+  const treeView = vscode24.window.createTreeView("srsRepositoryTree", {
+    treeDataProvider: treeProvider,
+    showCollapseAll: true
+  });
+  context.subscriptions.push(treeView);
+  const navigatorView = vscode24.window.createTreeView("srsNavigatorTree", {
+    treeDataProvider: navigatorProvider,
+    showCollapseAll: true
+  });
+  context.subscriptions.push(navigatorView);
+  vscode24.commands.executeCommand("setContext", "srs.navigatorMode", "relations");
+  repoProvider.onDidChangeActive((repo) => {
+    treeView.title = repo ? `SRS: ${repo.title}` : "SRS Repository";
+    if (repo) {
+      statusBarItem.show();
+    } else {
+      statusBarItem.hide();
+      diagnosticsProvider.clear();
+    }
+  });
+  context.subscriptions.push(
+    vscode24.workspace.onDidSaveTextDocument((doc) => {
+      const repo = repoProvider.active;
+      if (!repo)
+        return;
+      const config = vscode24.workspace.getConfiguration("srs");
+      if (!config.get("validate.onSave", true))
+        return;
+      if (!doc.uri.fsPath.startsWith(repo.rootPath))
+        return;
+      diagnosticsProvider.validate();
+    })
+  );
+  registerRepositoryCommands(
+    context,
+    cli,
+    repoProvider,
+    treeProvider,
+    outputChannel,
+    entityDocProvider,
+    diagnosticsProvider
+  );
+  registerContainerCommands(context, cli, repoProvider, attention, treeProvider);
+  registerMutationCommands(context, cli, repoProvider, attention, treeProvider);
+  registerPreviewCommands(context, cli, repoProvider, attention);
+  registerEditCommands(context, cli, repoProvider, treeProvider);
+  registerGraphCommands(context, cli, repoProvider, entityDocProvider);
+  registerNavigatorCommands(context, navigatorProvider);
+  registerGuideEditorCommands(context, cli, repoProvider, treeProvider);
+  registerArchiveCommands(context, cli, repoProvider, archiveManager);
+  await autoDetectRepository(cli, repoProvider);
+  const activeRepo = repoProvider.active;
+  if (activeRepo) {
+    await attention.restore(activeRepo.rootPath);
+    statusBarItem.show();
+  }
+}
+async function autoDetectRepository(cli, repoProvider) {
+  const config = vscode24.workspace.getConfiguration("srs");
+  const configuredPath = config.get("repository.path", null);
+  if (configuredPath) {
+    const repo = await repoProvider.probe(configuredPath);
+    if (repo) {
+      repoProvider.setActive(repo);
+    } else {
+      const action = "Open Settings";
+      const choice = await vscode24.window.showWarningMessage(
+        `SRS: Configured path '${configuredPath}' is not a valid SRS repository.`,
+        action
+      );
+      if (choice === action) {
+        vscode24.commands.executeCommand(
+          "workbench.action.openSettings",
+          "srs.repository.path"
+        );
+      }
+    }
+    return;
+  }
+  const discovered = await repoProvider.discoverAll();
+  if (discovered.length === 1) {
+    repoProvider.setActive(discovered[0]);
+  } else if (discovered.length > 1) {
+    vscode24.window.showInformationMessage(
+      `SRS: Found ${discovered.length} repositories in workspace. Use 'SRS: Select Repository' to choose one.`
+    );
+  }
+}
+function deactivate() {
+}
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  activate,
+  deactivate
+});
+//# sourceMappingURL=extension.js.map
