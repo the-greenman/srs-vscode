@@ -227,6 +227,9 @@ function deleteArgsFor(kind, id) {
         case "container": return ["container", "delete", id];
         case "protocol": return ["protocol", "delete", id];
         case "blueprint": return ["blueprint", "delete", id];
+        case "view": return ["view", "delete", id];
+        case "document-view": return ["document-view", "delete", id];
+        case "theme": return ["theme", "delete", id];
         default: return undefined;
     }
 }

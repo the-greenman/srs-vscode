@@ -277,14 +277,17 @@ async function cmdDeleteEntity(
 
 function deleteArgsFor(kind: string, id: string): string[] | undefined {
   switch (kind) {
-    case "note":      return ["note", "delete", id];
-    case "tag":       return ["tag", "delete", id];
-    case "record":    return ["record", "delete", id];
-    case "relation":  return ["relation", "delete", id];
-    case "container": return ["container", "delete", id];
-    case "protocol":  return ["protocol", "delete", id];
-    case "blueprint": return ["blueprint", "delete", id];
-    default:          return undefined;
+    case "note":            return ["note", "delete", id];
+    case "tag":             return ["tag", "delete", id];
+    case "record":          return ["record", "delete", id];
+    case "relation":        return ["relation", "delete", id];
+    case "container":       return ["container", "delete", id];
+    case "protocol":        return ["protocol", "delete", id];
+    case "blueprint":       return ["blueprint", "delete", id];
+    case "view":            return ["view", "delete", id];
+    case "document-view":   return ["document-view", "delete", id];
+    case "theme":           return ["theme", "delete", id];
+    default:                return undefined;
   }
 }
 

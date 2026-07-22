@@ -16,6 +16,7 @@ import type {
   BlueprintListPayload,
   ViewListPayload,
   DocumentViewListPayload,
+  ThemeListPayload,
   RelationTypeListPayload,
 } from "../cli/types";
 
@@ -186,6 +187,15 @@ const ENTITY_SPECS: Record<EntityKind, EntitySpec> = {
       })),
     getArgs: (id) => ["document-view", "get", id],
   },
+  theme: {
+    listArgs: ["theme", "list"],
+    extractItems: (p) =>
+      (p as ThemeListPayload).themes.map((t) => ({
+        id: t.id,
+        label: `${t.namespace}/${t.name}`,
+      })),
+    getArgs: (id) => ["theme", "get", id],
+  },
   "relation-type": {
     listArgs: ["relation-type", "list"],
     extractItems: (p) =>
@@ -211,6 +221,7 @@ const GROUP_ORDER: Array<[EntityKind, string]> = [
   ["blueprint", "Blueprints"],
   ["view", "Views"],
   ["document-view", "Document Views"],
+  ["theme", "Themes"],
   ["relation-type", "Relation Types"],
 ];
 

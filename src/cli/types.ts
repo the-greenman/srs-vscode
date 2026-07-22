@@ -181,6 +181,11 @@ export interface BlueprintListPayload {
   diagnostics: string[];
 }
 
+// theme list  → payload.themes
+export interface ThemeListPayload {
+  themes: Array<{ id: string; name: string; namespace: string; version: number }>;
+}
+
 // blueprint structure  → payload.relationSpecs
 export interface BlueprintStructurePayload {
   relationSpecs: Array<{
@@ -218,4 +223,5 @@ export type EntityKind =
   | "blueprint"
   | "view"
   | "document-view"
+  | "theme"
   | "relation-type";
