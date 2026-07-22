@@ -106,6 +106,30 @@
         "title": "SRS: Delete Relation Type"
       },
       {
+        "command": "srs.createView",
+        "title": "SRS: Create View"
+      },
+      {
+        "command": "srs.updateView",
+        "title": "SRS: Update View"
+      },
+      {
+        "command": "srs.createDocumentView",
+        "title": "SRS: Create Document View"
+      },
+      {
+        "command": "srs.updateDocumentView",
+        "title": "SRS: Update Document View"
+      },
+      {
+        "command": "srs.createTheme",
+        "title": "SRS: Create Theme"
+      },
+      {
+        "command": "srs.updateTheme",
+        "title": "SRS: Update Theme"
+      },
+      {
         "command": "srs.showRelationGraph",
         "title": "SRS: Show Relation Graph",
         "icon": "$(type-hierarchy)"

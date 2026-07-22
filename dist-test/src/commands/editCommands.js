@@ -41,7 +41,7 @@ const EntityEditorPanel_1 = require("../webview/EntityEditorPanel");
 const forms_1 = require("../webview/forms");
 // ---- Registration ----
 function registerEditCommands(context, cli, repoProvider, treeProvider) {
-    context.subscriptions.push(vscode.commands.registerCommand("srs.editEntity", (node) => cmdEditEntity(context, cli, repoProvider, treeProvider, node)), vscode.commands.registerCommand("srs.createRelation", () => cmdCreateRelation(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.createRelationType", () => cmdCreateRelationType(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.updateRelationType", () => cmdUpdateRelationType(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.deleteRelationType", () => cmdDeleteRelationType(cli, repoProvider, treeProvider)));
+    context.subscriptions.push(vscode.commands.registerCommand("srs.editEntity", (node) => cmdEditEntity(context, cli, repoProvider, treeProvider, node)), vscode.commands.registerCommand("srs.createRelation", () => cmdCreateRelation(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.createRelationType", () => cmdCreateRelationType(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.updateRelationType", () => cmdUpdateRelationType(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.deleteRelationType", () => cmdDeleteRelationType(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.createView", () => cmdCreateView(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.updateView", () => cmdUpdateView(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.createDocumentView", () => cmdCreateDocumentView(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.updateDocumentView", () => cmdUpdateDocumentView(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.createTheme", () => cmdCreateTheme(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.updateTheme", () => cmdUpdateTheme(cli, repoProvider, treeProvider)));
 }
 // ---- Dispatch ----
 async function cmdEditEntity(context, cli, repoProvider, treeProvider, node) {
@@ -62,6 +62,15 @@ async function cmdEditEntity(context, cli, repoProvider, treeProvider, node) {
                 break;
             case "record":
                 await editRecord(context, cli, repo.rootPath, node.entityId, treeProvider);
+                break;
+            case "view":
+                await editView(cli, repo.rootPath, node.entityId, treeProvider);
+                break;
+            case "document-view":
+                await editDocumentView(cli, repo.rootPath, node.entityId, treeProvider);
+                break;
+            case "theme":
+                await editTheme(cli, repo.rootPath, node.entityId, treeProvider);
                 break;
             default:
                 vscode.window.showInformationMessage(`SRS: No form editor for '${node.entityKind}'. Open the entity JSON to edit directly.`);
@@ -176,6 +185,198 @@ async function editRecord(context, cli, repoPath, id, treeProvider) {
         });
         treeProvider.refresh();
     });
+}
+// ---- View CRUD ----
+async function cmdCreateView(cli, repoProvider, treeProvider) {
+    const repo = repoProvider.active;
+    if (!repo) {
+        vscode.window.showWarningMessage("SRS: No active repository.");
+        return;
+    }
+    const { randomUUID } = await Promise.resolve().then(() => __importStar(require("crypto")));
+    const scaffold = JSON.stringify({
+        $schema: "https://srs.semanticops.com/schema/2.0/view.json",
+        id: randomUUID(),
+        namespace: "com.example",
+        name: "my-view",
+        version: 1,
+        description: "Description of what this view presents.",
+        fieldViews: [],
+        createdAt: new Date().toISOString(),
+    }, null, 2);
+    const doc = await vscode.workspace.openTextDocument({ content: scaffold, language: "json" });
+    await vscode.window.showTextDocument(doc);
+    const answer = await vscode.window.showInformationMessage("SRS: Edit the view definition above, then click Create.", "Create", "Cancel");
+    if (answer !== "Create")
+        return;
+    try {
+        await cli.runOk(repo.rootPath, ["view", "create"], { stdin: doc.getText() });
+        treeProvider.refresh();
+        vscode.window.showInformationMessage("SRS: View created.");
+    }
+    catch (err) {
+        const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
+        vscode.window.showErrorMessage(`SRS: Failed to create view: ${msg}`);
+    }
+}
+async function cmdUpdateView(cli, repoProvider, treeProvider) {
+    const repo = repoProvider.active;
+    if (!repo) {
+        vscode.window.showWarningMessage("SRS: No active repository.");
+        return;
+    }
+    const picked = await pickView(cli, repo.rootPath);
+    if (!picked)
+        return;
+    await editView(cli, repo.rootPath, picked.id, treeProvider);
+}
+async function editView(cli, repoPath, id, treeProvider) {
+    const payload = await cli.runOk(repoPath, ["view", "get", id]);
+    const doc = await vscode.workspace.openTextDocument({
+        content: JSON.stringify(payload.view, null, 2),
+        language: "json",
+    });
+    await vscode.window.showTextDocument(doc);
+    const answer = await vscode.window.showInformationMessage(`SRS: Edit the view definition above, then click Update.`, "Update", "Cancel");
+    if (answer !== "Update")
+        return;
+    try {
+        await cli.runOk(repoPath, ["view", "update", id], { stdin: doc.getText() });
+        treeProvider.refresh();
+        vscode.window.showInformationMessage("SRS: View updated.");
+    }
+    catch (err) {
+        const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
+        vscode.window.showErrorMessage(`SRS: Failed to update view: ${msg}`);
+    }
+}
+// ---- Document View CRUD ----
+async function cmdCreateDocumentView(cli, repoProvider, treeProvider) {
+    const repo = repoProvider.active;
+    if (!repo) {
+        vscode.window.showWarningMessage("SRS: No active repository.");
+        return;
+    }
+    const { randomUUID } = await Promise.resolve().then(() => __importStar(require("crypto")));
+    const scaffold = JSON.stringify({
+        $schema: "https://srs.semanticops.com/schema/2.0/document-view.json",
+        id: randomUUID(),
+        namespace: "com.example",
+        name: "my-document-view",
+        version: 1,
+        description: "Description of what document this produces.",
+        sections: [],
+        createdAt: new Date().toISOString(),
+    }, null, 2);
+    const doc = await vscode.workspace.openTextDocument({ content: scaffold, language: "json" });
+    await vscode.window.showTextDocument(doc);
+    const answer = await vscode.window.showInformationMessage("SRS: Edit the document view definition above, then click Create.", "Create", "Cancel");
+    if (answer !== "Create")
+        return;
+    try {
+        await cli.runOk(repo.rootPath, ["document-view", "create"], { stdin: doc.getText() });
+        treeProvider.refresh();
+        vscode.window.showInformationMessage("SRS: Document view created.");
+    }
+    catch (err) {
+        const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
+        vscode.window.showErrorMessage(`SRS: Failed to create document view: ${msg}`);
+    }
+}
+async function cmdUpdateDocumentView(cli, repoProvider, treeProvider) {
+    const repo = repoProvider.active;
+    if (!repo) {
+        vscode.window.showWarningMessage("SRS: No active repository.");
+        return;
+    }
+    const picked = await pickDocumentView(cli, repo.rootPath);
+    if (!picked)
+        return;
+    await editDocumentView(cli, repo.rootPath, picked.id, treeProvider);
+}
+async function editDocumentView(cli, repoPath, id, treeProvider) {
+    const payload = await cli.runOk(repoPath, ["document-view", "get", id]);
+    const doc = await vscode.workspace.openTextDocument({
+        content: JSON.stringify(payload.documentView, null, 2),
+        language: "json",
+    });
+    await vscode.window.showTextDocument(doc);
+    const answer = await vscode.window.showInformationMessage(`SRS: Edit the document view definition above, then click Update.`, "Update", "Cancel");
+    if (answer !== "Update")
+        return;
+    try {
+        await cli.runOk(repoPath, ["document-view", "update", id], { stdin: doc.getText() });
+        treeProvider.refresh();
+        vscode.window.showInformationMessage("SRS: Document view updated.");
+    }
+    catch (err) {
+        const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
+        vscode.window.showErrorMessage(`SRS: Failed to update document view: ${msg}`);
+    }
+}
+// ---- Theme CRUD ----
+async function cmdCreateTheme(cli, repoProvider, treeProvider) {
+    const repo = repoProvider.active;
+    if (!repo) {
+        vscode.window.showWarningMessage("SRS: No active repository.");
+        return;
+    }
+    const { randomUUID } = await Promise.resolve().then(() => __importStar(require("crypto")));
+    const scaffold = JSON.stringify({
+        $schema: "https://srs.semanticops.com/schema/2.0/theme.json",
+        id: randomUUID(),
+        namespace: "com.example",
+        name: "my-theme",
+        version: 1,
+        description: "Description of this theme and its intended output format.",
+        targets: ["html"],
+        createdAt: new Date().toISOString(),
+    }, null, 2);
+    const doc = await vscode.workspace.openTextDocument({ content: scaffold, language: "json" });
+    await vscode.window.showTextDocument(doc);
+    const answer = await vscode.window.showInformationMessage("SRS: Edit the theme definition above, then click Create.", "Create", "Cancel");
+    if (answer !== "Create")
+        return;
+    try {
+        await cli.runOk(repo.rootPath, ["theme", "create"], { stdin: doc.getText() });
+        treeProvider.refresh();
+        vscode.window.showInformationMessage("SRS: Theme created.");
+    }
+    catch (err) {
+        const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
+        vscode.window.showErrorMessage(`SRS: Failed to create theme: ${msg}`);
+    }
+}
+async function cmdUpdateTheme(cli, repoProvider, treeProvider) {
+    const repo = repoProvider.active;
+    if (!repo) {
+        vscode.window.showWarningMessage("SRS: No active repository.");
+        return;
+    }
+    const picked = await pickTheme(cli, repo.rootPath);
+    if (!picked)
+        return;
+    await editTheme(cli, repo.rootPath, picked.id, treeProvider);
+}
+async function editTheme(cli, repoPath, id, treeProvider) {
+    const payload = await cli.runOk(repoPath, ["theme", "get", id]);
+    const doc = await vscode.workspace.openTextDocument({
+        content: JSON.stringify(payload.theme, null, 2),
+        language: "json",
+    });
+    await vscode.window.showTextDocument(doc);
+    const answer = await vscode.window.showInformationMessage(`SRS: Edit the theme definition above, then click Update.`, "Update", "Cancel");
+    if (answer !== "Update")
+        return;
+    try {
+        await cli.runOk(repoPath, ["theme", "update", id], { stdin: doc.getText() });
+        treeProvider.refresh();
+        vscode.window.showInformationMessage("SRS: Theme updated.");
+    }
+    catch (err) {
+        const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
+        vscode.window.showErrorMessage(`SRS: Failed to update theme: ${msg}`);
+    }
 }
 // ---- Relation creator ----
 async function cmdCreateRelation(cli, repoProvider, treeProvider) {
@@ -366,6 +567,72 @@ async function pickRelationType(cli, repoPath) {
         relationType: rt.relationType,
     }));
     return vscode.window.showQuickPick(items, { placeHolder: "Select relation type" });
+}
+async function pickView(cli, repoPath) {
+    let views = [];
+    try {
+        const payload = await cli.runOk(repoPath, ["view", "list"]);
+        views = payload.views;
+    }
+    catch (err) {
+        const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
+        vscode.window.showErrorMessage(`SRS: Could not load views: ${msg}`);
+        return undefined;
+    }
+    if (views.length === 0) {
+        vscode.window.showWarningMessage("SRS: No view definitions found in this repository.");
+        return undefined;
+    }
+    const items = views.map((v) => ({
+        label: `${v.namespace}/${v.name}`,
+        description: v.id,
+        id: v.id,
+    }));
+    return vscode.window.showQuickPick(items, { placeHolder: "Select view" });
+}
+async function pickDocumentView(cli, repoPath) {
+    let views = [];
+    try {
+        const payload = await cli.runOk(repoPath, ["document-view", "list"]);
+        views = payload.documentViews;
+    }
+    catch (err) {
+        const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
+        vscode.window.showErrorMessage(`SRS: Could not load document views: ${msg}`);
+        return undefined;
+    }
+    if (views.length === 0) {
+        vscode.window.showWarningMessage("SRS: No document view definitions found in this repository.");
+        return undefined;
+    }
+    const items = views.map((v) => ({
+        label: `${v.namespace}/${v.name}`,
+        description: `v${v.version}`,
+        id: v.id,
+    }));
+    return vscode.window.showQuickPick(items, { placeHolder: "Select document view" });
+}
+async function pickTheme(cli, repoPath) {
+    let themes = [];
+    try {
+        const payload = await cli.runOk(repoPath, ["theme", "list"]);
+        themes = payload.themes;
+    }
+    catch (err) {
+        const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
+        vscode.window.showErrorMessage(`SRS: Could not load themes: ${msg}`);
+        return undefined;
+    }
+    if (themes.length === 0) {
+        vscode.window.showWarningMessage("SRS: No theme definitions found in this repository.");
+        return undefined;
+    }
+    const items = themes.map((t) => ({
+        label: `${t.namespace}/${t.name}`,
+        description: `v${t.version}`,
+        id: t.id,
+    }));
+    return vscode.window.showQuickPick(items, { placeHolder: "Select theme" });
 }
 async function buildInstanceItems(cli, repoPath) {
     const items = [];

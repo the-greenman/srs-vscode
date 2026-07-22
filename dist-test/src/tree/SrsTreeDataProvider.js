@@ -169,6 +169,14 @@ const ENTITY_SPECS = {
         })),
         getArgs: (id) => ["document-view", "get", id],
     },
+    theme: {
+        listArgs: ["theme", "list"],
+        extractItems: (p) => p.themes.map((t) => ({
+            id: t.id,
+            label: `${t.namespace}/${t.name}`,
+        })),
+        getArgs: (id) => ["theme", "get", id],
+    },
     "relation-type": {
         listArgs: ["relation-type", "list"],
         extractItems: (p) => p.relationTypeDefinitions.map((rt) => ({
@@ -192,6 +200,7 @@ const GROUP_ORDER = [
     ["blueprint", "Blueprints"],
     ["view", "Views"],
     ["document-view", "Document Views"],
+    ["theme", "Themes"],
     ["relation-type", "Relation Types"],
 ];
 // ---- Provider ----
