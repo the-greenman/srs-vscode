@@ -2733,32 +2733,7 @@ async function cmdCreateRelation(cli, repoProvider, treeProvider) {
     vscode14.window.showWarningMessage("SRS: No active repository.");
     return;
   }
-  let relationTypes = [];
-  try {
-    const payload = await cli.runOk(repo.rootPath, [
-      "relation-type",
-      "list"
-    ]);
-    relationTypes = payload.relationTypeDefinitions;
-  } catch {
-  }
-  const CANONICAL_TYPES = [
-    "contains",
-    "depends-on",
-    "supersedes",
-    "refines",
-    "derived-from",
-    "evidences",
-    "precedes"
-  ];
-  const typeItems = relationTypes.length > 0 ? relationTypes.map((rt) => ({
-    label: rt.label,
-    description: rt.relationType,
-    value: rt.relationType
-  })) : CANONICAL_TYPES.map((t) => ({ label: t, description: "", value: t }));
-  const pickedType = await vscode14.window.showQuickPick(typeItems, {
-    placeHolder: "Select relation type"
-  });
+  const pickedType = await pickRelationType(cli, repo.rootPath);
   if (!pickedType)
     return;
   const instanceItems = await buildInstanceItems(cli, repo.rootPath);
@@ -2783,7 +2758,7 @@ async function cmdCreateRelation(cli, repoProvider, treeProvider) {
   const { randomUUID } = await import("crypto");
   const relationJson = JSON.stringify({
     relationId: randomUUID(),
-    relationType: pickedType.value,
+    relationType: pickedType.relationType,
     sourceInstanceId: source.id,
     targetInstanceId: target.id,
     createdAt: (/* @__PURE__ */ new Date()).toISOString()
@@ -2794,7 +2769,7 @@ async function cmdCreateRelation(cli, repoProvider, treeProvider) {
     });
     treeProvider.refresh();
     vscode14.window.showInformationMessage(
-      `SRS: Relation '${pickedType.value}' created.`
+      `SRS: Relation '${pickedType.relationType}' created.`
     );
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
