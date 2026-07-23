@@ -197,6 +197,45 @@ export interface BlueprintStructurePayload {
   }>;
 }
 
+// container resolve-view  → payload.containerView  (RFC-020, ADR-023)
+export interface ContainerResolveViewPayload {
+  containerView: {
+    containerId: string;
+    documentViewId?: string;
+    root?: ContainerResolvedMember;
+    members: ContainerResolvedMember[];
+    columns: ContainerColumnSpec[];
+    excludeLifecycleStates: string[];
+    diagnostics: string[];
+  };
+}
+
+export interface ContainerColumnSpec {
+  fieldId: string;
+  fieldName: string;
+  displayLabel: string;
+  order: number;
+  required: boolean;
+  /** True when this column is the Type's effective identityFieldId (RFC-020, ADR-023). */
+  isIdentityColumn: boolean;
+}
+
+export interface ContainerResolvedMember {
+  instanceId: string;
+  /** 0 = Note, 1 = TypedRecord, 2 = Record */
+  tier: number;
+  displayLabel: string;
+  isVisibleByDefault: boolean;
+  record?: {
+    typeId: string;
+    typeVersion: number;
+    typeName: string;
+    typeNamespace: string;
+    instanceId: string;
+    fieldValues: Array<{ fieldId: string; value: unknown; entries?: Array<{ value: unknown }> }>;
+  };
+}
+
 // archive pack  → payload
 export interface ArchivePackPayload {
   outputPath: string;
