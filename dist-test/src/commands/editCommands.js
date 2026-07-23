@@ -386,31 +386,7 @@ async function cmdCreateRelation(cli, repoProvider, treeProvider) {
         return;
     }
     // 1. Pick relation type
-    let relationTypes = [];
-    try {
-        const payload = await cli.runOk(repo.rootPath, [
-            "relation-type",
-            "list",
-        ]);
-        relationTypes = payload.relationTypeDefinitions;
-    }
-    catch {
-        // Fall back to canonical built-ins if relation-type list is unavailable
-    }
-    const CANONICAL_TYPES = [
-        "contains", "depends-on", "supersedes", "refines",
-        "derived-from", "evidences", "precedes",
-    ];
-    const typeItems = relationTypes.length > 0
-        ? relationTypes.map((rt) => ({
-            label: rt.label,
-            description: rt.relationType,
-            value: rt.relationType,
-        }))
-        : CANONICAL_TYPES.map((t) => ({ label: t, description: "", value: t }));
-    const pickedType = await vscode.window.showQuickPick(typeItems, {
-        placeHolder: "Select relation type",
-    });
+    const pickedType = await pickRelationType(cli, repo.rootPath);
     if (!pickedType)
         return;
     // 2. Build instance list for source/target pickers
@@ -432,7 +408,7 @@ async function cmdCreateRelation(cli, repoProvider, treeProvider) {
     const { randomUUID } = await Promise.resolve().then(() => __importStar(require("crypto")));
     const relationJson = JSON.stringify({
         relationId: randomUUID(),
-        relationType: pickedType.value,
+        relationType: pickedType.relationType,
         sourceInstanceId: source.id,
         targetInstanceId: target.id,
         createdAt: new Date().toISOString(),
@@ -442,7 +418,7 @@ async function cmdCreateRelation(cli, repoProvider, treeProvider) {
             stdin: relationJson,
         });
         treeProvider.refresh();
-        vscode.window.showInformationMessage(`SRS: Relation '${pickedType.value}' created.`);
+        vscode.window.showInformationMessage(`SRS: Relation '${pickedType.relationType}' created.`);
     }
     catch (err) {
         const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
