@@ -362,33 +362,114 @@ async function previewRecord(context, cli, repoPath, id) {
 }
 // ---- Container preview ----
 async function previewContainer(context, cli, repoPath, id) {
-    // Get container details from container list (no container get payload shape with title)
-    const listPayload = await cli.runOk(repoPath, ["container", "list"]);
-    const container = listPayload.containers.find((c) => c.containerId === id);
-    const title = container?.title ?? id.slice(0, 8);
-    let members = [];
+    // Use container resolve-view for structured column output (RFC-020, ADR-023).
+    // Falls back to a flat member list when resolve-view is unavailable.
+    let resolvedView;
     try {
-        const membersPayload = await cli.runOk(repoPath, [
+        const viewPayload = await cli.runOk(repoPath, [
             "container",
-            "members",
-            "list",
+            "resolve-view",
             id,
         ]);
-        members = membersPayload.members;
+        resolvedView = viewPayload.containerView;
     }
     catch {
-        // members list unsupported or empty — show empty state
+        // Older CLI or unavailable — fall through to flat list below.
     }
-    const rows = members
-        .map((m) => `<div class="member-row">${(0, PreviewPanel_1.esc)(m.title ?? m.instanceId)}</div>`)
-        .join("");
+    // Title from the root member's displayLabel, or fallback to id.
+    const title = resolvedView?.root?.displayLabel ?? resolvedView?.members[0]?.displayLabel ?? id.slice(0, 8);
+    const members = resolvedView?.members ?? [];
+    const columns = resolvedView?.columns ?? [];
+    let bodyHtml;
+    if (columns.length > 0) {
+        // Structured table view with DocumentView columns.
+        // The identity column (isIdentityColumn=true) is rendered as a bold title link.
+        const headerCells = columns
+            .map((col) => {
+            const cls = col.isIdentityColumn ? " class=\"col-identity\"" : "";
+            return `<th${cls}>${(0, PreviewPanel_1.esc)(col.displayLabel)}</th>`;
+        })
+            .join("");
+        const rowsHtml = members.length === 0
+            ? `<tr><td colspan="${columns.length}" class="empty">No members.</td></tr>`
+            : members.map((m) => {
+                const hidden = !m.isVisibleByDefault ? " class=\"member-hidden\"" : "";
+                const cells = columns.map((col) => {
+                    let cellContent;
+                    if (col.isIdentityColumn) {
+                        // Identity column: render as a clickable link to the entity.
+                        const label = m.tier === 2 && m.record
+                            ? m.record.fieldValues.find((fv) => fv.fieldId === col.fieldId)?.value ?? m.displayLabel
+                            : m.displayLabel;
+                        cellContent = `<a class="identity-link" href="#" data-id="${(0, PreviewPanel_1.esc)(m.instanceId)}" data-kind="${m.tier === 0 ? "note" : "record"}">${(0, PreviewPanel_1.esc)(label)}</a>`;
+                    }
+                    else if (m.tier === 2 && m.record) {
+                        const fv = m.record.fieldValues.find((f) => f.fieldId === col.fieldId);
+                        cellContent = fv !== undefined ? (0, PreviewPanel_1.esc)(String(fv.value ?? "")) : "";
+                    }
+                    else {
+                        cellContent = "";
+                    }
+                    const cellCls = col.isIdentityColumn ? " class=\"col-identity\"" : "";
+                    return `<td${cellCls}>${cellContent}</td>`;
+                }).join("");
+                return `<tr${hidden}>${cells}</tr>`;
+            }).join("");
+        const hiddenCount = members.filter((m) => !m.isVisibleByDefault).length;
+        const hiddenNote = hiddenCount > 0
+            ? `<p class="hidden-note">${hiddenCount} member${hiddenCount === 1 ? "" : "s"} hidden by lifecycle state.</p>`
+            : "";
+        bodyHtml = `
+      <table class="container-table">
+        <thead><tr>${headerCells}</tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+      ${hiddenNote}
+      <script>
+        const vscode = acquireVsCodeApi();
+        document.querySelectorAll('.identity-link').forEach(function(el) {
+          el.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            vscode.postMessage({ type: 'openEntity', id: el.dataset.id, kind: el.dataset.kind });
+          });
+        });
+      </script>
+    `;
+    }
+    else {
+        // Flat list fallback: no DocumentView columns resolved.
+        const rows = members
+            .map((m) => `<div class="member-row">${(0, PreviewPanel_1.esc)(m.displayLabel)}</div>`)
+            .join("");
+        bodyHtml = rows || '<p class="empty">No members.</p>';
+    }
+    const memberCount = members.length;
     const html = (0, PreviewPanel_1.wrapHtml)(title, `
     <h1>${(0, PreviewPanel_1.esc)(title)}</h1>
-    <div class="meta">${container?.containerType ? `Type: ${(0, PreviewPanel_1.esc)(container.containerType)} &nbsp;·&nbsp; ` : ""}${members.length} members</div>
+    <div class="meta">${memberCount} member${memberCount === 1 ? "" : "s"}</div>
     <h2>Members</h2>
-    ${rows || '<p class="empty">No members.</p>'}
-  `);
-    PreviewPanel_1.PreviewPanel.show(context, `container:${id}`, title, html);
+    ${bodyHtml}
+    <style>
+      .container-table { width: 100%; border-collapse: collapse; margin-top: 0.5em; }
+      .container-table th, .container-table td { padding: 0.35em 0.6em; border: 1px solid var(--vscode-panel-border, #555); text-align: left; }
+      .container-table th { background: var(--vscode-editor-selectionBackground, #264f78); font-weight: 600; }
+      .container-table th.col-identity { font-weight: 700; }
+      .container-table td.col-identity { font-weight: 600; }
+      .identity-link { color: var(--vscode-textLink-foreground, #3794ff); text-decoration: none; }
+      .identity-link:hover { text-decoration: underline; }
+      .member-hidden { opacity: 0.45; }
+      .hidden-note { font-size: 0.85em; color: var(--vscode-descriptionForeground, #888); margin-top: 0.5em; }
+    </style>
+  `, { enableScripts: columns.length > 0 });
+    PreviewPanel_1.PreviewPanel.show(context, `container:${id}`, title, html, columns.length > 0 ? {
+        enableScripts: true,
+        onMessage: (msg) => {
+            const m = msg;
+            if (m.type === "openEntity" && m.id && m.kind) {
+                vscode.commands.executeCommand("srs.openEntityById", m.id, m.kind, repoPath);
+            }
+        },
+    } : undefined);
 }
 async function previewProtocol(context, cli, repoPath, id) {
     const [getResult, stagesResult] = await Promise.allSettled([
