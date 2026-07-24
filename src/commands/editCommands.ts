@@ -3,7 +3,7 @@ import { CliClient, CliError } from "../cli/CliClient";
 import { RepositoryProvider } from "../repository/RepositoryProvider";
 import { SrsTreeDataProvider, EntityNode } from "../tree/SrsTreeDataProvider";
 import { EntityEditorPanel } from "../webview/EntityEditorPanel";
-import { formWrapHtml, buildNoteForm, buildTagForm, buildRecordForm } from "../webview/forms";
+import { formWrapHtml, buildNoteForm, buildRecordForm } from "../webview/forms";
 import type {
   RelationTypeListPayload,
   ViewListPayload,
@@ -22,15 +22,6 @@ interface NotePayload {
     tags?: string[];
     createdAt?: string;
     sections?: Array<{ name: string; label?: string; content: string; tags?: string[] }>;
-  };
-}
-
-interface TagPayload {
-  tagDefinition: {
-    instanceId: string;
-    slug: string;
-    label?: string;
-    createdAt?: string;
   };
 }
 
@@ -143,9 +134,6 @@ async function cmdEditEntity(
       case "note":
         await editNote(context, cli, repo.rootPath, node.entityId, treeProvider);
         break;
-      case "tag":
-        await editTag(context, cli, repo.rootPath, node.entityId, treeProvider);
-        break;
       case "record":
         await editRecord(context, cli, repo.rootPath, node.entityId, treeProvider);
         break;
@@ -212,54 +200,6 @@ async function editNote(
     }
 
     await cli.runOk<unknown>(repoPath, ["note", "update", id], {
-      stdin: JSON.stringify(d),
-    });
-
-    treeProvider.refresh();
-  });
-}
-
-// ---- Tag editor ----
-
-async function editTag(
-  context: vscode.ExtensionContext,
-  cli: CliClient,
-  repoPath: string,
-  id: string,
-  treeProvider: SrsTreeDataProvider,
-): Promise<void> {
-  const payload = await cli.runOk<TagPayload>(repoPath, ["tag", "get", id]);
-  const tag = payload.tagDefinition;
-
-  const tagData = {
-    instanceId: tag.instanceId,
-    slug: tag.slug,
-    label: tag.label,
-    createdAt: tag.createdAt,
-  };
-
-  const html = formWrapHtml(`Edit Tag: ${tag.slug}`, buildTagForm(tagData));
-
-  EntityEditorPanel.show(context, `tag:${id}`, `Edit Tag: ${tag.slug}`, html, async (data) => {
-    const d = data as {
-      instanceId: string;
-      slug: string;
-      label?: string;
-      createdAt?: string;
-    };
-
-    // Concurrent-change guard
-    const refetch = await cli.runOk<TagPayload>(repoPath, ["tag", "get", id]);
-    if (refetch.tagDefinition.slug !== tag.slug) {
-      const proceed = await vscode.window.showWarningMessage(
-        `SRS: Tag was modified since you opened it. Overwrite?`,
-        { modal: true },
-        "Overwrite",
-      );
-      if (proceed !== "Overwrite") return;
-    }
-
-    await cli.runOk<unknown>(repoPath, ["tag", "update", id], {
       stdin: JSON.stringify(d),
     });
 

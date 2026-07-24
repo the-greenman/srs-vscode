@@ -18,13 +18,6 @@ export interface NoteData {
   sections?: NoteSection[];
 }
 
-export interface TagData {
-  instanceId: string;
-  slug: string;
-  label?: string;
-  createdAt?: string;
-}
-
 export interface RecordData {
   instanceId: string;
   typeId: string;
@@ -358,37 +351,6 @@ export function buildNoteForm(note: NoteData): string {
     </div>
     <input type="hidden" name="instanceId" value="${escAttr(note.instanceId)}">
     <input type="hidden" name="createdAt" value="${escAttr(note.createdAt ?? "")}">
-    ${collectJs}`;
-}
-
-// ---- Tag form ----
-
-export function buildTagForm(tag: TagData): string {
-  const collectJs = `
-  <script>
-    function collectFormData() {
-      const form = document.getElementById('editor-form');
-      const slug = form.querySelector('[name="slug"]').value.trim();
-      const labelRaw = form.querySelector('[name="label"]').value.trim();
-      const instanceId = form.querySelector('[name="instanceId"]').value;
-      const createdAt = form.querySelector('[name="createdAt"]').value || undefined;
-      return { instanceId, slug, label: labelRaw || undefined, createdAt };
-    }
-  </script>`;
-
-  return `
-    <div class="field">
-      <label>Slug <span class="required-mark">*</span></label>
-      <input type="text" name="slug" value="${escAttr(tag.slug)}" required
-             pattern="[a-z0-9]+(-[a-z0-9]+)*" autofocus>
-      <div class="hint">Kebab-case, e.g. needs-review</div>
-    </div>
-    <div class="field">
-      <label>Display Label</label>
-      <input type="text" name="label" value="${escAttr(tag.label ?? "")}">
-    </div>
-    <input type="hidden" name="instanceId" value="${escAttr(tag.instanceId)}">
-    <input type="hidden" name="createdAt" value="${escAttr(tag.createdAt ?? "")}">
     ${collectJs}`;
 }
 

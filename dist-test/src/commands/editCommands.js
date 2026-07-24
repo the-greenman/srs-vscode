@@ -57,9 +57,6 @@ async function cmdEditEntity(context, cli, repoProvider, treeProvider, node) {
             case "note":
                 await editNote(context, cli, repo.rootPath, node.entityId, treeProvider);
                 break;
-            case "tag":
-                await editTag(context, cli, repo.rootPath, node.entityId, treeProvider);
-                break;
             case "record":
                 await editRecord(context, cli, repo.rootPath, node.entityId, treeProvider);
                 break;
@@ -103,32 +100,6 @@ async function editNote(context, cli, repoPath, id, treeProvider) {
                 return;
         }
         await cli.runOk(repoPath, ["note", "update", id], {
-            stdin: JSON.stringify(d),
-        });
-        treeProvider.refresh();
-    });
-}
-// ---- Tag editor ----
-async function editTag(context, cli, repoPath, id, treeProvider) {
-    const payload = await cli.runOk(repoPath, ["tag", "get", id]);
-    const tag = payload.tagDefinition;
-    const tagData = {
-        instanceId: tag.instanceId,
-        slug: tag.slug,
-        label: tag.label,
-        createdAt: tag.createdAt,
-    };
-    const html = (0, forms_1.formWrapHtml)(`Edit Tag: ${tag.slug}`, (0, forms_1.buildTagForm)(tagData));
-    EntityEditorPanel_1.EntityEditorPanel.show(context, `tag:${id}`, `Edit Tag: ${tag.slug}`, html, async (data) => {
-        const d = data;
-        // Concurrent-change guard
-        const refetch = await cli.runOk(repoPath, ["tag", "get", id]);
-        if (refetch.tagDefinition.slug !== tag.slug) {
-            const proceed = await vscode.window.showWarningMessage(`SRS: Tag was modified since you opened it. Overwrite?`, { modal: true }, "Overwrite");
-            if (proceed !== "Overwrite")
-                return;
-        }
-        await cli.runOk(repoPath, ["tag", "update", id], {
             stdin: JSON.stringify(d),
         });
         treeProvider.refresh();

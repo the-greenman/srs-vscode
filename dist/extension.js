@@ -1694,28 +1694,92 @@ async function previewRecord(context, cli, repoPath, id) {
   });
 }
 async function previewContainer(context, cli, repoPath, id) {
-  const listPayload = await cli.runOk(repoPath, ["container", "list"]);
-  const container = listPayload.containers.find((c) => c.containerId === id);
-  const title = container?.title ?? id.slice(0, 8);
-  let members = [];
+  let resolvedView;
   try {
-    const membersPayload = await cli.runOk(repoPath, [
+    const viewPayload = await cli.runOk(repoPath, [
       "container",
-      "members",
-      "list",
+      "resolve-view",
       id
     ]);
-    members = membersPayload.members;
+    resolvedView = viewPayload.containerView;
   } catch {
   }
-  const rows = members.map((m) => `<div class="member-row">${esc(m.title ?? m.instanceId)}</div>`).join("");
+  const title = resolvedView?.root?.displayLabel ?? resolvedView?.members[0]?.displayLabel ?? id.slice(0, 8);
+  const members = resolvedView?.members ?? [];
+  const columns = resolvedView?.columns ?? [];
+  let bodyHtml;
+  if (columns.length > 0) {
+    const headerCells = columns.map((col) => {
+      const cls = col.isIdentityColumn ? ' class="col-identity"' : "";
+      return `<th${cls}>${esc(col.displayLabel)}</th>`;
+    }).join("");
+    const rowsHtml = members.length === 0 ? `<tr><td colspan="${columns.length}" class="empty">No members.</td></tr>` : members.map((m) => {
+      const hidden = !m.isVisibleByDefault ? ' class="member-hidden"' : "";
+      const cells = columns.map((col) => {
+        let cellContent;
+        if (col.isIdentityColumn) {
+          const label = m.tier === 2 && m.record ? m.record.fieldValues.find((fv2) => fv2.fieldId === col.fieldId)?.value ?? m.displayLabel : m.displayLabel;
+          cellContent = `<a class="identity-link" href="#" data-id="${esc(m.instanceId)}" data-kind="${m.tier === 0 ? "note" : "record"}">${esc(label)}</a>`;
+        } else if (m.tier === 2 && m.record) {
+          const fv2 = m.record.fieldValues.find((f) => f.fieldId === col.fieldId);
+          cellContent = fv2 !== void 0 ? esc(String(fv2.value ?? "")) : "";
+        } else {
+          cellContent = "";
+        }
+        const cellCls = col.isIdentityColumn ? ' class="col-identity"' : "";
+        return `<td${cellCls}>${cellContent}</td>`;
+      }).join("");
+      return `<tr${hidden}>${cells}</tr>`;
+    }).join("");
+    const hiddenCount = members.filter((m) => !m.isVisibleByDefault).length;
+    const hiddenNote = hiddenCount > 0 ? `<p class="hidden-note">${hiddenCount} member${hiddenCount === 1 ? "" : "s"} hidden by lifecycle state.</p>` : "";
+    bodyHtml = `
+      <table class="container-table">
+        <thead><tr>${headerCells}</tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+      ${hiddenNote}
+      <script>
+        const vscode = acquireVsCodeApi();
+        document.querySelectorAll('.identity-link').forEach(function(el) {
+          el.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            vscode.postMessage({ type: 'openEntity', id: el.dataset.id, kind: el.dataset.kind });
+          });
+        });
+      </script>
+    `;
+  } else {
+    const rows = members.map((m) => `<div class="member-row">${esc(m.displayLabel)}</div>`).join("");
+    bodyHtml = rows || '<p class="empty">No members.</p>';
+  }
+  const memberCount = members.length;
   const html = wrapHtml(title, `
     <h1>${esc(title)}</h1>
-    <div class="meta">${container?.containerType ? `Type: ${esc(container.containerType)} &nbsp;\xB7&nbsp; ` : ""}${members.length} members</div>
+    <div class="meta">${memberCount} member${memberCount === 1 ? "" : "s"}</div>
     <h2>Members</h2>
-    ${rows || '<p class="empty">No members.</p>'}
-  `);
-  PreviewPanel.show(context, `container:${id}`, title, html);
+    ${bodyHtml}
+    <style>
+      .container-table { width: 100%; border-collapse: collapse; margin-top: 0.5em; }
+      .container-table th, .container-table td { padding: 0.35em 0.6em; border: 1px solid var(--vscode-panel-border, #555); text-align: left; }
+      .container-table th { background: var(--vscode-editor-selectionBackground, #264f78); font-weight: 600; }
+      .container-table th.col-identity { font-weight: 700; }
+      .container-table td.col-identity { font-weight: 600; }
+      .identity-link { color: var(--vscode-textLink-foreground, #3794ff); text-decoration: none; }
+      .identity-link:hover { text-decoration: underline; }
+      .member-hidden { opacity: 0.45; }
+      .hidden-note { font-size: 0.85em; color: var(--vscode-descriptionForeground, #888); margin-top: 0.5em; }
+    </style>
+  `, { enableScripts: columns.length > 0 });
+  PreviewPanel.show(context, `container:${id}`, title, html, columns.length > 0 ? {
+    enableScripts: true,
+    onMessage: (msg) => {
+      const m = msg;
+      if (m.type === "openEntity" && m.id && m.kind) {
+        vscode12.commands.executeCommand("srs.openEntityById", m.id, m.kind, repoPath);
+      }
+    }
+  } : void 0);
 }
 async function previewProtocol(context, cli, repoPath, id) {
   const [getResult, stagesResult] = await Promise.allSettled([
@@ -2179,33 +2243,6 @@ function buildNoteForm(note) {
     <input type="hidden" name="createdAt" value="${escAttr(note.createdAt ?? "")}">
     ${collectJs}`;
 }
-function buildTagForm(tag) {
-  const collectJs = `
-  <script>
-    function collectFormData() {
-      const form = document.getElementById('editor-form');
-      const slug = form.querySelector('[name="slug"]').value.trim();
-      const labelRaw = form.querySelector('[name="label"]').value.trim();
-      const instanceId = form.querySelector('[name="instanceId"]').value;
-      const createdAt = form.querySelector('[name="createdAt"]').value || undefined;
-      return { instanceId, slug, label: labelRaw || undefined, createdAt };
-    }
-  </script>`;
-  return `
-    <div class="field">
-      <label>Slug <span class="required-mark">*</span></label>
-      <input type="text" name="slug" value="${escAttr(tag.slug)}" required
-             pattern="[a-z0-9]+(-[a-z0-9]+)*" autofocus>
-      <div class="hint">Kebab-case, e.g. needs-review</div>
-    </div>
-    <div class="field">
-      <label>Display Label</label>
-      <input type="text" name="label" value="${escAttr(tag.label ?? "")}">
-    </div>
-    <input type="hidden" name="instanceId" value="${escAttr(tag.instanceId)}">
-    <input type="hidden" name="createdAt" value="${escAttr(tag.createdAt ?? "")}">
-    ${collectJs}`;
-}
 function buildRecordForm(record, fields) {
   const sorted = [...fields].sort((a, b) => a.order - b.order);
   const currentScalar = /* @__PURE__ */ new Map();
@@ -2372,9 +2409,6 @@ async function cmdEditEntity(context, cli, repoProvider, treeProvider, node) {
       case "note":
         await editNote(context, cli, repo.rootPath, node.entityId, treeProvider);
         break;
-      case "tag":
-        await editTag(context, cli, repo.rootPath, node.entityId, treeProvider);
-        break;
       case "record":
         await editRecord(context, cli, repo.rootPath, node.entityId, treeProvider);
         break;
@@ -2421,34 +2455,6 @@ async function editNote(context, cli, repoPath, id, treeProvider) {
         return;
     }
     await cli.runOk(repoPath, ["note", "update", id], {
-      stdin: JSON.stringify(d)
-    });
-    treeProvider.refresh();
-  });
-}
-async function editTag(context, cli, repoPath, id, treeProvider) {
-  const payload = await cli.runOk(repoPath, ["tag", "get", id]);
-  const tag = payload.tagDefinition;
-  const tagData = {
-    instanceId: tag.instanceId,
-    slug: tag.slug,
-    label: tag.label,
-    createdAt: tag.createdAt
-  };
-  const html = formWrapHtml(`Edit Tag: ${tag.slug}`, buildTagForm(tagData));
-  EntityEditorPanel.show(context, `tag:${id}`, `Edit Tag: ${tag.slug}`, html, async (data) => {
-    const d = data;
-    const refetch = await cli.runOk(repoPath, ["tag", "get", id]);
-    if (refetch.tagDefinition.slug !== tag.slug) {
-      const proceed = await vscode14.window.showWarningMessage(
-        `SRS: Tag was modified since you opened it. Overwrite?`,
-        { modal: true },
-        "Overwrite"
-      );
-      if (proceed !== "Overwrite")
-        return;
-    }
-    await cli.runOk(repoPath, ["tag", "update", id], {
       stdin: JSON.stringify(d)
     });
     treeProvider.refresh();
@@ -3139,10 +3145,6 @@ function registerMutationCommands(context, cli, repoProvider, attention, treePro
       () => cmdCreateNote(cli, repoProvider, attention, treeProvider)
     ),
     vscode16.commands.registerCommand(
-      "srs.createTag",
-      () => cmdCreateTag(cli, repoProvider, treeProvider)
-    ),
-    vscode16.commands.registerCommand(
       "srs.createRecord",
       () => cmdCreateRecord(cli, repoProvider, attention, treeProvider)
     ),
@@ -3198,43 +3200,6 @@ async function cmdCreateNote(cli, repoProvider, attention, treeProvider) {
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
     vscode16.window.showErrorMessage(`SRS: Failed to create note: ${msg}`);
-  }
-}
-async function cmdCreateTag(cli, repoProvider, treeProvider) {
-  const repo = requireActiveRepo(repoProvider);
-  if (!repo)
-    return;
-  const slug = await vscode16.window.showInputBox({
-    title: "SRS: Create Tag",
-    prompt: "Tag slug (kebab-case identifier)",
-    placeHolder: "e.g. needs-review",
-    validateInput: (v) => /^[a-z0-9]+(-[a-z0-9]+)*$/.test(v.trim()) ? void 0 : "Slug must be kebab-case (e.g. my-tag)"
-  });
-  if (!slug)
-    return;
-  const label = await vscode16.window.showInputBox({
-    title: "SRS: Create Tag",
-    prompt: "Display label (optional)",
-    placeHolder: "e.g. Needs Review"
-  });
-  const { randomUUID } = await import("crypto");
-  const instanceId = randomUUID();
-  const now = (/* @__PURE__ */ new Date()).toISOString();
-  const tagJson = JSON.stringify({
-    instanceId,
-    slug: slug.trim(),
-    label: label?.trim() || void 0,
-    createdAt: now
-  });
-  try {
-    await cli.runOk(repo.rootPath, ["tag", "create"], {
-      stdin: tagJson
-    });
-    treeProvider.refresh();
-    vscode16.window.showInformationMessage(`SRS: Tag '${slug}' created.`);
-  } catch (err) {
-    const msg = err instanceof CliError ? err.message : String(err);
-    vscode16.window.showErrorMessage(`SRS: Failed to create tag: ${msg}`);
   }
 }
 async function cmdCreateRecord(cli, repoProvider, attention, treeProvider) {
@@ -3342,8 +3307,6 @@ function deleteArgsFor(kind, id) {
   switch (kind) {
     case "note":
       return ["note", "delete", id];
-    case "tag":
-      return ["tag", "delete", id];
     case "record":
       return ["record", "delete", id];
     case "relation":
