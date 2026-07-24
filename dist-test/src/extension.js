@@ -56,6 +56,7 @@ const guideEditorCommands_1 = require("./webview/guides/guideEditorCommands");
 const ArchiveManager_1 = require("./archive/ArchiveManager");
 const ArchiveStatusBarItem_1 = require("./archive/ArchiveStatusBarItem");
 const archiveCommands_1 = require("./commands/archiveCommands");
+const attachmentCommands_1 = require("./commands/attachmentCommands");
 async function activate(context) {
     const outputChannel = vscode.window.createOutputChannel("SRS");
     context.subscriptions.push(outputChannel);
@@ -116,6 +117,7 @@ async function activate(context) {
     (0, navigatorCommands_1.registerNavigatorCommands)(context, navigatorProvider);
     (0, guideEditorCommands_1.registerGuideEditorCommands)(context, cli, repoProvider, treeProvider);
     (0, archiveCommands_1.registerArchiveCommands)(context, cli, repoProvider, archiveManager);
+    (0, attachmentCommands_1.registerAttachmentCommands)(context, cli, repoProvider);
     // Auto-detect on activation
     await autoDetectRepository(cli, repoProvider);
     // Restore persisted active container once the active repo is known

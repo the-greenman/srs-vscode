@@ -171,6 +171,18 @@
       {
         "command": "srs.exportArchive",
         "title": "SRS: Export Repository to .srs…"
+      },
+      {
+        "command": "srs.attachmentAdd",
+        "title": "SRS: Add Attachment…"
+      },
+      {
+        "command": "srs.attachmentList",
+        "title": "SRS: List Attachments"
+      },
+      {
+        "command": "srs.attachmentExport",
+        "title": "SRS: Export Attachment…"
       }
     ],
     "views": {

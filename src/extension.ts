@@ -19,6 +19,7 @@ import { registerGuideEditorCommands } from "./webview/guides/guideEditorCommand
 import { ArchiveManager } from "./archive/ArchiveManager";
 import { ArchiveStatusBarItem } from "./archive/ArchiveStatusBarItem";
 import { registerArchiveCommands } from "./commands/archiveCommands";
+import { registerAttachmentCommands } from "./commands/attachmentCommands";
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -113,6 +114,7 @@ export async function activate(
   registerNavigatorCommands(context, navigatorProvider);
   registerGuideEditorCommands(context, cli, repoProvider, treeProvider);
   registerArchiveCommands(context, cli, repoProvider, archiveManager);
+  registerAttachmentCommands(context, cli, repoProvider);
 
   // Auto-detect on activation
   await autoDetectRepository(cli, repoProvider);
