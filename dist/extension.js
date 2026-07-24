@@ -1694,28 +1694,92 @@ async function previewRecord(context, cli, repoPath, id) {
   });
 }
 async function previewContainer(context, cli, repoPath, id) {
-  const listPayload = await cli.runOk(repoPath, ["container", "list"]);
-  const container = listPayload.containers.find((c) => c.containerId === id);
-  const title = container?.title ?? id.slice(0, 8);
-  let members = [];
+  let resolvedView;
   try {
-    const membersPayload = await cli.runOk(repoPath, [
+    const viewPayload = await cli.runOk(repoPath, [
       "container",
-      "members",
-      "list",
+      "resolve-view",
       id
     ]);
-    members = membersPayload.members;
+    resolvedView = viewPayload.containerView;
   } catch {
   }
-  const rows = members.map((m) => `<div class="member-row">${esc(m.title ?? m.instanceId)}</div>`).join("");
+  const title = resolvedView?.root?.displayLabel ?? resolvedView?.members[0]?.displayLabel ?? id.slice(0, 8);
+  const members = resolvedView?.members ?? [];
+  const columns = resolvedView?.columns ?? [];
+  let bodyHtml;
+  if (columns.length > 0) {
+    const headerCells = columns.map((col) => {
+      const cls = col.isIdentityColumn ? ' class="col-identity"' : "";
+      return `<th${cls}>${esc(col.displayLabel)}</th>`;
+    }).join("");
+    const rowsHtml = members.length === 0 ? `<tr><td colspan="${columns.length}" class="empty">No members.</td></tr>` : members.map((m) => {
+      const hidden = !m.isVisibleByDefault ? ' class="member-hidden"' : "";
+      const cells = columns.map((col) => {
+        let cellContent;
+        if (col.isIdentityColumn) {
+          const label = m.tier === 2 && m.record ? m.record.fieldValues.find((fv2) => fv2.fieldId === col.fieldId)?.value ?? m.displayLabel : m.displayLabel;
+          cellContent = `<a class="identity-link" href="#" data-id="${esc(m.instanceId)}" data-kind="${m.tier === 0 ? "note" : "record"}">${esc(label)}</a>`;
+        } else if (m.tier === 2 && m.record) {
+          const fv2 = m.record.fieldValues.find((f) => f.fieldId === col.fieldId);
+          cellContent = fv2 !== void 0 ? esc(String(fv2.value ?? "")) : "";
+        } else {
+          cellContent = "";
+        }
+        const cellCls = col.isIdentityColumn ? ' class="col-identity"' : "";
+        return `<td${cellCls}>${cellContent}</td>`;
+      }).join("");
+      return `<tr${hidden}>${cells}</tr>`;
+    }).join("");
+    const hiddenCount = members.filter((m) => !m.isVisibleByDefault).length;
+    const hiddenNote = hiddenCount > 0 ? `<p class="hidden-note">${hiddenCount} member${hiddenCount === 1 ? "" : "s"} hidden by lifecycle state.</p>` : "";
+    bodyHtml = `
+      <table class="container-table">
+        <thead><tr>${headerCells}</tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+      ${hiddenNote}
+      <script>
+        const vscode = acquireVsCodeApi();
+        document.querySelectorAll('.identity-link').forEach(function(el) {
+          el.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            vscode.postMessage({ type: 'openEntity', id: el.dataset.id, kind: el.dataset.kind });
+          });
+        });
+      </script>
+    `;
+  } else {
+    const rows = members.map((m) => `<div class="member-row">${esc(m.displayLabel)}</div>`).join("");
+    bodyHtml = rows || '<p class="empty">No members.</p>';
+  }
+  const memberCount = members.length;
   const html = wrapHtml(title, `
     <h1>${esc(title)}</h1>
-    <div class="meta">${container?.containerType ? `Type: ${esc(container.containerType)} &nbsp;\xB7&nbsp; ` : ""}${members.length} members</div>
+    <div class="meta">${memberCount} member${memberCount === 1 ? "" : "s"}</div>
     <h2>Members</h2>
-    ${rows || '<p class="empty">No members.</p>'}
-  `);
-  PreviewPanel.show(context, `container:${id}`, title, html);
+    ${bodyHtml}
+    <style>
+      .container-table { width: 100%; border-collapse: collapse; margin-top: 0.5em; }
+      .container-table th, .container-table td { padding: 0.35em 0.6em; border: 1px solid var(--vscode-panel-border, #555); text-align: left; }
+      .container-table th { background: var(--vscode-editor-selectionBackground, #264f78); font-weight: 600; }
+      .container-table th.col-identity { font-weight: 700; }
+      .container-table td.col-identity { font-weight: 600; }
+      .identity-link { color: var(--vscode-textLink-foreground, #3794ff); text-decoration: none; }
+      .identity-link:hover { text-decoration: underline; }
+      .member-hidden { opacity: 0.45; }
+      .hidden-note { font-size: 0.85em; color: var(--vscode-descriptionForeground, #888); margin-top: 0.5em; }
+    </style>
+  `, { enableScripts: columns.length > 0 });
+  PreviewPanel.show(context, `container:${id}`, title, html, columns.length > 0 ? {
+    enableScripts: true,
+    onMessage: (msg) => {
+      const m = msg;
+      if (m.type === "openEntity" && m.id && m.kind) {
+        vscode12.commands.executeCommand("srs.openEntityById", m.id, m.kind, repoPath);
+      }
+    }
+  } : void 0);
 }
 async function previewProtocol(context, cli, repoPath, id) {
   const [getResult, stagesResult] = await Promise.allSettled([
@@ -2006,6 +2070,18 @@ var FORM_CSS = `
       margin-top: 4px;
     }
     .btn-remove-entry:hover { opacity: 0.7; }
+    .group-entries { display: flex; flex-direction: column; gap: 0.8em; margin-bottom: 0.6em; }
+    .group-entry { border-left: 2px solid var(--vscode-panel-border); padding-left: 1em; }
+    .btn-remove-group-entry {
+      padding: 2px 8px;
+      background: transparent;
+      color: var(--vscode-errorForeground);
+      border: 1px solid var(--vscode-errorForeground);
+      border-radius: 2px;
+      cursor: pointer;
+      font-size: 0.85em;
+    }
+    .btn-remove-group-entry:hover { opacity: 0.7; }
     .btn-add-entry {
       padding: 3px 10px;
       background: transparent;
@@ -2206,7 +2282,63 @@ function buildTagForm(tag) {
     <input type="hidden" name="createdAt" value="${escAttr(tag.createdAt ?? "")}">
     ${collectJs}`;
 }
-function buildRecordForm(record, fields) {
+function groupFieldValueHtml(f, fv2) {
+  const label = f.displayLabel ?? f.fieldId.slice(0, 8);
+  const requiredMark = f.required ? ` <span class="required-mark">*</span>` : "";
+  if (f.repeatable) {
+    const entries = fv2?.entries && fv2.entries.length > 0 ? fv2.entries.map((e) => typeof e.value === "string" ? e.value : JSON.stringify(e.value)) : [""];
+    const entryInputs = entries.map((v) => `
+        <div class="repeat-entry" data-repeat-entry>
+          <textarea class="repeat-value" rows="2">${escText(v)}</textarea>
+          <button type="button" class="btn-remove-entry" title="Remove">\u2715</button>
+        </div>`).join("");
+    return `
+      <div class="field" data-field-id="${escAttr(f.fieldId)}" data-repeatable>
+        <label>${esc2(label)}${requiredMark}</label>
+        <div class="repeat-list">${entryInputs}</div>
+        <button type="button" class="btn-add-entry" data-add-repeat>+ Add value</button>
+      </div>`;
+  }
+  const value = fv2 && !fv2.entries ? typeof fv2.value === "string" ? fv2.value : fv2.value == null ? "" : JSON.stringify(fv2.value) : "";
+  const required = f.required ? ` required` : "";
+  return `
+      <div class="field" data-field-id="${escAttr(f.fieldId)}">
+        <label>${esc2(label)}${requiredMark}</label>
+        <textarea class="group-field-value" rows="2"${required}>${escText(value)}</textarea>
+      </div>`;
+}
+function groupEntryHtml(fields, entry, removable) {
+  const fvById = new Map((entry?.fieldValues ?? []).map((fv2) => [fv2.fieldId, fv2]));
+  const fieldsHtml = [...fields].sort((a, b) => a.order - b.order).map((f) => groupFieldValueHtml(f, fvById.get(f.fieldId))).join("");
+  const removeBtn = removable ? `<div class="section-header"><span></span><button type="button" class="btn-remove-group-entry" title="Remove entry">\u2715</button></div>` : "";
+  return `
+    <div class="group-entry" data-group-entry data-entry-id="${escAttr(entry?.entryId ?? "")}">
+      ${removeBtn}
+      ${fieldsHtml}
+    </div>`;
+}
+function groupBlockHtml(g, index, entries) {
+  const label = g.label ?? g.groupId;
+  const requiredMark = g.required ? ` <span class="required-mark">*</span>` : "";
+  const minHint = g.minItems != null ? ` min ${g.minItems}` : "";
+  const maxHint = g.maxItems != null ? ` max ${g.maxItems}` : "";
+  const repeatHint = g.repeatable && (minHint || maxHint) ? `<div class="hint">Repeatable${minHint}${maxHint}</div>` : "";
+  const descriptionHtml = g.description ? `<div class="hint">${esc2(g.description)}</div>` : "";
+  const initialEntries = entries.length > 0 ? entries : [void 0];
+  const entriesHtml = initialEntries.map((e) => groupEntryHtml(g.fields, e, g.repeatable ?? false)).join("");
+  const addEntryBtn = g.repeatable ? `<button type="button" class="btn-add-entry" data-add-group="${index}">+ Add ${esc2(label)}</button>` : "";
+  const templateHtml = g.repeatable ? `<template id="group-entry-template-${index}">${groupEntryHtml(g.fields, void 0, true)}</template>` : "";
+  return `
+    <div class="section-group" data-group data-group-id="${escAttr(g.groupId)}">
+      <div class="section-header"><strong>${esc2(label)}${requiredMark}</strong></div>
+      ${descriptionHtml}
+      <div class="group-entries" id="group-entries-${index}">${entriesHtml}</div>
+      ${addEntryBtn}
+      ${repeatHint}
+      ${templateHtml}
+    </div>`;
+}
+function buildRecordForm(record, fields, groups = []) {
   const sorted = [...fields].sort((a, b) => a.order - b.order);
   const currentScalar = /* @__PURE__ */ new Map();
   const currentEntries = /* @__PURE__ */ new Map();
@@ -2257,6 +2389,80 @@ function buildRecordForm(record, fields) {
   }).join("");
   const fieldCount = sorted.length;
   const repeatableIndices = sorted.map((f, i) => f.repeatable ? i : -1).filter((i) => i >= 0);
+  const sortedGroups = [...groups].sort((a, b) => a.order - b.order);
+  const groupValuesByGroupId = /* @__PURE__ */ new Map();
+  for (const gv of record.groupValues ?? []) {
+    groupValuesByGroupId.set(gv.groupId, gv.entries);
+  }
+  const groupsHtml = sortedGroups.map((g, gi) => groupBlockHtml(g, gi, groupValuesByGroupId.get(g.groupId) ?? [])).join("");
+  const hasGroups = sortedGroups.length > 0;
+  const groupJs = hasGroups ? `
+    function collectGroupValues() {
+      var groupValues = [];
+      document.querySelectorAll('[data-group]').forEach(function(groupEl) {
+        var groupId = groupEl.getAttribute('data-group-id');
+        var entries = [];
+        groupEl.querySelectorAll('[data-group-entry]').forEach(function(entryEl) {
+          var fieldValues = [];
+          entryEl.querySelectorAll('[data-field-id]').forEach(function(fieldEl) {
+            var fieldId = fieldEl.getAttribute('data-field-id');
+            if (fieldEl.hasAttribute('data-repeatable')) {
+              var vals = [];
+              fieldEl.querySelectorAll('.repeat-entry .repeat-value').forEach(function(ta) {
+                var v = ta.value.trim();
+                if (v) vals.push({ value: v });
+              });
+              if (vals.length > 0) fieldValues.push({ fieldId: fieldId, value: '', entries: vals });
+            } else {
+              var val = fieldEl.querySelector('.group-field-value').value.trim();
+              if (val) fieldValues.push({ fieldId: fieldId, value: val });
+            }
+          });
+          if (fieldValues.length > 0) {
+            var entryOut = { fieldValues: fieldValues };
+            var entryId = entryEl.getAttribute('data-entry-id');
+            if (entryId) entryOut.entryId = entryId;
+            entries.push(entryOut);
+          }
+        });
+        groupValues.push({ groupId: groupId, entries: entries });
+      });
+      return groupValues;
+    }
+
+    function wireRemoveGroupEntry(btn) {
+      btn.addEventListener('click', function() {
+        btn.closest('[data-group-entry]').remove();
+      });
+    }
+    function wireGroupRepeatAdd(btn) {
+      btn.addEventListener('click', function() {
+        var list = btn.parentElement.querySelector('.repeat-list');
+        var entry = document.createElement('div');
+        entry.className = 'repeat-entry';
+        entry.setAttribute('data-repeat-entry', '');
+        entry.innerHTML = '<textarea class="repeat-value" rows="2"></textarea>' +
+          '<button type="button" class="btn-remove-entry" title="Remove">\\u2715</button>';
+        list.appendChild(entry);
+        entry.querySelector('.repeat-value').focus();
+        wireRemoveEntry(entry.querySelector('.btn-remove-entry'));
+      });
+    }
+    function wireAddGroupEntry(btn) {
+      btn.addEventListener('click', function() {
+        var gi = btn.getAttribute('data-add-group');
+        var template = document.getElementById('group-entry-template-' + gi);
+        var container = document.getElementById('group-entries-' + gi);
+        container.appendChild(template.content.cloneNode(true));
+        var newEntry = container.lastElementChild;
+        wireRemoveGroupEntry(newEntry.querySelector('.btn-remove-group-entry'));
+        newEntry.querySelectorAll('.btn-add-entry[data-add-repeat]').forEach(wireGroupRepeatAdd);
+      });
+    }
+    document.querySelectorAll('.btn-remove-group-entry').forEach(wireRemoveGroupEntry);
+    document.querySelectorAll('.btn-add-entry[data-add-repeat]').forEach(wireGroupRepeatAdd);
+    document.querySelectorAll('.btn-add-entry[data-add-group]').forEach(wireAddGroupEntry);
+  ` : "";
   const collectJs = `
   <script>
     var repeatableIndices = ${JSON.stringify(repeatableIndices)};
@@ -2289,15 +2495,19 @@ function buildRecordForm(record, fields) {
           }
         }
       }
-      return { instanceId: instanceId, typeId: typeId, typeName: typeName,
+      var result = { instanceId: instanceId, typeId: typeId, typeName: typeName,
                typeNamespace: typeNamespace, typeVersion: typeVersion,
                createdAt: createdAt, fieldValues: fieldValues };
+      ${hasGroups ? "result.groupValues = collectGroupValues();" : ""}
+      return result;
     }
 
     ${REPEAT_ENTRY_JS.trim()}
+    ${groupJs}
   </script>`;
   return `
     ${fieldHtml}
+    ${groupsHtml}
     <input type="hidden" name="instanceId" value="${escAttr(record.instanceId)}">
     <input type="hidden" name="typeId" value="${escAttr(record.typeId)}">
     <input type="hidden" name="typeName" value="${escAttr(record.typeName)}">
@@ -2463,9 +2673,20 @@ async function editRecord(context, cli, repoPath, id, treeProvider) {
     record.typeId
   ]);
   const typeFields = typePayload.type.fields;
+  const fieldGroups = typePayload.type.fieldGroups ?? [];
+  const allFieldIds = [.../* @__PURE__ */ new Set([
+    ...typeFields.map((f) => f.fieldId),
+    ...fieldGroups.flatMap((g) => g.fields.map((f) => f.fieldId))
+  ])];
   const fieldResults = await Promise.allSettled(
-    typeFields.map((f) => cli.runOk(repoPath, ["field", "get", f.fieldId]))
+    allFieldIds.map((fieldId) => cli.runOk(repoPath, ["field", "get", fieldId]))
   );
+  const fieldNameById = /* @__PURE__ */ new Map();
+  allFieldIds.forEach((fieldId, i) => {
+    const fr = fieldResults[i];
+    if (fr.status === "fulfilled")
+      fieldNameById.set(fieldId, fr.value.field.name);
+  });
   const recordData = {
     instanceId: record.instanceId,
     typeId: record.typeId,
@@ -2473,23 +2694,32 @@ async function editRecord(context, cli, repoPath, id, treeProvider) {
     typeNamespace: record.typeNamespace,
     typeVersion: record.typeVersion,
     createdAt: record.createdAt,
-    fieldValues: record.fieldValues
+    fieldValues: record.fieldValues,
+    groupValues: record.groupValues
   };
-  const fieldData = typeFields.map((f, i) => {
-    const fr = fieldResults[i];
-    const fieldName = fr.status === "fulfilled" ? fr.value.field.name : void 0;
-    return {
-      fieldId: f.fieldId,
-      displayLabel: f.displayLabel ?? fieldName,
-      order: f.order,
-      required: f.required,
-      repeatable: f.repeatable,
-      minItems: f.minItems,
-      maxItems: f.maxItems
-    };
+  const toFieldData = (f) => ({
+    fieldId: f.fieldId,
+    displayLabel: f.displayLabel ?? fieldNameById.get(f.fieldId),
+    order: f.order,
+    required: f.required,
+    repeatable: f.repeatable,
+    minItems: f.minItems,
+    maxItems: f.maxItems
   });
+  const fieldData = typeFields.map(toFieldData);
+  const groupData = fieldGroups.map((g) => ({
+    groupId: g.groupId,
+    label: g.label,
+    description: g.description,
+    order: g.order,
+    required: g.required,
+    repeatable: g.repeatable,
+    minItems: g.minItems,
+    maxItems: g.maxItems,
+    fields: g.fields.map(toFieldData)
+  }));
   const panelTitle = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
-  const html = formWrapHtml(panelTitle, buildRecordForm(recordData, fieldData));
+  const html = formWrapHtml(panelTitle, buildRecordForm(recordData, fieldData, groupData));
   EntityEditorPanel.show(context, `record:${id}`, panelTitle, html, async (data) => {
     const d = data;
     const refetch = await cli.runOk(repoPath, ["record", "get", id]);
