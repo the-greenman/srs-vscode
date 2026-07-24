@@ -248,6 +248,29 @@ export interface ArchiveUnpackPayload {
   repositoryId: string;
 }
 
+// attachment list  → payload
+export interface AttachmentListPayload {
+  sourceDocumentsPath: string;
+  entries: Array<{
+    path: string;
+    documentId?: string;
+    title?: string;
+    contentChecksum?: string;
+    sidecarChecksum?: string;
+    sizeBytes?: number;
+  }>;
+}
+
+// attachment add  → payload
+export interface AttachmentAddPayload {
+  documentId: string;
+  contentPath: string;
+  sidecarPath: string;
+  sourceDocumentsPath: string;
+  contentChecksum: string;
+  sidecarChecksum: string;
+}
+
 // Entity kinds understood by the tree
 export type EntityKind =
   | "note"
