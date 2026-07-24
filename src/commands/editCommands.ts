@@ -4,6 +4,7 @@ import { RepositoryProvider } from "../repository/RepositoryProvider";
 import { SrsTreeDataProvider, EntityNode } from "../tree/SrsTreeDataProvider";
 import { EntityEditorPanel } from "../webview/EntityEditorPanel";
 import { formWrapHtml, buildNoteForm, buildRecordForm } from "../webview/forms";
+import type { TypeFieldData, TypeFieldGroupData } from "../webview/forms";
 import type {
   RelationTypeListPayload,
   ViewListPayload,
@@ -25,6 +26,36 @@ interface NotePayload {
   };
 }
 
+interface FieldAssignmentPayload {
+  fieldId: string;
+  displayLabel?: string;
+  order: number;
+  required: boolean;
+  repeatable?: boolean;
+  minItems?: number;
+  maxItems?: number;
+}
+
+interface FieldGroupPayload {
+  groupId: string;
+  label?: string;
+  description?: string;
+  order: number;
+  required?: boolean;
+  repeatable?: boolean;
+  minItems?: number;
+  maxItems?: number;
+  fields: FieldAssignmentPayload[];
+}
+
+interface FieldGroupValuePayload {
+  groupId: string;
+  entries: Array<{
+    entryId?: string;
+    fieldValues: Array<{ fieldId: string; value: unknown; entries?: Array<{ value: unknown }> }>;
+  }>;
+}
+
 interface RecordPayload {
   record: {
     instanceId: string;
@@ -34,6 +65,7 @@ interface RecordPayload {
     typeVersion: number;
     createdAt?: string;
     fieldValues: Array<{ fieldId: string; value: unknown; entries?: Array<{ value: unknown }> }>;
+    groupValues?: FieldGroupValuePayload[];
   };
 }
 
@@ -43,15 +75,8 @@ interface TypePayload {
     name: string;
     namespace: string;
     version: number;
-    fields: Array<{
-      fieldId: string;
-      displayLabel?: string;
-      order: number;
-      required: boolean;
-      repeatable?: boolean;
-      minItems?: number;
-      maxItems?: number;
-    }>;
+    fields: FieldAssignmentPayload[];
+    fieldGroups?: FieldGroupPayload[];
   };
 }
 
@@ -226,11 +251,22 @@ async function editRecord(
     record.typeId,
   ]);
   const typeFields = typePayload.type.fields;
+  const fieldGroups = typePayload.type.fieldGroups ?? [];
 
-  // Fetch field definitions in parallel to use field name as fallback label
+  // Fetch field definitions (top-level fields + fields nested in groups) in
+  // parallel to use field name as fallback label
+  const allFieldIds = [...new Set([
+    ...typeFields.map((f) => f.fieldId),
+    ...fieldGroups.flatMap((g) => g.fields.map((f) => f.fieldId)),
+  ])];
   const fieldResults = await Promise.allSettled(
-    typeFields.map((f) => cli.runOk<FieldPayload>(repoPath, ["field", "get", f.fieldId]))
+    allFieldIds.map((fieldId) => cli.runOk<FieldPayload>(repoPath, ["field", "get", fieldId]))
   );
+  const fieldNameById = new Map<string, string>();
+  allFieldIds.forEach((fieldId, i) => {
+    const fr = fieldResults[i];
+    if (fr.status === "fulfilled") fieldNameById.set(fieldId, fr.value.field.name);
+  });
 
   const recordData = {
     instanceId: record.instanceId,
@@ -240,24 +276,35 @@ async function editRecord(
     typeVersion: record.typeVersion,
     createdAt: record.createdAt,
     fieldValues: record.fieldValues,
+    groupValues: record.groupValues,
   };
 
-  const fieldData = typeFields.map((f, i) => {
-    const fr = fieldResults[i];
-    const fieldName = fr.status === "fulfilled" ? fr.value.field.name : undefined;
-    return {
-      fieldId: f.fieldId,
-      displayLabel: f.displayLabel ?? fieldName,
-      order: f.order,
-      required: f.required,
-      repeatable: f.repeatable,
-      minItems: f.minItems,
-      maxItems: f.maxItems,
-    };
+  const toFieldData = (f: FieldAssignmentPayload): TypeFieldData => ({
+    fieldId: f.fieldId,
+    displayLabel: f.displayLabel ?? fieldNameById.get(f.fieldId),
+    order: f.order,
+    required: f.required,
+    repeatable: f.repeatable,
+    minItems: f.minItems,
+    maxItems: f.maxItems,
   });
 
+  const fieldData = typeFields.map(toFieldData);
+
+  const groupData: TypeFieldGroupData[] = fieldGroups.map((g) => ({
+    groupId: g.groupId,
+    label: g.label,
+    description: g.description,
+    order: g.order,
+    required: g.required,
+    repeatable: g.repeatable,
+    minItems: g.minItems,
+    maxItems: g.maxItems,
+    fields: g.fields.map(toFieldData),
+  }));
+
   const panelTitle = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
-  const html = formWrapHtml(panelTitle, buildRecordForm(recordData, fieldData));
+  const html = formWrapHtml(panelTitle, buildRecordForm(recordData, fieldData, groupData));
 
   EntityEditorPanel.show(context, `record:${id}`, panelTitle, html, async (data) => {
     const d = data as {
@@ -268,6 +315,13 @@ async function editRecord(
       typeVersion: number;
       createdAt?: string;
       fieldValues: Array<{ fieldId: string; value: string }>;
+      groupValues?: Array<{
+        groupId: string;
+        entries: Array<{
+          entryId?: string;
+          fieldValues: Array<{ fieldId: string; value: string; entries?: Array<{ value: string }> }>;
+        }>;
+      }>;
     };
 
     // Concurrent-change guard

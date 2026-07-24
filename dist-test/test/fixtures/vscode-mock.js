@@ -38,6 +38,35 @@ exports.window = {
         exports.window.lastQuickPick = { items, options };
         return Promise.resolve(items[exports.window.quickPickIndex]);
     },
+    lastWebviewPanel: undefined,
+    createWebviewPanel(_viewType, _title, _showOptions, _options) {
+        const capture = { html: "", postedMessages: [], disposed: false };
+        exports.window.lastWebviewPanel = capture;
+        return {
+            title: _title,
+            reveal: () => { },
+            dispose: () => {
+                capture.disposed = true;
+            },
+            onDidDispose: (_cb) => ({ dispose: () => { } }),
+            webview: {
+                get html() {
+                    return capture.html;
+                },
+                set html(value) {
+                    capture.html = value;
+                },
+                onDidReceiveMessage(handler) {
+                    capture.messageHandler = handler;
+                    return { dispose: () => { } };
+                },
+                postMessage(msg) {
+                    capture.postedMessages.push(msg);
+                    return Promise.resolve(true);
+                },
+            },
+        };
+    },
 };
 // Command registry so tests can invoke a registered command callback directly.
 const _commandRegistry = {};

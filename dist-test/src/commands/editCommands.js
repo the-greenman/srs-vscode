@@ -116,8 +116,20 @@ async function editRecord(context, cli, repoPath, id, treeProvider) {
         record.typeId,
     ]);
     const typeFields = typePayload.type.fields;
-    // Fetch field definitions in parallel to use field name as fallback label
-    const fieldResults = await Promise.allSettled(typeFields.map((f) => cli.runOk(repoPath, ["field", "get", f.fieldId])));
+    const fieldGroups = typePayload.type.fieldGroups ?? [];
+    // Fetch field definitions (top-level fields + fields nested in groups) in
+    // parallel to use field name as fallback label
+    const allFieldIds = [...new Set([
+            ...typeFields.map((f) => f.fieldId),
+            ...fieldGroups.flatMap((g) => g.fields.map((f) => f.fieldId)),
+        ])];
+    const fieldResults = await Promise.allSettled(allFieldIds.map((fieldId) => cli.runOk(repoPath, ["field", "get", fieldId])));
+    const fieldNameById = new Map();
+    allFieldIds.forEach((fieldId, i) => {
+        const fr = fieldResults[i];
+        if (fr.status === "fulfilled")
+            fieldNameById.set(fieldId, fr.value.field.name);
+    });
     const recordData = {
         instanceId: record.instanceId,
         typeId: record.typeId,
@@ -126,22 +138,31 @@ async function editRecord(context, cli, repoPath, id, treeProvider) {
         typeVersion: record.typeVersion,
         createdAt: record.createdAt,
         fieldValues: record.fieldValues,
+        groupValues: record.groupValues,
     };
-    const fieldData = typeFields.map((f, i) => {
-        const fr = fieldResults[i];
-        const fieldName = fr.status === "fulfilled" ? fr.value.field.name : undefined;
-        return {
-            fieldId: f.fieldId,
-            displayLabel: f.displayLabel ?? fieldName,
-            order: f.order,
-            required: f.required,
-            repeatable: f.repeatable,
-            minItems: f.minItems,
-            maxItems: f.maxItems,
-        };
+    const toFieldData = (f) => ({
+        fieldId: f.fieldId,
+        displayLabel: f.displayLabel ?? fieldNameById.get(f.fieldId),
+        order: f.order,
+        required: f.required,
+        repeatable: f.repeatable,
+        minItems: f.minItems,
+        maxItems: f.maxItems,
     });
+    const fieldData = typeFields.map(toFieldData);
+    const groupData = fieldGroups.map((g) => ({
+        groupId: g.groupId,
+        label: g.label,
+        description: g.description,
+        order: g.order,
+        required: g.required,
+        repeatable: g.repeatable,
+        minItems: g.minItems,
+        maxItems: g.maxItems,
+        fields: g.fields.map(toFieldData),
+    }));
     const panelTitle = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
-    const html = (0, forms_1.formWrapHtml)(panelTitle, (0, forms_1.buildRecordForm)(recordData, fieldData));
+    const html = (0, forms_1.formWrapHtml)(panelTitle, (0, forms_1.buildRecordForm)(recordData, fieldData, groupData));
     EntityEditorPanel_1.EntityEditorPanel.show(context, `record:${id}`, panelTitle, html, async (data) => {
         const d = data;
         // Concurrent-change guard

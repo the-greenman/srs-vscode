@@ -42,6 +42,15 @@ interface QuickPickCapture {
   options: unknown;
 }
 
+// Test-controllable WebviewPanel: captures the rendered html and the message
+// handler so tests can simulate a 'save'/'cancel' message from the webview.
+interface WebviewPanelCapture {
+  html: string;
+  postedMessages: unknown[];
+  messageHandler?: (msg: { type: string; data?: unknown }) => unknown;
+  disposed: boolean;
+}
+
 export const window = {
   createOutputChannel: () => ({ appendLine: () => {} }),
   showErrorMessage: () => Promise.resolve(undefined),
@@ -53,6 +62,40 @@ export const window = {
   showQuickPick(items: Array<Record<string, unknown>>, options?: unknown) {
     window.lastQuickPick = { items, options };
     return Promise.resolve(items[window.quickPickIndex]);
+  },
+  lastWebviewPanel: undefined as WebviewPanelCapture | undefined,
+  createWebviewPanel(
+    _viewType: string,
+    _title: string,
+    _showOptions: unknown,
+    _options: unknown,
+  ) {
+    const capture: WebviewPanelCapture = { html: "", postedMessages: [], disposed: false };
+    window.lastWebviewPanel = capture;
+    return {
+      title: _title,
+      reveal: () => {},
+      dispose: () => {
+        capture.disposed = true;
+      },
+      onDidDispose: (_cb: () => void) => ({ dispose: () => {} }),
+      webview: {
+        get html() {
+          return capture.html;
+        },
+        set html(value: string) {
+          capture.html = value;
+        },
+        onDidReceiveMessage(handler: (msg: { type: string; data?: unknown }) => unknown) {
+          capture.messageHandler = handler;
+          return { dispose: () => {} };
+        },
+        postMessage(msg: unknown) {
+          capture.postedMessages.push(msg);
+          return Promise.resolve(true);
+        },
+      },
+    };
   },
 };
 
