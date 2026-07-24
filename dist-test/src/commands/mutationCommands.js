@@ -40,7 +40,7 @@ const vscode = __importStar(require("vscode"));
 const CliClient_1 = require("../cli/CliClient");
 const SrsTreeDataProvider_1 = require("../tree/SrsTreeDataProvider");
 function registerMutationCommands(context, cli, repoProvider, attention, treeProvider) {
-    context.subscriptions.push(vscode.commands.registerCommand("srs.createNote", () => cmdCreateNote(cli, repoProvider, attention, treeProvider)), vscode.commands.registerCommand("srs.createTag", () => cmdCreateTag(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.createRecord", () => cmdCreateRecord(cli, repoProvider, attention, treeProvider)), vscode.commands.registerCommand("srs.deleteEntity", (node) => cmdDeleteEntity(cli, repoProvider, treeProvider, node)));
+    context.subscriptions.push(vscode.commands.registerCommand("srs.createNote", () => cmdCreateNote(cli, repoProvider, attention, treeProvider)), vscode.commands.registerCommand("srs.createRecord", () => cmdCreateRecord(cli, repoProvider, attention, treeProvider)), vscode.commands.registerCommand("srs.deleteEntity", (node) => cmdDeleteEntity(cli, repoProvider, treeProvider, node)));
 }
 // ---- helpers ----
 function requireActiveRepo(repoProvider) {
@@ -89,47 +89,6 @@ async function cmdCreateNote(cli, repoProvider, attention, treeProvider) {
     catch (err) {
         const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
         vscode.window.showErrorMessage(`SRS: Failed to create note: ${msg}`);
-    }
-}
-// ---- Create Tag ----
-async function cmdCreateTag(cli, repoProvider, treeProvider) {
-    const repo = requireActiveRepo(repoProvider);
-    if (!repo)
-        return;
-    const slug = await vscode.window.showInputBox({
-        title: "SRS: Create Tag",
-        prompt: "Tag slug (kebab-case identifier)",
-        placeHolder: "e.g. needs-review",
-        validateInput: (v) => /^[a-z0-9]+(-[a-z0-9]+)*$/.test(v.trim())
-            ? undefined
-            : "Slug must be kebab-case (e.g. my-tag)",
-    });
-    if (!slug)
-        return;
-    const label = await vscode.window.showInputBox({
-        title: "SRS: Create Tag",
-        prompt: "Display label (optional)",
-        placeHolder: "e.g. Needs Review",
-    });
-    const { randomUUID } = await Promise.resolve().then(() => __importStar(require("crypto")));
-    const instanceId = randomUUID();
-    const now = new Date().toISOString();
-    const tagJson = JSON.stringify({
-        instanceId,
-        slug: slug.trim(),
-        label: label?.trim() || undefined,
-        createdAt: now,
-    });
-    try {
-        await cli.runOk(repo.rootPath, ["tag", "create"], {
-            stdin: tagJson,
-        });
-        treeProvider.refresh();
-        vscode.window.showInformationMessage(`SRS: Tag '${slug}' created.`);
-    }
-    catch (err) {
-        const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
-        vscode.window.showErrorMessage(`SRS: Failed to create tag: ${msg}`);
     }
 }
 // ---- Create Record ----
@@ -221,7 +180,6 @@ async function cmdDeleteEntity(cli, repoProvider, treeProvider, node) {
 function deleteArgsFor(kind, id) {
     switch (kind) {
         case "note": return ["note", "delete", id];
-        case "tag": return ["tag", "delete", id];
         case "record": return ["record", "delete", id];
         case "relation": return ["relation", "delete", id];
         case "container": return ["container", "delete", id];

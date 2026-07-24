@@ -2255,33 +2255,6 @@ function buildNoteForm(note) {
     <input type="hidden" name="createdAt" value="${escAttr(note.createdAt ?? "")}">
     ${collectJs}`;
 }
-function buildTagForm(tag) {
-  const collectJs = `
-  <script>
-    function collectFormData() {
-      const form = document.getElementById('editor-form');
-      const slug = form.querySelector('[name="slug"]').value.trim();
-      const labelRaw = form.querySelector('[name="label"]').value.trim();
-      const instanceId = form.querySelector('[name="instanceId"]').value;
-      const createdAt = form.querySelector('[name="createdAt"]').value || undefined;
-      return { instanceId, slug, label: labelRaw || undefined, createdAt };
-    }
-  </script>`;
-  return `
-    <div class="field">
-      <label>Slug <span class="required-mark">*</span></label>
-      <input type="text" name="slug" value="${escAttr(tag.slug)}" required
-             pattern="[a-z0-9]+(-[a-z0-9]+)*" autofocus>
-      <div class="hint">Kebab-case, e.g. needs-review</div>
-    </div>
-    <div class="field">
-      <label>Display Label</label>
-      <input type="text" name="label" value="${escAttr(tag.label ?? "")}">
-    </div>
-    <input type="hidden" name="instanceId" value="${escAttr(tag.instanceId)}">
-    <input type="hidden" name="createdAt" value="${escAttr(tag.createdAt ?? "")}">
-    ${collectJs}`;
-}
 function groupFieldValueHtml(f, fv2) {
   const label = f.displayLabel ?? f.fieldId.slice(0, 8);
   const requiredMark = f.required ? ` <span class="required-mark">*</span>` : "";
@@ -2582,9 +2555,6 @@ async function cmdEditEntity(context, cli, repoProvider, treeProvider, node) {
       case "note":
         await editNote(context, cli, repo.rootPath, node.entityId, treeProvider);
         break;
-      case "tag":
-        await editTag(context, cli, repo.rootPath, node.entityId, treeProvider);
-        break;
       case "record":
         await editRecord(context, cli, repo.rootPath, node.entityId, treeProvider);
         break;
@@ -2631,34 +2601,6 @@ async function editNote(context, cli, repoPath, id, treeProvider) {
         return;
     }
     await cli.runOk(repoPath, ["note", "update", id], {
-      stdin: JSON.stringify(d)
-    });
-    treeProvider.refresh();
-  });
-}
-async function editTag(context, cli, repoPath, id, treeProvider) {
-  const payload = await cli.runOk(repoPath, ["tag", "get", id]);
-  const tag = payload.tagDefinition;
-  const tagData = {
-    instanceId: tag.instanceId,
-    slug: tag.slug,
-    label: tag.label,
-    createdAt: tag.createdAt
-  };
-  const html = formWrapHtml(`Edit Tag: ${tag.slug}`, buildTagForm(tagData));
-  EntityEditorPanel.show(context, `tag:${id}`, `Edit Tag: ${tag.slug}`, html, async (data) => {
-    const d = data;
-    const refetch = await cli.runOk(repoPath, ["tag", "get", id]);
-    if (refetch.tagDefinition.slug !== tag.slug) {
-      const proceed = await vscode14.window.showWarningMessage(
-        `SRS: Tag was modified since you opened it. Overwrite?`,
-        { modal: true },
-        "Overwrite"
-      );
-      if (proceed !== "Overwrite")
-        return;
-    }
-    await cli.runOk(repoPath, ["tag", "update", id], {
       stdin: JSON.stringify(d)
     });
     treeProvider.refresh();
@@ -3369,10 +3311,6 @@ function registerMutationCommands(context, cli, repoProvider, attention, treePro
       () => cmdCreateNote(cli, repoProvider, attention, treeProvider)
     ),
     vscode16.commands.registerCommand(
-      "srs.createTag",
-      () => cmdCreateTag(cli, repoProvider, treeProvider)
-    ),
-    vscode16.commands.registerCommand(
       "srs.createRecord",
       () => cmdCreateRecord(cli, repoProvider, attention, treeProvider)
     ),
@@ -3428,43 +3366,6 @@ async function cmdCreateNote(cli, repoProvider, attention, treeProvider) {
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
     vscode16.window.showErrorMessage(`SRS: Failed to create note: ${msg}`);
-  }
-}
-async function cmdCreateTag(cli, repoProvider, treeProvider) {
-  const repo = requireActiveRepo(repoProvider);
-  if (!repo)
-    return;
-  const slug = await vscode16.window.showInputBox({
-    title: "SRS: Create Tag",
-    prompt: "Tag slug (kebab-case identifier)",
-    placeHolder: "e.g. needs-review",
-    validateInput: (v) => /^[a-z0-9]+(-[a-z0-9]+)*$/.test(v.trim()) ? void 0 : "Slug must be kebab-case (e.g. my-tag)"
-  });
-  if (!slug)
-    return;
-  const label = await vscode16.window.showInputBox({
-    title: "SRS: Create Tag",
-    prompt: "Display label (optional)",
-    placeHolder: "e.g. Needs Review"
-  });
-  const { randomUUID } = await import("crypto");
-  const instanceId = randomUUID();
-  const now = (/* @__PURE__ */ new Date()).toISOString();
-  const tagJson = JSON.stringify({
-    instanceId,
-    slug: slug.trim(),
-    label: label?.trim() || void 0,
-    createdAt: now
-  });
-  try {
-    await cli.runOk(repo.rootPath, ["tag", "create"], {
-      stdin: tagJson
-    });
-    treeProvider.refresh();
-    vscode16.window.showInformationMessage(`SRS: Tag '${slug}' created.`);
-  } catch (err) {
-    const msg = err instanceof CliError ? err.message : String(err);
-    vscode16.window.showErrorMessage(`SRS: Failed to create tag: ${msg}`);
   }
 }
 async function cmdCreateRecord(cli, repoProvider, attention, treeProvider) {
@@ -3572,8 +3473,6 @@ function deleteArgsFor(kind, id) {
   switch (kind) {
     case "note":
       return ["note", "delete", id];
-    case "tag":
-      return ["tag", "delete", id];
     case "record":
       return ["record", "delete", id];
     case "relation":
