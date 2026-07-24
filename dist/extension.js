@@ -34,7 +34,7 @@ __export(extension_exports, {
   deactivate: () => deactivate
 });
 module.exports = __toCommonJS(extension_exports);
-var vscode24 = __toESM(require("vscode"));
+var vscode25 = __toESM(require("vscode"));
 
 // src/cli/CliClient.ts
 var cp = __toESM(require("child_process"));
@@ -1694,28 +1694,92 @@ async function previewRecord(context, cli, repoPath, id) {
   });
 }
 async function previewContainer(context, cli, repoPath, id) {
-  const listPayload = await cli.runOk(repoPath, ["container", "list"]);
-  const container = listPayload.containers.find((c) => c.containerId === id);
-  const title = container?.title ?? id.slice(0, 8);
-  let members = [];
+  let resolvedView;
   try {
-    const membersPayload = await cli.runOk(repoPath, [
+    const viewPayload = await cli.runOk(repoPath, [
       "container",
-      "members",
-      "list",
+      "resolve-view",
       id
     ]);
-    members = membersPayload.members;
+    resolvedView = viewPayload.containerView;
   } catch {
   }
-  const rows = members.map((m) => `<div class="member-row">${esc(m.title ?? m.instanceId)}</div>`).join("");
+  const title = resolvedView?.root?.displayLabel ?? resolvedView?.members[0]?.displayLabel ?? id.slice(0, 8);
+  const members = resolvedView?.members ?? [];
+  const columns = resolvedView?.columns ?? [];
+  let bodyHtml;
+  if (columns.length > 0) {
+    const headerCells = columns.map((col) => {
+      const cls = col.isIdentityColumn ? ' class="col-identity"' : "";
+      return `<th${cls}>${esc(col.displayLabel)}</th>`;
+    }).join("");
+    const rowsHtml = members.length === 0 ? `<tr><td colspan="${columns.length}" class="empty">No members.</td></tr>` : members.map((m) => {
+      const hidden = !m.isVisibleByDefault ? ' class="member-hidden"' : "";
+      const cells = columns.map((col) => {
+        let cellContent;
+        if (col.isIdentityColumn) {
+          const label = m.tier === 2 && m.record ? m.record.fieldValues.find((fv2) => fv2.fieldId === col.fieldId)?.value ?? m.displayLabel : m.displayLabel;
+          cellContent = `<a class="identity-link" href="#" data-id="${esc(m.instanceId)}" data-kind="${m.tier === 0 ? "note" : "record"}">${esc(label)}</a>`;
+        } else if (m.tier === 2 && m.record) {
+          const fv2 = m.record.fieldValues.find((f) => f.fieldId === col.fieldId);
+          cellContent = fv2 !== void 0 ? esc(String(fv2.value ?? "")) : "";
+        } else {
+          cellContent = "";
+        }
+        const cellCls = col.isIdentityColumn ? ' class="col-identity"' : "";
+        return `<td${cellCls}>${cellContent}</td>`;
+      }).join("");
+      return `<tr${hidden}>${cells}</tr>`;
+    }).join("");
+    const hiddenCount = members.filter((m) => !m.isVisibleByDefault).length;
+    const hiddenNote = hiddenCount > 0 ? `<p class="hidden-note">${hiddenCount} member${hiddenCount === 1 ? "" : "s"} hidden by lifecycle state.</p>` : "";
+    bodyHtml = `
+      <table class="container-table">
+        <thead><tr>${headerCells}</tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+      ${hiddenNote}
+      <script>
+        const vscode = acquireVsCodeApi();
+        document.querySelectorAll('.identity-link').forEach(function(el) {
+          el.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            vscode.postMessage({ type: 'openEntity', id: el.dataset.id, kind: el.dataset.kind });
+          });
+        });
+      </script>
+    `;
+  } else {
+    const rows = members.map((m) => `<div class="member-row">${esc(m.displayLabel)}</div>`).join("");
+    bodyHtml = rows || '<p class="empty">No members.</p>';
+  }
+  const memberCount = members.length;
   const html = wrapHtml(title, `
     <h1>${esc(title)}</h1>
-    <div class="meta">${container?.containerType ? `Type: ${esc(container.containerType)} &nbsp;\xB7&nbsp; ` : ""}${members.length} members</div>
+    <div class="meta">${memberCount} member${memberCount === 1 ? "" : "s"}</div>
     <h2>Members</h2>
-    ${rows || '<p class="empty">No members.</p>'}
-  `);
-  PreviewPanel.show(context, `container:${id}`, title, html);
+    ${bodyHtml}
+    <style>
+      .container-table { width: 100%; border-collapse: collapse; margin-top: 0.5em; }
+      .container-table th, .container-table td { padding: 0.35em 0.6em; border: 1px solid var(--vscode-panel-border, #555); text-align: left; }
+      .container-table th { background: var(--vscode-editor-selectionBackground, #264f78); font-weight: 600; }
+      .container-table th.col-identity { font-weight: 700; }
+      .container-table td.col-identity { font-weight: 600; }
+      .identity-link { color: var(--vscode-textLink-foreground, #3794ff); text-decoration: none; }
+      .identity-link:hover { text-decoration: underline; }
+      .member-hidden { opacity: 0.45; }
+      .hidden-note { font-size: 0.85em; color: var(--vscode-descriptionForeground, #888); margin-top: 0.5em; }
+    </style>
+  `, { enableScripts: columns.length > 0 });
+  PreviewPanel.show(context, `container:${id}`, title, html, columns.length > 0 ? {
+    enableScripts: true,
+    onMessage: (msg) => {
+      const m = msg;
+      if (m.type === "openEntity" && m.id && m.kind) {
+        vscode12.commands.executeCommand("srs.openEntityById", m.id, m.kind, repoPath);
+      }
+    }
+  } : void 0);
 }
 async function previewProtocol(context, cli, repoPath, id) {
   const [getResult, stagesResult] = await Promise.allSettled([
@@ -4939,9 +5003,176 @@ function formatBytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// src/commands/attachmentCommands.ts
+var vscode24 = __toESM(require("vscode"));
+var fs = __toESM(require("fs/promises"));
+var path5 = __toESM(require("path"));
+function registerAttachmentCommands(context, cli, repoProvider) {
+  context.subscriptions.push(
+    vscode24.commands.registerCommand(
+      "srs.attachmentAdd",
+      () => cmdAttachmentAdd(cli, repoProvider)
+    ),
+    vscode24.commands.registerCommand(
+      "srs.attachmentList",
+      () => cmdAttachmentList(cli, repoProvider)
+    ),
+    vscode24.commands.registerCommand(
+      "srs.attachmentExport",
+      () => cmdAttachmentExport(cli, repoProvider)
+    )
+  );
+}
+function requireActiveRepo2(repoProvider) {
+  const repo = repoProvider.active;
+  if (!repo) {
+    vscode24.window.showWarningMessage(
+      "SRS: No active repository. Run 'SRS: Select Repository' first."
+    );
+    return void 0;
+  }
+  return repo;
+}
+async function cmdAttachmentAdd(cli, repoProvider) {
+  const repo = requireActiveRepo2(repoProvider);
+  if (!repo)
+    return;
+  const picked = await vscode24.window.showOpenDialog({
+    canSelectMany: false,
+    openLabel: "Add Attachment"
+  });
+  if (!picked || picked.length === 0)
+    return;
+  const fsPath = picked[0].fsPath;
+  const title = await vscode24.window.showInputBox({
+    title: "SRS: Add Attachment",
+    prompt: "Title (optional \u2014 leave blank to derive from filename)",
+    placeHolder: path5.basename(fsPath)
+  });
+  if (title === void 0)
+    return;
+  const subdir = await vscode24.window.showInputBox({
+    title: "SRS: Add Attachment",
+    prompt: "Subdirectory within source-documents/ (optional)"
+  });
+  if (subdir === void 0)
+    return;
+  const args = ["attachment", "add", fsPath];
+  if (title.trim())
+    args.push("--title", title.trim());
+  if (subdir.trim())
+    args.push("--subdir", subdir.trim());
+  try {
+    const payload = await vscode24.window.withProgress(
+      { location: vscode24.ProgressLocation.Window, title: "SRS: Adding attachment\u2026" },
+      () => cli.runOk(repo.rootPath, args)
+    );
+    vscode24.window.showInformationMessage(
+      `SRS: Attachment added (${payload.contentPath}).`
+    );
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode24.window.showErrorMessage(`SRS: Failed to add attachment: ${msg}`);
+  }
+}
+async function cmdAttachmentList(cli, repoProvider) {
+  const repo = requireActiveRepo2(repoProvider);
+  if (!repo)
+    return;
+  let payload;
+  try {
+    payload = await cli.runOk(repo.rootPath, [
+      "attachment",
+      "list"
+    ]);
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode24.window.showErrorMessage(`SRS: Failed to list attachments: ${msg}`);
+    return;
+  }
+  if (payload.entries.length === 0) {
+    vscode24.window.showInformationMessage(
+      "SRS: No attachments in this repository."
+    );
+    return;
+  }
+  const items = payload.entries.map((e) => ({
+    label: e.title ?? path5.basename(e.path),
+    description: e.path,
+    detail: e.sizeBytes != null ? formatBytes2(e.sizeBytes) : void 0
+  }));
+  await vscode24.window.showQuickPick(items, {
+    placeHolder: `${payload.entries.length} attachment(s) in ${payload.sourceDocumentsPath}/`,
+    matchOnDescription: true
+  });
+}
+async function cmdAttachmentExport(cli, repoProvider) {
+  const repo = requireActiveRepo2(repoProvider);
+  if (!repo)
+    return;
+  let payload;
+  try {
+    payload = await cli.runOk(repo.rootPath, [
+      "attachment",
+      "list"
+    ]);
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode24.window.showErrorMessage(`SRS: Failed to list attachments: ${msg}`);
+    return;
+  }
+  if (payload.entries.length === 0) {
+    vscode24.window.showInformationMessage("SRS: No attachments to export.");
+    return;
+  }
+  const items = payload.entries.map((e) => ({
+    label: e.title ?? path5.basename(e.path),
+    description: e.path,
+    detail: e.sizeBytes != null ? formatBytes2(e.sizeBytes) : void 0,
+    entry: e
+  }));
+  const picked = await vscode24.window.showQuickPick(items, {
+    placeHolder: "Select an attachment to export",
+    matchOnDescription: true
+  });
+  if (!picked)
+    return;
+  const sourcePath = path5.join(
+    repo.rootPath,
+    payload.sourceDocumentsPath,
+    picked.entry.path
+  );
+  const defaultName = path5.basename(picked.entry.path);
+  const target = await vscode24.window.showSaveDialog({
+    saveLabel: "Export Attachment",
+    defaultUri: vscode24.Uri.file(defaultName)
+  });
+  if (!target)
+    return;
+  try {
+    await vscode24.window.withProgress(
+      {
+        location: vscode24.ProgressLocation.Window,
+        title: `SRS: Exporting ${defaultName}\u2026`
+      },
+      () => fs.copyFile(sourcePath, target.fsPath)
+    );
+    vscode24.window.showInformationMessage(`SRS: Exported ${defaultName}.`);
+  } catch (err) {
+    vscode24.window.showErrorMessage(`SRS: Export failed: ${String(err)}`);
+  }
+}
+function formatBytes2(bytes) {
+  if (bytes < 1024)
+    return `${bytes} B`;
+  if (bytes < 1024 * 1024)
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 // src/extension.ts
 async function activate(context) {
-  const outputChannel = vscode24.window.createOutputChannel("SRS");
+  const outputChannel = vscode25.window.createOutputChannel("SRS");
   context.subscriptions.push(outputChannel);
   const cli = new CliClient(outputChannel);
   const repoProvider = new RepositoryProvider(cli);
@@ -4965,22 +5196,22 @@ async function activate(context) {
     diagnosticsProvider,
     archiveManager,
     archiveStatusBarItem,
-    vscode24.workspace.registerTextDocumentContentProvider(
+    vscode25.workspace.registerTextDocumentContentProvider(
       ENTITY_SCHEME,
       entityDocProvider
     )
   );
-  const treeView = vscode24.window.createTreeView("srsRepositoryTree", {
+  const treeView = vscode25.window.createTreeView("srsRepositoryTree", {
     treeDataProvider: treeProvider,
     showCollapseAll: true
   });
   context.subscriptions.push(treeView);
-  const navigatorView = vscode24.window.createTreeView("srsNavigatorTree", {
+  const navigatorView = vscode25.window.createTreeView("srsNavigatorTree", {
     treeDataProvider: navigatorProvider,
     showCollapseAll: true
   });
   context.subscriptions.push(navigatorView);
-  vscode24.commands.executeCommand("setContext", "srs.navigatorMode", "relations");
+  vscode25.commands.executeCommand("setContext", "srs.navigatorMode", "relations");
   repoProvider.onDidChangeActive((repo) => {
     treeView.title = repo ? `SRS: ${repo.title}` : "SRS Repository";
     if (repo) {
@@ -4991,11 +5222,11 @@ async function activate(context) {
     }
   });
   context.subscriptions.push(
-    vscode24.workspace.onDidSaveTextDocument((doc) => {
+    vscode25.workspace.onDidSaveTextDocument((doc) => {
       const repo = repoProvider.active;
       if (!repo)
         return;
-      const config = vscode24.workspace.getConfiguration("srs");
+      const config = vscode25.workspace.getConfiguration("srs");
       if (!config.get("validate.onSave", true))
         return;
       if (!doc.uri.fsPath.startsWith(repo.rootPath))
@@ -5020,6 +5251,7 @@ async function activate(context) {
   registerNavigatorCommands(context, navigatorProvider);
   registerGuideEditorCommands(context, cli, repoProvider, treeProvider);
   registerArchiveCommands(context, cli, repoProvider, archiveManager);
+  registerAttachmentCommands(context, cli, repoProvider);
   await autoDetectRepository(cli, repoProvider);
   const activeRepo = repoProvider.active;
   if (activeRepo) {
@@ -5028,7 +5260,7 @@ async function activate(context) {
   }
 }
 async function autoDetectRepository(cli, repoProvider) {
-  const config = vscode24.workspace.getConfiguration("srs");
+  const config = vscode25.workspace.getConfiguration("srs");
   const configuredPath = config.get("repository.path", null);
   if (configuredPath) {
     const repo = await repoProvider.probe(configuredPath);
@@ -5036,12 +5268,12 @@ async function autoDetectRepository(cli, repoProvider) {
       repoProvider.setActive(repo);
     } else {
       const action = "Open Settings";
-      const choice = await vscode24.window.showWarningMessage(
+      const choice = await vscode25.window.showWarningMessage(
         `SRS: Configured path '${configuredPath}' is not a valid SRS repository.`,
         action
       );
       if (choice === action) {
-        vscode24.commands.executeCommand(
+        vscode25.commands.executeCommand(
           "workbench.action.openSettings",
           "srs.repository.path"
         );
@@ -5053,7 +5285,7 @@ async function autoDetectRepository(cli, repoProvider) {
   if (discovered.length === 1) {
     repoProvider.setActive(discovered[0]);
   } else if (discovered.length > 1) {
-    vscode24.window.showInformationMessage(
+    vscode25.window.showInformationMessage(
       `SRS: Found ${discovered.length} repositories in workspace. Use 'SRS: Select Repository' to choose one.`
     );
   }
