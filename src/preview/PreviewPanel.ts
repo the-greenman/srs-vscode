@@ -127,6 +127,9 @@ const CSS = `
     .markdown-value hr { border: none; border-top: 1px solid var(--vscode-panel-border); margin: 0.6em 0; }
     .markdown-value strong { font-weight: 600; }
     .markdown-value em { font-style: italic; }
+    .nested-fields { border-left: 2px solid var(--vscode-panel-border); padding-left: 1em; margin: 0.3em 0; }
+    .nested-entry { margin: 0.6em 0; }
+    .nested-entry-index { font-size: 0.8em; color: var(--vscode-descriptionForeground); margin-bottom: 0.2em; }
   </style>
 `;
 
