@@ -4,7 +4,7 @@ import { RepositoryProvider } from "../repository/RepositoryProvider";
 import { SrsTreeDataProvider, EntityNode } from "../tree/SrsTreeDataProvider";
 import { EntityEditorPanel } from "../webview/EntityEditorPanel";
 import { formWrapHtml, buildNoteForm, buildTagForm, buildRecordForm } from "../webview/forms";
-import type { TypeFieldData, TypeFieldGroupData } from "../webview/forms";
+import { resolveTypeFields } from "../cli/typeFields";
 import type {
   RelationTypeListPayload,
   ViewListPayload,
@@ -12,6 +12,7 @@ import type {
   ThemeListPayload,
   NoteListPayload,
   RecordListPayload,
+  FieldValues,
 } from "../cli/types";
 
 // ---- Local payload shapes ----
@@ -35,36 +36,6 @@ interface TagPayload {
   };
 }
 
-interface FieldAssignmentPayload {
-  fieldId: string;
-  displayLabel?: string;
-  order: number;
-  required: boolean;
-  repeatable?: boolean;
-  minItems?: number;
-  maxItems?: number;
-}
-
-interface FieldGroupPayload {
-  groupId: string;
-  label?: string;
-  description?: string;
-  order: number;
-  required?: boolean;
-  repeatable?: boolean;
-  minItems?: number;
-  maxItems?: number;
-  fields: FieldAssignmentPayload[];
-}
-
-interface FieldGroupValuePayload {
-  groupId: string;
-  entries: Array<{
-    entryId?: string;
-    fieldValues: Array<{ fieldId: string; value: unknown; entries?: Array<{ value: unknown }> }>;
-  }>;
-}
-
 interface RecordPayload {
   record: {
     instanceId: string;
@@ -73,30 +44,29 @@ interface RecordPayload {
     typeNamespace: string;
     typeVersion: number;
     createdAt?: string;
-    fieldValues: Array<{ fieldId: string; value: unknown; entries?: Array<{ value: unknown }> }>;
-    groupValues?: FieldGroupValuePayload[];
+    fieldValues: FieldValues;
   };
 }
 
-interface TypePayload {
-  type: {
-    id: string;
-    name: string;
-    namespace: string;
-    version: number;
-    fields: FieldAssignmentPayload[];
-    fieldGroups?: FieldGroupPayload[];
-  };
-}
-
-interface FieldPayload {
-  field: {
-    id: string;
-    name: string;
-    namespace: string;
-    version: number;
-    valueType: string;
-  };
+// Structural, non-recursive-enough-to-loop deep equality — used only by the record editor's
+// concurrent-change guard, where a same-key-set-but-changed-value edit must still be caught
+// (a length/key-count comparison would miss it).
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== typeof b || a === null || b === null || a === undefined || b === undefined) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((v, i) => deepEqual(v, b[i]));
+  }
+  if (typeof a === "object") {
+    const ao = a as Record<string, unknown>;
+    const bo = b as Record<string, unknown>;
+    const ak = Object.keys(ao);
+    const bk = Object.keys(bo);
+    if (ak.length !== bk.length) return false;
+    return ak.every((k) => Object.prototype.hasOwnProperty.call(bo, k) && deepEqual(ao[k], bo[k]));
+  }
+  return false;
 }
 
 // ---- Registration ----
@@ -304,29 +274,9 @@ async function editRecord(
   const payload = await cli.runOk<RecordPayload>(repoPath, ["record", "get", id]);
   const record = payload.record;
 
-  // Fetch type to get ordered field definitions with displayLabels
-  const typePayload = await cli.runOk<TypePayload>(repoPath, [
-    "type",
-    "get",
-    record.typeId,
-  ]);
-  const typeFields = typePayload.type.fields;
-  const fieldGroups = typePayload.type.fieldGroups ?? [];
-
-  // Fetch field definitions (top-level fields + fields nested in groups) in
-  // parallel to use field name as fallback label
-  const allFieldIds = [...new Set([
-    ...typeFields.map((f) => f.fieldId),
-    ...fieldGroups.flatMap((g) => g.fields.map((f) => f.fieldId)),
-  ])];
-  const fieldResults = await Promise.allSettled(
-    allFieldIds.map((fieldId) => cli.runOk<FieldPayload>(repoPath, ["field", "get", fieldId]))
-  );
-  const fieldNameById = new Map<string, string>();
-  allFieldIds.forEach((fieldId, i) => {
-    const fr = fieldResults[i];
-    if (fr.status === "fulfilled") fieldNameById.set(fieldId, fr.value.field.name);
-  });
+  // `type schema` already resolves the Type's effective field set — names, order,
+  // labels, and composite-range expansion — so no per-field `field get` walk is needed.
+  const fieldData = await resolveTypeFields(cli, repoPath, record.typeId, record.typeVersion);
 
   const recordData = {
     instanceId: record.instanceId,
@@ -336,35 +286,10 @@ async function editRecord(
     typeVersion: record.typeVersion,
     createdAt: record.createdAt,
     fieldValues: record.fieldValues,
-    groupValues: record.groupValues,
   };
 
-  const toFieldData = (f: FieldAssignmentPayload): TypeFieldData => ({
-    fieldId: f.fieldId,
-    displayLabel: f.displayLabel ?? fieldNameById.get(f.fieldId),
-    order: f.order,
-    required: f.required,
-    repeatable: f.repeatable,
-    minItems: f.minItems,
-    maxItems: f.maxItems,
-  });
-
-  const fieldData = typeFields.map(toFieldData);
-
-  const groupData: TypeFieldGroupData[] = fieldGroups.map((g) => ({
-    groupId: g.groupId,
-    label: g.label,
-    description: g.description,
-    order: g.order,
-    required: g.required,
-    repeatable: g.repeatable,
-    minItems: g.minItems,
-    maxItems: g.maxItems,
-    fields: g.fields.map(toFieldData),
-  }));
-
   const panelTitle = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
-  const html = formWrapHtml(panelTitle, buildRecordForm(recordData, fieldData, groupData));
+  const html = formWrapHtml(panelTitle, buildRecordForm(recordData, fieldData));
 
   EntityEditorPanel.show(context, `record:${id}`, panelTitle, html, async (data) => {
     const d = data as {
@@ -374,19 +299,25 @@ async function editRecord(
       typeNamespace: string;
       typeVersion: number;
       createdAt?: string;
-      fieldValues: Array<{ fieldId: string; value: string }>;
-      groupValues?: Array<{
-        groupId: string;
-        entries: Array<{
-          entryId?: string;
-          fieldValues: Array<{ fieldId: string; value: string; entries?: Array<{ value: string }> }>;
-        }>;
-      }>;
+      fieldValues: FieldValues;
     };
 
-    // Concurrent-change guard
+    const projectedNames = new Set(fieldData.map((f) => f.name));
+
+    // Concurrent-change guard — against an object carrier, a key-count or length
+    // comparison misses same-key-set edits (e.g. a changed value), so this compares
+    // the full value tree. Scoped to fields the form actually rendered: a change to
+    // a field outside that set is always carried forward untouched by the preserve
+    // step below regardless of what the user does here, so flagging it as a
+    // conflict would only be a false-positive "overwrite?" prompt for an edit the
+    // user has no way to see or evaluate.
     const refetch = await cli.runOk<RecordPayload>(repoPath, ["record", "get", id]);
-    if (refetch.record.fieldValues.length !== record.fieldValues.length) {
+    const projectedOnly = (fv: FieldValues): FieldValues => {
+      const out: FieldValues = {};
+      for (const name of projectedNames) if (fv[name] !== undefined) out[name] = fv[name];
+      return out;
+    };
+    if (!deepEqual(projectedOnly(refetch.record.fieldValues), projectedOnly(record.fieldValues))) {
       const proceed = await vscode.window.showWarningMessage(
         `SRS: Record was modified since you opened it. Overwrite?`,
         { modal: true },
@@ -395,8 +326,29 @@ async function editRecord(
       if (proceed !== "Overwrite") return;
     }
 
+    // `record update` is a full replace (RFC-039 R9), and the form only renders
+    // fields `type schema` actually projected — a field skipped there (e.g. an
+    // unresolvable fieldId assignment, which the CLI reports as a non-fatal
+    // diagnostic rather than a failure) is invisible to the form and would
+    // otherwise be silently deleted on save. Carry over anything the form never
+    // had a chance to show; every field it DID show is taken as-is from the form,
+    // including a field the user deliberately cleared.
+    //
+    // Known limitation, one level deep only: this preserves top-level *keys* the
+    // schema doesn't project, not undeclared sub-keys inside a composite/list-
+    // composite field the schema DOES project (that field's whole value comes from
+    // the form, rebuilt only from its declared children). Closing that gap
+    // generally means a real patch-update capability server-side (record update
+    // already has None-preserves-existing semantics for tags/fieldMeta on this same
+    // input struct — fieldValues doesn't); this client-side preserve is a stopgap
+    // for the common case, not a substitute for that.
+    const preserved: FieldValues = {};
+    for (const [name, value] of Object.entries(refetch.record.fieldValues)) {
+      if (!projectedNames.has(name)) preserved[name] = value;
+    }
+
     await cli.runOk<unknown>(repoPath, ["record", "update", id], {
-      stdin: JSON.stringify(d),
+      stdin: JSON.stringify({ fieldValues: { ...preserved, ...d.fieldValues } }),
     });
 
     treeProvider.refresh();
