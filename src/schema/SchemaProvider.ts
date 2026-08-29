@@ -10,7 +10,6 @@ const SCHEMA_ASSOCIATIONS: Array<{ glob: string; schema: string }> = [
   // are whole-repo bundle extensions, never per-instance files — do not glob them.
   { glob: "**/records/**/*.json",          schema: "schemas/2.0/record.json" },
   { glob: "**/notes/**/*.json",            schema: "schemas/2.0/note.json" },
-  { glob: "**/typed-records/**/*.json",    schema: "schemas/2.0/typed-record.json" },
   { glob: "**/package/fields/*.json",      schema: "schemas/2.0/field.json" },
   { glob: "**/package/types/*.json",       schema: "schemas/2.0/type.json" },
   { glob: "**/package/views/*.json",       schema: "schemas/2.0/view.json" },
