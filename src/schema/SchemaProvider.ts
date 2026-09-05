@@ -13,7 +13,6 @@ const SCHEMA_ASSOCIATIONS: Array<{ glob: string; schema: string }> = [
   { glob: "**/package/fields/*.json",      schema: "schemas/2.0/field.json" },
   { glob: "**/package/types/*.json",       schema: "schemas/2.0/type.json" },
   { glob: "**/package/views/*.json",       schema: "schemas/2.0/view.json" },
-  { glob: "**/package/document-views/*.json", schema: "schemas/2.0/document-view.json" },
   { glob: "**/package/package.json",       schema: "schemas/2.0/package-manifest.json" },
   // RFC-038 Change E: one Relation per file at relations/<relationId>.json — the
   // former single relations.json collection is retired.
