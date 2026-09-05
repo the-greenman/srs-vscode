@@ -57,10 +57,6 @@
         "title": "SRS: Create Note"
       },
       {
-        "command": "srs.createTag",
-        "title": "SRS: Create Tag Definition"
-      },
-      {
         "command": "srs.createRecord",
         "title": "SRS: Create Record"
       },
