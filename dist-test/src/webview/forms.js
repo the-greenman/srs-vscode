@@ -2,10 +2,37 @@
 // HTML form builders for SRS entity editors.
 // No vscode dependency — pure string generation.
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.REPEAT_ENTRY_JS = void 0;
 exports.formWrapHtml = formWrapHtml;
 exports.buildNoteForm = buildNoteForm;
-exports.buildTagForm = buildTagForm;
 exports.buildRecordForm = buildRecordForm;
+// ---- Shared JS for dynamic repeat-entry lists ----
+// Relies on CSS classes .repeat-list, .repeat-entry, .repeat-value, .btn-remove-entry,
+// .btn-add-entry (all defined in FORM_CSS). Include once per webview.
+exports.REPEAT_ENTRY_JS = `
+  function wireRemoveEntry(btn) {
+    btn.addEventListener('click', function() {
+      btn.closest('[data-repeat-entry]').remove();
+    });
+  }
+  function addEntry(listId, rows) {
+    var list = document.getElementById(listId);
+    var entry = document.createElement('div');
+    entry.className = 'repeat-entry';
+    entry.setAttribute('data-repeat-entry', '');
+    entry.innerHTML = '<textarea class="repeat-value" rows="' + (rows || 2) + '"></textarea>' +
+      '<button type="button" class="btn-remove-entry" title="Remove">\\u2715</button>';
+    list.appendChild(entry);
+    entry.querySelector('.repeat-value').focus();
+    wireRemoveEntry(entry.querySelector('.btn-remove-entry'));
+  }
+  document.querySelectorAll('.btn-remove-entry').forEach(wireRemoveEntry);
+  document.querySelectorAll('.btn-add-entry[data-target]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      addEntry(btn.getAttribute('data-target'), parseInt(btn.getAttribute('data-rows') || '2', 10));
+    });
+  });
+`;
 // ---- HTML escape ----
 function esc(s) {
     return s
@@ -292,263 +319,183 @@ function buildNoteForm(note) {
     <input type="hidden" name="createdAt" value="${escAttr(note.createdAt ?? "")}">
     ${collectJs}`;
 }
-// ---- Tag form ----
-function buildTagForm(tag) {
-    const collectJs = `
-  <script>
-    function collectFormData() {
-      const form = document.getElementById('editor-form');
-      const slug = form.querySelector('[name="slug"]').value.trim();
-      const labelRaw = form.querySelector('[name="label"]').value.trim();
-      const instanceId = form.querySelector('[name="instanceId"]').value;
-      const createdAt = form.querySelector('[name="createdAt"]').value || undefined;
-      return { instanceId, slug, label: labelRaw || undefined, createdAt };
-    }
-  </script>`;
-    return `
-    <div class="field">
-      <label>Slug <span class="required-mark">*</span></label>
-      <input type="text" name="slug" value="${escAttr(tag.slug)}" required
-             pattern="[a-z0-9]+(-[a-z0-9]+)*" autofocus>
-      <div class="hint">Kebab-case, e.g. needs-review</div>
-    </div>
-    <div class="field">
-      <label>Display Label</label>
-      <input type="text" name="label" value="${escAttr(tag.label ?? "")}">
-    </div>
-    <input type="hidden" name="instanceId" value="${escAttr(tag.instanceId)}">
-    <input type="hidden" name="createdAt" value="${escAttr(tag.createdAt ?? "")}">
-    ${collectJs}`;
-}
-// ---- Record form (RFC-039 recursive carrier) ----
-//
-// Each field renders as `<div class="field" data-field="NAME" data-kind="KIND">`, where
-// NAME is the fieldValues carrier key and KIND drives both rendering and client-side
-// collection. Composite/list-composite fields nest the same field-div shape one level
-// deeper, so a single recursive collector (collectContainer in the injected JS) rebuilds
-// the whole fieldValues object regardless of nesting depth — no per-field bookkeeping.
-function fmtScalar(value) {
-    if (value === undefined || value === null)
-        return "";
-    return typeof value === "string" ? value : JSON.stringify(value);
-}
-function renderField(f, value) {
-    const label = f.displayLabel;
+// ---- Record form: field groups (ext:field-groups) ----
+function groupFieldValueHtml(f, fv) {
+    const label = f.displayLabel ?? f.fieldId.slice(0, 8);
     const requiredMark = f.required ? ` <span class="required-mark">*</span>` : "";
-    const hint = (f.minItems != null || f.maxItems != null)
-        ? `<div class="hint">Repeatable${f.minItems != null ? ` min ${f.minItems}` : ""}${f.maxItems != null ? ` max ${f.maxItems}` : ""}</div>`
-        : "";
-    let body;
-    switch (f.kind) {
-        case "enum": {
-            const current = fmtScalar(value);
-            const knownValues = f.enumValues ?? [];
-            // A leading blank option is REQUIRED: without one, a field with no current value
-            // has no <option selected>, so the browser silently auto-selects the first real
-            // option — which then gets submitted as if the user chose it, corrupting an
-            // unset optional field into an arbitrary one (RFC-039 "absence = unset").
-            const options = [`<option value=""${current === "" ? " selected" : ""}></option>`]
-                .concat(knownValues.map((v) => `<option value="${escAttr(v)}"${v === current ? " selected" : ""}>${esc(v)}</option>`))
-                // A stored value outside the current enum (e.g. vocabulary drifted since this
-                // record was written) would otherwise match no <option>, so the browser falls
-                // back to the blank one and the value is silently dropped on save. Surface it
-                // as its own selected option instead of losing it.
-                .concat(current !== "" && !knownValues.includes(current)
-                ? [`<option value="${escAttr(current)}" selected>${esc(current)} (not in current vocabulary)</option>`]
-                : [])
-                .join("");
-            body = `<select class="scalar-input" data-scalar-type="string"${f.required ? " required" : ""}>${options}</select>`;
-            break;
-        }
-        case "scalar": {
-            const required = f.required ? ` required` : "";
-            body = `<textarea class="scalar-input" data-scalar-type="${escAttr(f.scalarType ?? "string")}" rows="2"${required}>${escText(fmtScalar(value))}</textarea>`;
-            break;
-        }
-        case "list-scalar": {
-            const values = Array.isArray(value) ? value.map(fmtScalar) : [];
-            const entries = values.map((v) => `
+    if (f.repeatable) {
+        const entries = fv?.entries && fv.entries.length > 0
+            ? fv.entries.map((e) => (typeof e.value === "string" ? e.value : JSON.stringify(e.value)))
+            : [""];
+        const entryInputs = entries.map((v) => `
         <div class="repeat-entry" data-repeat-entry>
           <textarea class="repeat-value" rows="2">${escText(v)}</textarea>
           <button type="button" class="btn-remove-entry" title="Remove">✕</button>
         </div>`).join("");
-            body = `
-        <div class="repeat-list">${entries}</div>
-        <button type="button" class="btn-add-entry" data-add="value">+ Add value</button>
-        ${hint}`;
-            break;
-        }
-        case "composite": {
-            const obj = (value && typeof value === "object" && !Array.isArray(value)) ? value : {};
-            const childrenHtml = (f.children ?? [])
-                .map((c) => renderField(c, obj[c.name]))
-                .join("");
-            body = `<div class="composite-body section-group">${childrenHtml}</div>`;
-            break;
-        }
-        case "list-composite": {
-            const items = Array.isArray(value) ? value : [];
-            const renderEntry = (entryValue) => `
-        <div class="entry group-entry" data-entry>
-          ${(f.children ?? []).map((c) => renderField(c, entryValue[c.name])).join("")}
-          <button type="button" class="btn-remove-group-entry" title="Remove entry">✕ Remove</button>
-        </div>`;
-            const entriesHtml = items
-                .map((it) => renderEntry((it && typeof it === "object") ? it : {}))
-                .join("");
-            // No id/data-target scheme here: a cloned <template> entry's own nested fields
-            // (e.g. a repeatable child inside a repeated entry) would otherwise share ids
-            // with every other clone, so every "+ Add" click resolves to the FIRST clone
-            // via getElementById. Scoping is done relative to the clicked button's parent
-            // field element instead (see RECORD_FORM_JS) — correct at any nesting depth and
-            // for any number of clones.
-            body = `
-        <div class="entries group-entries">${entriesHtml}</div>
-        <button type="button" class="btn-add-entry" data-add="entry">+ Add ${esc(label)}</button>
-        ${hint}
-        <template>${renderEntry({})}</template>`;
-            break;
-        }
+        return `
+      <div class="field" data-field-id="${escAttr(f.fieldId)}" data-repeatable>
+        <label>${esc(label)}${requiredMark}</label>
+        <div class="repeat-list">${entryInputs}</div>
+        <button type="button" class="btn-add-entry" data-add-repeat>+ Add value</button>
+      </div>`;
     }
+    const value = fv && !fv.entries
+        ? (typeof fv.value === "string" ? fv.value : (fv.value == null ? "" : JSON.stringify(fv.value)))
+        : "";
+    const required = f.required ? ` required` : "";
     return `
-    <div class="field" data-field="${escAttr(f.name)}" data-kind="${f.kind}" data-scalar-type="${escAttr(f.scalarType ?? "string")}">
-      <label>${esc(label)}${requiredMark}</label>
-      ${body}
+      <div class="field" data-field-id="${escAttr(f.fieldId)}">
+        <label>${esc(label)}${requiredMark}</label>
+        <textarea class="group-field-value" rows="2"${required}>${escText(value)}</textarea>
+      </div>`;
+}
+function groupEntryHtml(fields, entry, removable) {
+    const fvById = new Map((entry?.fieldValues ?? []).map((fv) => [fv.fieldId, fv]));
+    const fieldsHtml = [...fields]
+        .sort((a, b) => a.order - b.order)
+        .map((f) => groupFieldValueHtml(f, fvById.get(f.fieldId)))
+        .join("");
+    const removeBtn = removable
+        ? `<div class="section-header"><span></span><button type="button" class="btn-remove-group-entry" title="Remove entry">✕</button></div>`
+        : "";
+    return `
+    <div class="group-entry" data-group-entry data-entry-id="${escAttr(entry?.entryId ?? "")}">
+      ${removeBtn}
+      ${fieldsHtml}
     </div>`;
 }
-const RECORD_FORM_JS = `
-  <script>
-    function directChildrenWithAttr(el, attr) {
-      return Array.prototype.filter.call(el.children, function(c) { return c.hasAttribute(attr); });
+function groupBlockHtml(g, index, entries) {
+    const label = g.label ?? g.groupId;
+    const requiredMark = g.required ? ` <span class="required-mark">*</span>` : "";
+    const minHint = g.minItems != null ? ` min ${g.minItems}` : "";
+    const maxHint = g.maxItems != null ? ` max ${g.maxItems}` : "";
+    const repeatHint = g.repeatable && (minHint || maxHint)
+        ? `<div class="hint">Repeatable${minHint}${maxHint}</div>`
+        : "";
+    const descriptionHtml = g.description ? `<div class="hint">${esc(g.description)}</div>` : "";
+    const initialEntries = entries.length > 0 ? entries : [undefined];
+    const entriesHtml = initialEntries
+        .map((e) => groupEntryHtml(g.fields, e, g.repeatable ?? false))
+        .join("");
+    const addEntryBtn = g.repeatable
+        ? `<button type="button" class="btn-add-entry" data-add-group="${index}">+ Add ${esc(label)}</button>`
+        : "";
+    const templateHtml = g.repeatable
+        ? `<template id="group-entry-template-${index}">${groupEntryHtml(g.fields, undefined, true)}</template>`
+        : "";
+    return `
+    <div class="section-group" data-group data-group-id="${escAttr(g.groupId)}">
+      <div class="section-header"><strong>${esc(label)}${requiredMark}</strong></div>
+      ${descriptionHtml}
+      <div class="group-entries" id="group-entries-${index}">${entriesHtml}</div>
+      ${addEntryBtn}
+      ${repeatHint}
+      ${templateHtml}
+    </div>`;
+}
+// ---- Record form ----
+function buildRecordForm(record, fields, groups = []) {
+    const sorted = [...fields].sort((a, b) => a.order - b.order);
+    // Build maps for scalar values and entries arrays from current fieldValues
+    const currentScalar = new Map();
+    const currentEntries = new Map();
+    for (const fv of record.fieldValues) {
+        if (fv.entries && fv.entries.length > 0) {
+            currentEntries.set(fv.fieldId, fv.entries.map((e) => (typeof e.value === "string" ? e.value : JSON.stringify(e.value))));
+        }
+        else {
+            currentScalar.set(fv.fieldId, typeof fv.value === "string" ? fv.value : JSON.stringify(fv.value));
+        }
     }
-    // "Blank" for an object built by collectContainer means every value in it is
-    // trivially empty — an empty string/array/object, or nested all the way down to
-    // one. A plain key-count check misses this: a blank list-composite entry whose
-    // nested list-scalar child always self-includes (see 'list-scalar' below) still
-    // has a key, just an empty-array one.
-    function isEffectivelyEmpty(v) {
-      if (v === undefined || v === null || v === '') return true;
-      if (Array.isArray(v)) return v.every(isEffectivelyEmpty);
-      if (typeof v === 'object') return Object.keys(v).every(function(k) { return isEffectivelyEmpty(v[k]); });
-      return false;
+    const fieldHtml = sorted.map((f, i) => {
+        const label = f.displayLabel ?? f.fieldId.slice(0, 8);
+        const requiredMark = f.required ? ` <span class="required-mark">*</span>` : "";
+        const minHint = f.minItems != null ? ` min ${f.minItems}` : "";
+        const maxHint = f.maxItems != null ? ` max ${f.maxItems}` : "";
+        const repeatHint = (minHint || maxHint) ? `<div class="hint">Repeatable${minHint}${maxHint}</div>` : "";
+        if (f.repeatable) {
+            const entries = currentEntries.get(f.fieldId) ?? (currentScalar.has(f.fieldId) ? [currentScalar.get(f.fieldId)] : [""]);
+            const entryInputs = entries.map((v) => `
+        <div class="repeat-entry" data-repeat-entry>
+          <textarea class="repeat-value" rows="2">${escText(v)}</textarea>
+          <button type="button" class="btn-remove-entry" title="Remove">✕</button>
+        </div>`).join("");
+            return `
+    <div class="field" data-field-index="${i}" data-repeatable>
+      <label>${esc(label)}${requiredMark}</label>
+      <div class="repeat-list" id="repeat-list-${i}">${entryInputs}</div>
+      <button type="button" class="btn-add-entry" data-target="repeat-list-${i}">+ Add value</button>
+      ${repeatHint}
+      <input type="hidden" name="field_id_${i}" value="${escAttr(f.fieldId)}">
+    </div>`;
+        }
+        else {
+            const value = currentScalar.get(f.fieldId) ?? "";
+            const required = f.required ? ` required` : "";
+            return `
+    <div class="field" data-field-index="${i}">
+      <label>${esc(label)}${requiredMark}</label>
+      <textarea name="field_value_${i}" rows="2"${required}>${escText(value)}</textarea>
+      <input type="hidden" name="field_id_${i}" value="${escAttr(f.fieldId)}">
+    </div>`;
+        }
+    }).join("");
+    const fieldCount = sorted.length;
+    // Encode which field indices are repeatable so collectFormData can branch
+    const repeatableIndices = sorted
+        .map((f, i) => (f.repeatable ? i : -1))
+        .filter((i) => i >= 0);
+    const sortedGroups = [...groups].sort((a, b) => a.order - b.order);
+    const groupValuesByGroupId = new Map();
+    for (const gv of record.groupValues ?? []) {
+        groupValuesByGroupId.set(gv.groupId, gv.entries);
     }
-    function coerceScalar(raw, type) {
-      var trimmed = raw.trim();
-      if (trimmed === '') return undefined;
-      if (type === 'number' || type === 'integer') {
-        var n = Number(trimmed);
-        return isFinite(n) ? n : trimmed;
-      }
-      if (type === 'boolean') {
-        // Compare against the trimmed value — every scalar renders as a plain
-        // multi-line <textarea> (no dedicated checkbox widget), so a boolean field's
-        // input can pick up a trailing newline/space that would otherwise defeat an
-        // exact-match comparison against the untrimmed raw string.
-        if (trimmed === 'true') return true;
-        if (trimmed === 'false') return false;
-      }
-      if (type === 'json') {
-        // A field whose value is structured (map datatype, or an inline-composite
-        // that failed to expand) but has no per-field inputs — round-trip through
-        // parse/stringify rather than sending the display string back as a plain
-        // string, which would silently corrupt the stored object.
-        try { return JSON.parse(trimmed); } catch (e) { return raw; }
-      }
-      // Plain string: trim leading/trailing whitespace (matches the pre-RFC-039
-      // editor's behavior) — internal newlines/formatting in multi-line prose are
-      // untouched, only the edges are. An untrimmed save would otherwise pick up
-      // stray whitespace from the textarea and, via the concurrent-edit guard's
-      // exact-value deepEqual, could even trigger a spurious "modified since you
-      // opened it" warning on a later edit.
-      return trimmed;
-    }
-    // Per-list-item coercion. Deliberately NOT coerceScalar: a blank ENTRY in a list
-    // is a real value at that position (e.g. a deliberately empty table cell,
-    // cells: ["Yes", "", "See note"]) — coerceScalar's "blank means unset" collapses
-    // to undefined, which would have to be filtered, silently shifting every later
-    // entry left and misaligning positional data. Only number/boolean/json entries
-    // get type coercion; blank entries of any type are kept as-is, at their position.
-    function coerceListItem(raw, type) {
-      if (type === 'number' || type === 'integer') {
-        var n = Number(raw.trim());
-        return isFinite(n) ? n : raw;
-      }
-      if (type === 'boolean') {
-        var t = raw.trim();
-        if (t === 'true') return true;
-        if (t === 'false') return false;
-        return raw;
-      }
-      if (type === 'json') {
-        var t2 = raw.trim();
-        if (t2 === '') return '';
-        try { return JSON.parse(t2); } catch (e) { return raw; }
-      }
-      return raw.trim();
-    }
-    function collectFieldValue(fieldEl, kind) {
-      if (kind === 'scalar' || kind === 'enum') {
-        var input = fieldEl.querySelector('.scalar-input');
-        return coerceScalar(input.value, input.getAttribute('data-scalar-type'));
-      }
-      if (kind === 'list-scalar') {
-        // Unlike a scalar textarea, an empty list is a meaningful, distinct value
-        // (not "unset") — always send it so the CLI's own min-items validation runs,
-        // and so a legitimately-empty list already on the record survives untouched.
-        var itemType = fieldEl.getAttribute('data-scalar-type');
-        var vals = [];
-        fieldEl.querySelectorAll('.repeat-list [data-repeat-entry] .repeat-value').forEach(function(ta) {
-          vals.push(coerceListItem(ta.value, itemType));
+    const groupsHtml = sortedGroups
+        .map((g, gi) => groupBlockHtml(g, gi, groupValuesByGroupId.get(g.groupId) ?? []))
+        .join("");
+    const hasGroups = sortedGroups.length > 0;
+    const groupJs = hasGroups ? `
+    function collectGroupValues() {
+      var groupValues = [];
+      document.querySelectorAll('[data-group]').forEach(function(groupEl) {
+        var groupId = groupEl.getAttribute('data-group-id');
+        var entries = [];
+        groupEl.querySelectorAll('[data-group-entry]').forEach(function(entryEl) {
+          var fieldValues = [];
+          entryEl.querySelectorAll('[data-field-id]').forEach(function(fieldEl) {
+            var fieldId = fieldEl.getAttribute('data-field-id');
+            if (fieldEl.hasAttribute('data-repeatable')) {
+              var vals = [];
+              fieldEl.querySelectorAll('.repeat-entry .repeat-value').forEach(function(ta) {
+                var v = ta.value.trim();
+                if (v) vals.push({ value: v });
+              });
+              if (vals.length > 0) fieldValues.push({ fieldId: fieldId, value: '', entries: vals });
+            } else {
+              var val = fieldEl.querySelector('.group-field-value').value.trim();
+              if (val) fieldValues.push({ fieldId: fieldId, value: val });
+            }
+          });
+          if (fieldValues.length > 0) {
+            var entryOut = { fieldValues: fieldValues };
+            var entryId = entryEl.getAttribute('data-entry-id');
+            if (entryId) entryOut.entryId = entryId;
+            entries.push(entryOut);
+          }
         });
-        return vals;
-      }
-      if (kind === 'composite') {
-        // Unlike a list, a single composite has no "legitimately empty but present"
-        // reading — an optional composite the user left entirely blank means unset,
-        // same as a blank scalar, so it must be omitted (RFC-039 absence=unset) rather
-        // than sent as {}. (A required composite left blank still surfaces a real
-        // validation error either way — omission just produces the clearer one.)
-        var obj = collectContainer(fieldEl.querySelector('.composite-body'));
-        return isEffectivelyEmpty(obj) ? undefined : obj;
-      }
-      if (kind === 'list-composite') {
-        // Drop entries left entirely blank — e.g. "+ Add" clicked then Save without
-        // filling anything in (or the per-entry Remove button not used). Without this,
-        // a stray {} (or a partial object missing every field) gets submitted as a
-        // real entry.
-        var out = [];
-        var entriesEl = fieldEl.querySelector('.entries');
-        directChildrenWithAttr(entriesEl, 'data-entry').forEach(function(entryEl) {
-          var obj = collectContainer(entryEl);
-          if (!isEffectivelyEmpty(obj)) out.push(obj);
-        });
-        return out;
-      }
-    }
-    function collectContainer(container) {
-      var obj = {};
-      directChildrenWithAttr(container, 'data-field').forEach(function(fieldEl) {
-        var name = fieldEl.getAttribute('data-field');
-        var kind = fieldEl.getAttribute('data-kind');
-        var val = collectFieldValue(fieldEl, kind);
-        if (val !== undefined) obj[name] = val;
+        groupValues.push({ groupId: groupId, entries: entries });
       });
-      return obj;
+      return groupValues;
     }
 
-    document.getElementById('editor-form').addEventListener('click', function(ev) {
-      var removeEntryBtn = ev.target.closest('.btn-remove-entry');
-      if (removeEntryBtn) { removeEntryBtn.closest('[data-repeat-entry]').remove(); return; }
-
-      var removeGroupBtn = ev.target.closest('.btn-remove-group-entry');
-      if (removeGroupBtn) { removeGroupBtn.closest('[data-entry]').remove(); return; }
-
-      // Scoped relative to the clicked button's own field element, never by id — a
-      // cloned entry's nested fields share no unique id with their template origin,
-      // so getElementById would always resolve to the first-ever-rendered clone.
-      var addRepeatBtn = ev.target.closest('.btn-add-entry[data-add="value"]');
-      if (addRepeatBtn) {
-        var list = addRepeatBtn.parentElement.querySelector('.repeat-list');
+    function wireRemoveGroupEntry(btn) {
+      btn.addEventListener('click', function() {
+        btn.closest('[data-group-entry]').remove();
+      });
+    }
+    function wireGroupRepeatAdd(btn) {
+      btn.addEventListener('click', function() {
+        var list = btn.parentElement.querySelector('.repeat-list');
         var entry = document.createElement('div');
         entry.className = 'repeat-entry';
         entry.setAttribute('data-repeat-entry', '');
@@ -556,45 +503,76 @@ const RECORD_FORM_JS = `
           '<button type="button" class="btn-remove-entry" title="Remove">\\u2715</button>';
         list.appendChild(entry);
         entry.querySelector('.repeat-value').focus();
-        return;
-      }
-
-      var addEntriesBtn = ev.target.closest('.btn-add-entry[data-add="entry"]');
-      if (addEntriesBtn) {
-        var container = addEntriesBtn.parentElement.querySelector('.entries');
-        // Direct-child only: a live existing entry may itself contain a nested
-        // list-composite field with its OWN <template> deeper in the tree, which a
-        // plain (descendant) querySelector('template') would find first.
-        var template = addEntriesBtn.parentElement.querySelector(':scope > template');
+        wireRemoveEntry(entry.querySelector('.btn-remove-entry'));
+      });
+    }
+    function wireAddGroupEntry(btn) {
+      btn.addEventListener('click', function() {
+        var gi = btn.getAttribute('data-add-group');
+        var template = document.getElementById('group-entry-template-' + gi);
+        var container = document.getElementById('group-entries-' + gi);
         container.appendChild(template.content.cloneNode(true));
-        return;
-      }
-    });
+        var newEntry = container.lastElementChild;
+        wireRemoveGroupEntry(newEntry.querySelector('.btn-remove-group-entry'));
+        newEntry.querySelectorAll('.btn-add-entry[data-add-repeat]').forEach(wireGroupRepeatAdd);
+      });
+    }
+    document.querySelectorAll('.btn-remove-group-entry').forEach(wireRemoveGroupEntry);
+    document.querySelectorAll('.btn-add-entry[data-add-repeat]').forEach(wireGroupRepeatAdd);
+    document.querySelectorAll('.btn-add-entry[data-add-group]').forEach(wireAddGroupEntry);
+  ` : "";
+    const collectJs = `
+  <script>
+    var repeatableIndices = ${JSON.stringify(repeatableIndices)};
 
     function collectFormData() {
       var form = document.getElementById('editor-form');
-      return {
-        instanceId: form.querySelector('[name="instanceId"]').value,
-        typeId: form.querySelector('[name="typeId"]').value,
-        typeName: form.querySelector('[name="typeName"]').value,
-        typeNamespace: form.querySelector('[name="typeNamespace"]').value,
-        typeVersion: parseInt(form.querySelector('[name="typeVersion"]').value, 10),
-        createdAt: form.querySelector('[name="createdAt"]').value || undefined,
-        fieldValues: collectContainer(document.getElementById('fields-root')),
-      };
+      var instanceId = form.querySelector('[name="instanceId"]').value;
+      var typeId = form.querySelector('[name="typeId"]').value;
+      var typeName = form.querySelector('[name="typeName"]').value;
+      var typeNamespace = form.querySelector('[name="typeNamespace"]').value;
+      var typeVersion = parseInt(form.querySelector('[name="typeVersion"]').value, 10);
+      var createdAt = form.querySelector('[name="createdAt"]').value || undefined;
+      var fieldCount = parseInt(form.querySelector('[name="fieldCount"]').value, 10);
+      var fieldValues = [];
+      for (var i = 0; i < fieldCount; i++) {
+        var fieldId = form.querySelector('[name="field_id_' + i + '"]').value;
+        if (repeatableIndices.indexOf(i) >= 0) {
+          var list = form.querySelector('#repeat-list-' + i);
+          var entries = [];
+          list.querySelectorAll('[data-repeat-entry] .repeat-value').forEach(function(ta) {
+            var v = ta.value.trim();
+            if (v) entries.push({ value: v });
+          });
+          // Always include repeatable fields (even if empty, for min-items validation)
+          fieldValues.push({ fieldId: fieldId, value: '', entries: entries });
+        } else {
+          var value = form.querySelector('[name="field_value_' + i + '"]').value;
+          if (value.trim()) {
+            fieldValues.push({ fieldId: fieldId, value: value.trim() });
+          }
+        }
+      }
+      var result = { instanceId: instanceId, typeId: typeId, typeName: typeName,
+               typeNamespace: typeNamespace, typeVersion: typeVersion,
+               createdAt: createdAt, fieldValues: fieldValues };
+      ${hasGroups ? "result.groupValues = collectGroupValues();" : ""}
+      return result;
     }
+
+    ${exports.REPEAT_ENTRY_JS.trim()}
+    ${groupJs}
   </script>`;
-function buildRecordForm(record, fields) {
-    const sorted = [...fields].sort((a, b) => a.order - b.order);
-    const fieldsHtml = sorted.map((f) => renderField(f, record.fieldValues[f.name])).join("");
     return `
-    <div id="fields-root">${fieldsHtml}</div>
+    ${fieldHtml}
+    ${groupsHtml}
     <input type="hidden" name="instanceId" value="${escAttr(record.instanceId)}">
     <input type="hidden" name="typeId" value="${escAttr(record.typeId)}">
     <input type="hidden" name="typeName" value="${escAttr(record.typeName)}">
     <input type="hidden" name="typeNamespace" value="${escAttr(record.typeNamespace)}">
     <input type="hidden" name="typeVersion" value="${escAttr(String(record.typeVersion))}">
     <input type="hidden" name="createdAt" value="${escAttr(record.createdAt ?? "")}">
-    ${RECORD_FORM_JS}`;
+    <input type="hidden" name="fieldCount" value="${fieldCount}">
+    ${collectJs}`;
 }
 //# sourceMappingURL=forms.js.map

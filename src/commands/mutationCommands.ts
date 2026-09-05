@@ -7,7 +7,6 @@ import type {
   TypeListPayload,
   ContainerListPayload,
   NoteListPayload,
-  TagListPayload,
   RecordListPayload,
 } from "../cli/types";
 
@@ -21,9 +20,6 @@ export function registerMutationCommands(
   context.subscriptions.push(
     vscode.commands.registerCommand("srs.createNote", () =>
       cmdCreateNote(cli, repoProvider, attention, treeProvider),
-    ),
-    vscode.commands.registerCommand("srs.createTag", () =>
-      cmdCreateTag(cli, repoProvider, treeProvider),
     ),
     vscode.commands.registerCommand("srs.createRecord", () =>
       cmdCreateRecord(cli, repoProvider, attention, treeProvider),
@@ -95,56 +91,6 @@ async function cmdCreateNote(
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
     vscode.window.showErrorMessage(`SRS: Failed to create note: ${msg}`);
-  }
-}
-
-// ---- Create Tag ----
-
-async function cmdCreateTag(
-  cli: CliClient,
-  repoProvider: RepositoryProvider,
-  treeProvider: SrsTreeDataProvider,
-): Promise<void> {
-  const repo = requireActiveRepo(repoProvider);
-  if (!repo) return;
-
-  const slug = await vscode.window.showInputBox({
-    title: "SRS: Create Tag",
-    prompt: "Tag slug (kebab-case identifier)",
-    placeHolder: "e.g. needs-review",
-    validateInput: (v) =>
-      /^[a-z0-9]+(-[a-z0-9]+)*$/.test(v.trim())
-        ? undefined
-        : "Slug must be kebab-case (e.g. my-tag)",
-  });
-  if (!slug) return;
-
-  const label = await vscode.window.showInputBox({
-    title: "SRS: Create Tag",
-    prompt: "Display label (optional)",
-    placeHolder: "e.g. Needs Review",
-  });
-
-  const { randomUUID } = await import("crypto");
-  const instanceId = randomUUID();
-  const now = new Date().toISOString();
-
-  const tagJson = JSON.stringify({
-    instanceId,
-    slug: slug.trim(),
-    label: label?.trim() || undefined,
-    createdAt: now,
-  });
-
-  try {
-    await cli.runOk<unknown>(repo.rootPath, ["tag", "create"], {
-      stdin: tagJson,
-    });
-    treeProvider.refresh();
-    vscode.window.showInformationMessage(`SRS: Tag '${slug}' created.`);
-  } catch (err) {
-    const msg = err instanceof CliError ? err.message : String(err);
-    vscode.window.showErrorMessage(`SRS: Failed to create tag: ${msg}`);
   }
 }
 
@@ -278,7 +224,6 @@ async function cmdDeleteEntity(
 function deleteArgsFor(kind: string, id: string): string[] | undefined {
   switch (kind) {
     case "note":            return ["note", "delete", id];
-    case "tag":             return ["tag", "delete", id];
     case "record":          return ["record", "delete", id];
     case "relation":        return ["relation", "delete", id];
     case "container":       return ["container", "delete", id];
