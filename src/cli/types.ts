@@ -4,6 +4,11 @@ export type SrsEnvelope<T> =
   | { ok: true; command: string; version: string; payload: T }
   | { ok: false; command: string; version: string; diagnostics: string[] };
 
+// A Record's field-value carrier (RFC-039): a JSON object keyed by `Field.name` verbatim,
+// recursive over scalar / list / inline-composite shapes. `fieldId` is not stored in the
+// instance — resolve names/labels via `type schema` (see cli/typeFields.ts).
+export type FieldValues = Record<string, unknown>;
+
 // repo map
 export interface RepoMapPayload {
   repoMap: {
@@ -232,7 +237,7 @@ export interface ContainerResolvedMember {
     typeName: string;
     typeNamespace: string;
     instanceId: string;
-    fieldValues: Array<{ fieldId: string; value: unknown; entries?: Array<{ value: unknown }> }>;
+    fieldValues: FieldValues;
   };
 }
 

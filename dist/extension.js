@@ -604,13 +604,13 @@ var SCHEMA_ASSOCIATIONS = [
   // are whole-repo bundle extensions, never per-instance files — do not glob them.
   { glob: "**/records/**/*.json", schema: "schemas/2.0/record.json" },
   { glob: "**/notes/**/*.json", schema: "schemas/2.0/note.json" },
-  { glob: "**/typed-records/**/*.json", schema: "schemas/2.0/typed-record.json" },
   { glob: "**/package/fields/*.json", schema: "schemas/2.0/field.json" },
   { glob: "**/package/types/*.json", schema: "schemas/2.0/type.json" },
   { glob: "**/package/views/*.json", schema: "schemas/2.0/view.json" },
-  { glob: "**/package/document-views/*.json", schema: "schemas/2.0/document-view.json" },
   { glob: "**/package/package.json", schema: "schemas/2.0/package-manifest.json" },
-  { glob: "**/relations/relations.json", schema: "schemas/2.0/relations-collection.json" },
+  // RFC-038 Change E: one Relation per file at relations/<relationId>.json — the
+  // former single relations.json collection is retired.
+  { glob: "**/relations/**/*.json", schema: "schemas/2.0/relation.json" },
   { glob: "**/containers/*.json", schema: "schemas/2.0/container.json" },
   { glob: "**/*.meta.json", schema: "schemas/2.0/source-document-meta.json" }
 ];
@@ -1374,6 +1374,9 @@ var CSS = `
     .markdown-value hr { border: none; border-top: 1px solid var(--vscode-panel-border); margin: 0.6em 0; }
     .markdown-value strong { font-weight: 600; }
     .markdown-value em { font-style: italic; }
+    .nested-fields { border-left: 2px solid var(--vscode-panel-border); padding-left: 1em; margin: 0.3em 0; }
+    .nested-entry { margin: 0.6em 0; }
+    .nested-entry-index { font-size: 0.8em; color: var(--vscode-descriptionForeground); margin-bottom: 0.2em; }
   </style>
 `;
 function wrapHtml(title, body, options) {
@@ -1382,6 +1385,69 @@ function wrapHtml(title, body, options) {
 }
 function esc(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+// src/cli/typeFields.ts
+function parseFields(properties, required) {
+  if (!properties)
+    return [];
+  const requiredSet = new Set(required ?? []);
+  const fields = Object.entries(properties).map(([name, node]) => parseField(name, node, requiredSet.has(name)));
+  return fields.sort((a, b) => a.order - b.order);
+}
+function looksLikeShortLabel(t) {
+  return t.length <= 50 && t.trim().split(/\s+/).length <= 6;
+}
+function parseField(name, node, required) {
+  const base = {
+    name,
+    displayLabel: node.title && looksLikeShortLabel(node.title) ? node.title : name,
+    description: node.description,
+    order: node["x-srs-order"] ?? 0,
+    required,
+    widget: node["x-srs-widget"],
+    // `contentMediaType` alone under-detects: a Field migrated from the pre-RFC-032
+    // valueType:"text" model lands on StringFormat::Plain, which gets the textarea
+    // widget but no contentMediaType at all — confirmed against a real corpus (every
+    // muDemocracy prose field: body/intro/note/outro/callout/item-body) carries
+    // `x-srs-widget: "textarea"` with no `contentMediaType`. Treat any textarea-widget
+    // scalar as markdown-renderable; the one false-positive class (a textarea field
+    // holding non-prose data, e.g. a JSON-encoded string) just renders inertly, since
+    // its content isn't markdown syntax — far cheaper than the alternative of prose
+    // rendering as one unformatted blob.
+    isMarkdown: node.contentMediaType === "text/markdown" || node["x-srs-widget"] === "textarea"
+  };
+  if (node.enum) {
+    return { ...base, kind: "enum", enumValues: node.enum };
+  }
+  if (node.type === "array") {
+    const items = node.items ?? {};
+    if (items.type === "object" && items.properties) {
+      return {
+        ...base,
+        kind: "list-composite",
+        minItems: node.minItems,
+        maxItems: node.maxItems,
+        children: parseFields(items.properties, items.required)
+      };
+    }
+    const itemsScalarType = items.type === void 0 || items.type === "object" ? "json" : items.type;
+    return { ...base, kind: "list-scalar", scalarType: itemsScalarType, minItems: node.minItems, maxItems: node.maxItems };
+  }
+  if (node.type === "object" && node.properties) {
+    return { ...base, kind: "composite", children: parseFields(node.properties, node.required) };
+  }
+  if (node.type === void 0 || node.type === "object") {
+    return { ...base, kind: "scalar", scalarType: "json" };
+  }
+  return { ...base, kind: "scalar", scalarType: node.type };
+}
+async function resolveTypeFields(cli, repoPath, typeId, typeVersion) {
+  const args = ["type", "schema", typeId];
+  if (typeVersion !== void 0)
+    args.push("--type-version", String(typeVersion));
+  const payload = await cli.runOk(repoPath, args);
+  return parseFields(payload.schema.properties, payload.schema.required);
 }
 
 // src/commands/previewCommands.ts
@@ -1563,38 +1629,57 @@ ${s.content}`).join("\n\n---\n\n");
   const md = [`# ${note.title}`, metaLine, sectionsMd || "*No sections.*"].filter(Boolean).join("\n\n");
   await openMarkdownPreview(md, note.title);
 }
+function stringifyFieldValue(v) {
+  if (v === void 0 || v === null)
+    return "";
+  return typeof v === "string" ? v : JSON.stringify(v);
+}
+function renderFieldRow(f, value) {
+  const isText = f.isMarkdown ?? false;
+  let valueHtml;
+  if (f.kind === "list-scalar") {
+    const items = (Array.isArray(value) ? value : []).map((v) => {
+      const s = stringifyFieldValue(v);
+      return isText ? `<li class="markdown-value" data-md="${esc(s)}"></li>` : `<li>${esc(s)}</li>`;
+    }).join("");
+    valueHtml = `<ul class="repeatable-values">${items}</ul>`;
+  } else if (f.kind === "composite") {
+    const obj = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    const childRows = (f.children ?? []).filter((c) => obj[c.name] !== void 0).map((c) => renderFieldRow(c, obj[c.name])).join("");
+    valueHtml = childRows ? `<div class="nested-fields">${childRows}</div>` : `<span class="empty">\u2014</span>`;
+  } else if (f.kind === "list-composite") {
+    const entries = Array.isArray(value) ? value : [];
+    const entriesHtml = entries.map((entry, i) => {
+      const obj = entry && typeof entry === "object" ? entry : {};
+      const childRows = (f.children ?? []).filter((c) => obj[c.name] !== void 0).map((c) => renderFieldRow(c, obj[c.name])).join("");
+      return `<div class="nested-entry"><div class="nested-entry-index">#${i + 1}</div><div class="nested-fields">${childRows}</div></div>`;
+    }).join("");
+    valueHtml = entriesHtml || `<span class="empty">\u2014</span>`;
+  } else {
+    const v = stringifyFieldValue(value);
+    valueHtml = isText ? `<div class="markdown-value" data-md="${esc(v)}"></div>` : esc(v);
+  }
+  const rowClass = isText ? "field-row field-row--text" : "field-row";
+  return `<div class="${rowClass}">
+        <div class="field-label">${esc(f.displayLabel)}</div>
+        <div class="field-value">${valueHtml}</div>
+      </div>`;
+}
 async function previewRecord(context, cli, repoPath, id) {
   const payload = await cli.runOk(repoPath, ["record", "get", id]);
   const { record } = payload;
-  let labelMap = /* @__PURE__ */ new Map();
-  let repeatableSet = /* @__PURE__ */ new Set();
-  let textFieldSet = /* @__PURE__ */ new Set();
+  let resolvedFields = [];
   let relatedItems = [];
   const [typeResult, relResult, noteResult, recordListResult] = await Promise.allSettled([
-    cli.runOk(repoPath, ["type", "get", record.typeId]),
+    resolveTypeFields(cli, repoPath, record.typeId, record.typeVersion),
     cli.runOk(repoPath, ["relation", "list"]),
     cli.runOk(repoPath, ["note", "list"]),
     cli.runOk(repoPath, ["record", "list"])
   ]);
   if (typeResult.status === "fulfilled") {
-    const typeFields = typeResult.value.type.fields;
-    for (const f of typeFields) {
-      if (f.repeatable)
-        repeatableSet.add(f.fieldId);
-    }
-    const fieldResults = await Promise.allSettled(
-      typeFields.map((f) => cli.runOk(repoPath, ["field", "get", f.fieldId]))
-    );
-    for (let i = 0; i < typeFields.length; i++) {
-      const f = typeFields[i];
-      const fr = fieldResults[i];
-      const fieldName = fr.status === "fulfilled" ? fr.value.field.name : void 0;
-      labelMap.set(f.fieldId, f.displayLabel ?? fieldName ?? f.fieldId.slice(0, 8));
-      if (fr.status === "fulfilled" && fr.value.field.valueType === "text") {
-        textFieldSet.add(fr.value.field.id);
-      }
-    }
+    resolvedFields = typeResult.value;
   }
+  const typeResolutionFailed = typeResult.status === "rejected";
   if (relResult.status === "fulfilled") {
     const peerLabelMap = /* @__PURE__ */ new Map();
     if (noteResult.status === "fulfilled") {
@@ -1632,26 +1717,7 @@ async function previewRecord(context, cli, repoPath, id) {
     }
   }
   const title = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
-  const rows = record.fieldValues.map((fv2) => {
-    const label = labelMap.get(fv2.fieldId) ?? fv2.fieldId.slice(0, 8);
-    const isText = textFieldSet.has(fv2.fieldId);
-    let valueHtml;
-    if (repeatableSet.has(fv2.fieldId) && fv2.entries && fv2.entries.length > 0) {
-      const items = fv2.entries.map((e) => {
-        const v = typeof e.value === "string" ? e.value : JSON.stringify(e.value);
-        return isText ? `<li class="markdown-value" data-md="${esc(v)}"></li>` : `<li>${esc(v)}</li>`;
-      }).join("");
-      valueHtml = `<ul class="repeatable-values">${items}</ul>`;
-    } else {
-      const v = typeof fv2.value === "string" ? fv2.value : JSON.stringify(fv2.value);
-      valueHtml = isText ? `<div class="markdown-value" data-md="${esc(v)}"></div>` : esc(v);
-    }
-    const rowClass = isText ? "field-row field-row--text" : "field-row";
-    return `<div class="${rowClass}">
-        <div class="field-label">${esc(label)}</div>
-        <div class="field-value">${valueHtml}</div>
-      </div>`;
-  }).join("");
+  const rows = typeResolutionFailed ? Object.entries(record.fieldValues).map(([name, value]) => renderFieldRow({ name, displayLabel: name, order: 0, required: false, kind: "scalar" }, value)).join("") : resolvedFields.filter((f) => record.fieldValues[f.name] !== void 0).map((f) => renderFieldRow(f, record.fieldValues[f.name])).join("");
   const meta = record.createdAt ? `Created: ${esc(record.createdAt.slice(0, 10))}` : "";
   const relationsHtml = relatedItems.length === 0 ? '<p class="empty">No relations.</p>' : relatedItems.map((r) => {
     const arrow = r.direction === "outgoing" ? "\u2192" : "\u2190";
@@ -1718,11 +1784,12 @@ async function previewContainer(context, cli, repoPath, id) {
       const cells = columns.map((col) => {
         let cellContent;
         if (col.isIdentityColumn) {
-          const label = m.tier === 2 && m.record ? m.record.fieldValues.find((fv2) => fv2.fieldId === col.fieldId)?.value ?? m.displayLabel : m.displayLabel;
+          const identityValue = m.tier === 2 && m.record ? m.record.fieldValues[col.fieldName] : void 0;
+          const label = identityValue !== void 0 && identityValue !== null ? String(identityValue) : m.displayLabel;
           cellContent = `<a class="identity-link" href="#" data-id="${esc(m.instanceId)}" data-kind="${m.tier === 0 ? "note" : "record"}">${esc(label)}</a>`;
         } else if (m.tier === 2 && m.record) {
-          const fv2 = m.record.fieldValues.find((f) => f.fieldId === col.fieldId);
-          cellContent = fv2 !== void 0 ? esc(String(fv2.value ?? "")) : "";
+          const fv = m.record.fieldValues[col.fieldName];
+          cellContent = esc(String(fv ?? ""));
         } else {
           cellContent = "";
         }
@@ -1955,30 +2022,6 @@ var EntityEditorPanel = class _EntityEditorPanel {
 };
 
 // src/webview/forms.ts
-var REPEAT_ENTRY_JS = `
-  function wireRemoveEntry(btn) {
-    btn.addEventListener('click', function() {
-      btn.closest('[data-repeat-entry]').remove();
-    });
-  }
-  function addEntry(listId, rows) {
-    var list = document.getElementById(listId);
-    var entry = document.createElement('div');
-    entry.className = 'repeat-entry';
-    entry.setAttribute('data-repeat-entry', '');
-    entry.innerHTML = '<textarea class="repeat-value" rows="' + (rows || 2) + '"></textarea>' +
-      '<button type="button" class="btn-remove-entry" title="Remove">\\u2715</button>';
-    list.appendChild(entry);
-    entry.querySelector('.repeat-value').focus();
-    wireRemoveEntry(entry.querySelector('.btn-remove-entry'));
-  }
-  document.querySelectorAll('.btn-remove-entry').forEach(wireRemoveEntry);
-  document.querySelectorAll('.btn-add-entry[data-target]').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      addEntry(btn.getAttribute('data-target'), parseInt(btn.getAttribute('data-rows') || '2', 10));
-    });
-  });
-`;
 function esc2(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -2282,162 +2325,205 @@ function buildTagForm(tag) {
     <input type="hidden" name="createdAt" value="${escAttr(tag.createdAt ?? "")}">
     ${collectJs}`;
 }
-function groupFieldValueHtml(f, fv2) {
-  const label = f.displayLabel ?? f.fieldId.slice(0, 8);
+function fmtScalar(value) {
+  if (value === void 0 || value === null)
+    return "";
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+function renderField(f, value) {
+  const label = f.displayLabel;
   const requiredMark = f.required ? ` <span class="required-mark">*</span>` : "";
-  if (f.repeatable) {
-    const entries = fv2?.entries && fv2.entries.length > 0 ? fv2.entries.map((e) => typeof e.value === "string" ? e.value : JSON.stringify(e.value)) : [""];
-    const entryInputs = entries.map((v) => `
-        <div class="repeat-entry" data-repeat-entry>
-          <textarea class="repeat-value" rows="2">${escText(v)}</textarea>
-          <button type="button" class="btn-remove-entry" title="Remove">\u2715</button>
-        </div>`).join("");
-    return `
-      <div class="field" data-field-id="${escAttr(f.fieldId)}" data-repeatable>
-        <label>${esc2(label)}${requiredMark}</label>
-        <div class="repeat-list">${entryInputs}</div>
-        <button type="button" class="btn-add-entry" data-add-repeat>+ Add value</button>
-      </div>`;
-  }
-  const value = fv2 && !fv2.entries ? typeof fv2.value === "string" ? fv2.value : fv2.value == null ? "" : JSON.stringify(fv2.value) : "";
-  const required = f.required ? ` required` : "";
-  return `
-      <div class="field" data-field-id="${escAttr(f.fieldId)}">
-        <label>${esc2(label)}${requiredMark}</label>
-        <textarea class="group-field-value" rows="2"${required}>${escText(value)}</textarea>
-      </div>`;
-}
-function groupEntryHtml(fields, entry, removable) {
-  const fvById = new Map((entry?.fieldValues ?? []).map((fv2) => [fv2.fieldId, fv2]));
-  const fieldsHtml = [...fields].sort((a, b) => a.order - b.order).map((f) => groupFieldValueHtml(f, fvById.get(f.fieldId))).join("");
-  const removeBtn = removable ? `<div class="section-header"><span></span><button type="button" class="btn-remove-group-entry" title="Remove entry">\u2715</button></div>` : "";
-  return `
-    <div class="group-entry" data-group-entry data-entry-id="${escAttr(entry?.entryId ?? "")}">
-      ${removeBtn}
-      ${fieldsHtml}
-    </div>`;
-}
-function groupBlockHtml(g, index, entries) {
-  const label = g.label ?? g.groupId;
-  const requiredMark = g.required ? ` <span class="required-mark">*</span>` : "";
-  const minHint = g.minItems != null ? ` min ${g.minItems}` : "";
-  const maxHint = g.maxItems != null ? ` max ${g.maxItems}` : "";
-  const repeatHint = g.repeatable && (minHint || maxHint) ? `<div class="hint">Repeatable${minHint}${maxHint}</div>` : "";
-  const descriptionHtml = g.description ? `<div class="hint">${esc2(g.description)}</div>` : "";
-  const initialEntries = entries.length > 0 ? entries : [void 0];
-  const entriesHtml = initialEntries.map((e) => groupEntryHtml(g.fields, e, g.repeatable ?? false)).join("");
-  const addEntryBtn = g.repeatable ? `<button type="button" class="btn-add-entry" data-add-group="${index}">+ Add ${esc2(label)}</button>` : "";
-  const templateHtml = g.repeatable ? `<template id="group-entry-template-${index}">${groupEntryHtml(g.fields, void 0, true)}</template>` : "";
-  return `
-    <div class="section-group" data-group data-group-id="${escAttr(g.groupId)}">
-      <div class="section-header"><strong>${esc2(label)}${requiredMark}</strong></div>
-      ${descriptionHtml}
-      <div class="group-entries" id="group-entries-${index}">${entriesHtml}</div>
-      ${addEntryBtn}
-      ${repeatHint}
-      ${templateHtml}
-    </div>`;
-}
-function buildRecordForm(record, fields, groups = []) {
-  const sorted = [...fields].sort((a, b) => a.order - b.order);
-  const currentScalar = /* @__PURE__ */ new Map();
-  const currentEntries = /* @__PURE__ */ new Map();
-  for (const fv2 of record.fieldValues) {
-    if (fv2.entries && fv2.entries.length > 0) {
-      currentEntries.set(
-        fv2.fieldId,
-        fv2.entries.map((e) => typeof e.value === "string" ? e.value : JSON.stringify(e.value))
-      );
-    } else {
-      currentScalar.set(
-        fv2.fieldId,
-        typeof fv2.value === "string" ? fv2.value : JSON.stringify(fv2.value)
-      );
+  const hint = f.minItems != null || f.maxItems != null ? `<div class="hint">Repeatable${f.minItems != null ? ` min ${f.minItems}` : ""}${f.maxItems != null ? ` max ${f.maxItems}` : ""}</div>` : "";
+  let body;
+  switch (f.kind) {
+    case "enum": {
+      const current = fmtScalar(value);
+      const knownValues = f.enumValues ?? [];
+      const options = [`<option value=""${current === "" ? " selected" : ""}></option>`].concat(knownValues.map((v) => `<option value="${escAttr(v)}"${v === current ? " selected" : ""}>${esc2(v)}</option>`)).concat(
+        current !== "" && !knownValues.includes(current) ? [`<option value="${escAttr(current)}" selected>${esc2(current)} (not in current vocabulary)</option>`] : []
+      ).join("");
+      body = `<select class="scalar-input" data-scalar-type="string"${f.required ? " required" : ""}>${options}</select>`;
+      break;
     }
-  }
-  const fieldHtml = sorted.map((f, i) => {
-    const label = f.displayLabel ?? f.fieldId.slice(0, 8);
-    const requiredMark = f.required ? ` <span class="required-mark">*</span>` : "";
-    const minHint = f.minItems != null ? ` min ${f.minItems}` : "";
-    const maxHint = f.maxItems != null ? ` max ${f.maxItems}` : "";
-    const repeatHint = minHint || maxHint ? `<div class="hint">Repeatable${minHint}${maxHint}</div>` : "";
-    if (f.repeatable) {
-      const entries = currentEntries.get(f.fieldId) ?? (currentScalar.has(f.fieldId) ? [currentScalar.get(f.fieldId)] : [""]);
-      const entryInputs = entries.map((v) => `
-        <div class="repeat-entry" data-repeat-entry>
-          <textarea class="repeat-value" rows="2">${escText(v)}</textarea>
-          <button type="button" class="btn-remove-entry" title="Remove">\u2715</button>
-        </div>`).join("");
-      return `
-    <div class="field" data-field-index="${i}" data-repeatable>
-      <label>${esc2(label)}${requiredMark}</label>
-      <div class="repeat-list" id="repeat-list-${i}">${entryInputs}</div>
-      <button type="button" class="btn-add-entry" data-target="repeat-list-${i}">+ Add value</button>
-      ${repeatHint}
-      <input type="hidden" name="field_id_${i}" value="${escAttr(f.fieldId)}">
-    </div>`;
-    } else {
-      const value = currentScalar.get(f.fieldId) ?? "";
+    case "scalar": {
       const required = f.required ? ` required` : "";
-      return `
-    <div class="field" data-field-index="${i}">
-      <label>${esc2(label)}${requiredMark}</label>
-      <textarea name="field_value_${i}" rows="2"${required}>${escText(value)}</textarea>
-      <input type="hidden" name="field_id_${i}" value="${escAttr(f.fieldId)}">
-    </div>`;
+      body = `<textarea class="scalar-input" data-scalar-type="${escAttr(f.scalarType ?? "string")}" rows="2"${required}>${escText(fmtScalar(value))}</textarea>`;
+      break;
     }
-  }).join("");
-  const fieldCount = sorted.length;
-  const repeatableIndices = sorted.map((f, i) => f.repeatable ? i : -1).filter((i) => i >= 0);
-  const sortedGroups = [...groups].sort((a, b) => a.order - b.order);
-  const groupValuesByGroupId = /* @__PURE__ */ new Map();
-  for (const gv of record.groupValues ?? []) {
-    groupValuesByGroupId.set(gv.groupId, gv.entries);
+    case "list-scalar": {
+      const values = Array.isArray(value) ? value.map(fmtScalar) : [];
+      const entries = values.map((v) => `
+        <div class="repeat-entry" data-repeat-entry>
+          <textarea class="repeat-value" rows="2">${escText(v)}</textarea>
+          <button type="button" class="btn-remove-entry" title="Remove">\u2715</button>
+        </div>`).join("");
+      body = `
+        <div class="repeat-list">${entries}</div>
+        <button type="button" class="btn-add-entry" data-add="value">+ Add value</button>
+        ${hint}`;
+      break;
+    }
+    case "composite": {
+      const obj = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+      const childrenHtml = (f.children ?? []).map((c) => renderField(c, obj[c.name])).join("");
+      body = `<div class="composite-body section-group">${childrenHtml}</div>`;
+      break;
+    }
+    case "list-composite": {
+      const items = Array.isArray(value) ? value : [];
+      const renderEntry = (entryValue) => `
+        <div class="entry group-entry" data-entry>
+          ${(f.children ?? []).map((c) => renderField(c, entryValue[c.name])).join("")}
+          <button type="button" class="btn-remove-group-entry" title="Remove entry">\u2715 Remove</button>
+        </div>`;
+      const entriesHtml = items.map((it) => renderEntry(it && typeof it === "object" ? it : {})).join("");
+      body = `
+        <div class="entries group-entries">${entriesHtml}</div>
+        <button type="button" class="btn-add-entry" data-add="entry">+ Add ${esc2(label)}</button>
+        ${hint}
+        <template>${renderEntry({})}</template>`;
+      break;
+    }
   }
-  const groupsHtml = sortedGroups.map((g, gi) => groupBlockHtml(g, gi, groupValuesByGroupId.get(g.groupId) ?? [])).join("");
-  const hasGroups = sortedGroups.length > 0;
-  const groupJs = hasGroups ? `
-    function collectGroupValues() {
-      var groupValues = [];
-      document.querySelectorAll('[data-group]').forEach(function(groupEl) {
-        var groupId = groupEl.getAttribute('data-group-id');
-        var entries = [];
-        groupEl.querySelectorAll('[data-group-entry]').forEach(function(entryEl) {
-          var fieldValues = [];
-          entryEl.querySelectorAll('[data-field-id]').forEach(function(fieldEl) {
-            var fieldId = fieldEl.getAttribute('data-field-id');
-            if (fieldEl.hasAttribute('data-repeatable')) {
-              var vals = [];
-              fieldEl.querySelectorAll('.repeat-entry .repeat-value').forEach(function(ta) {
-                var v = ta.value.trim();
-                if (v) vals.push({ value: v });
-              });
-              if (vals.length > 0) fieldValues.push({ fieldId: fieldId, value: '', entries: vals });
-            } else {
-              var val = fieldEl.querySelector('.group-field-value').value.trim();
-              if (val) fieldValues.push({ fieldId: fieldId, value: val });
-            }
-          });
-          if (fieldValues.length > 0) {
-            var entryOut = { fieldValues: fieldValues };
-            var entryId = entryEl.getAttribute('data-entry-id');
-            if (entryId) entryOut.entryId = entryId;
-            entries.push(entryOut);
-          }
+  return `
+    <div class="field" data-field="${escAttr(f.name)}" data-kind="${f.kind}" data-scalar-type="${escAttr(f.scalarType ?? "string")}">
+      <label>${esc2(label)}${requiredMark}</label>
+      ${body}
+    </div>`;
+}
+var RECORD_FORM_JS = `
+  <script>
+    function directChildrenWithAttr(el, attr) {
+      return Array.prototype.filter.call(el.children, function(c) { return c.hasAttribute(attr); });
+    }
+    // "Blank" for an object built by collectContainer means every value in it is
+    // trivially empty \u2014 an empty string/array/object, or nested all the way down to
+    // one. A plain key-count check misses this: a blank list-composite entry whose
+    // nested list-scalar child always self-includes (see 'list-scalar' below) still
+    // has a key, just an empty-array one.
+    function isEffectivelyEmpty(v) {
+      if (v === undefined || v === null || v === '') return true;
+      if (Array.isArray(v)) return v.every(isEffectivelyEmpty);
+      if (typeof v === 'object') return Object.keys(v).every(function(k) { return isEffectivelyEmpty(v[k]); });
+      return false;
+    }
+    function coerceScalar(raw, type) {
+      var trimmed = raw.trim();
+      if (trimmed === '') return undefined;
+      if (type === 'number' || type === 'integer') {
+        var n = Number(trimmed);
+        return isFinite(n) ? n : trimmed;
+      }
+      if (type === 'boolean') {
+        // Compare against the trimmed value \u2014 every scalar renders as a plain
+        // multi-line <textarea> (no dedicated checkbox widget), so a boolean field's
+        // input can pick up a trailing newline/space that would otherwise defeat an
+        // exact-match comparison against the untrimmed raw string.
+        if (trimmed === 'true') return true;
+        if (trimmed === 'false') return false;
+      }
+      if (type === 'json') {
+        // A field whose value is structured (map datatype, or an inline-composite
+        // that failed to expand) but has no per-field inputs \u2014 round-trip through
+        // parse/stringify rather than sending the display string back as a plain
+        // string, which would silently corrupt the stored object.
+        try { return JSON.parse(trimmed); } catch (e) { return raw; }
+      }
+      // Plain string: trim leading/trailing whitespace (matches the pre-RFC-039
+      // editor's behavior) \u2014 internal newlines/formatting in multi-line prose are
+      // untouched, only the edges are. An untrimmed save would otherwise pick up
+      // stray whitespace from the textarea and, via the concurrent-edit guard's
+      // exact-value deepEqual, could even trigger a spurious "modified since you
+      // opened it" warning on a later edit.
+      return trimmed;
+    }
+    // Per-list-item coercion. Deliberately NOT coerceScalar: a blank ENTRY in a list
+    // is a real value at that position (e.g. a deliberately empty table cell,
+    // cells: ["Yes", "", "See note"]) \u2014 coerceScalar's "blank means unset" collapses
+    // to undefined, which would have to be filtered, silently shifting every later
+    // entry left and misaligning positional data. Only number/boolean/json entries
+    // get type coercion; blank entries of any type are kept as-is, at their position.
+    function coerceListItem(raw, type) {
+      if (type === 'number' || type === 'integer') {
+        var n = Number(raw.trim());
+        return isFinite(n) ? n : raw;
+      }
+      if (type === 'boolean') {
+        var t = raw.trim();
+        if (t === 'true') return true;
+        if (t === 'false') return false;
+        return raw;
+      }
+      if (type === 'json') {
+        var t2 = raw.trim();
+        if (t2 === '') return '';
+        try { return JSON.parse(t2); } catch (e) { return raw; }
+      }
+      return raw.trim();
+    }
+    function collectFieldValue(fieldEl, kind) {
+      if (kind === 'scalar' || kind === 'enum') {
+        var input = fieldEl.querySelector('.scalar-input');
+        return coerceScalar(input.value, input.getAttribute('data-scalar-type'));
+      }
+      if (kind === 'list-scalar') {
+        // Unlike a scalar textarea, an empty list is a meaningful, distinct value
+        // (not "unset") \u2014 always send it so the CLI's own min-items validation runs,
+        // and so a legitimately-empty list already on the record survives untouched.
+        var itemType = fieldEl.getAttribute('data-scalar-type');
+        var vals = [];
+        fieldEl.querySelectorAll('.repeat-list [data-repeat-entry] .repeat-value').forEach(function(ta) {
+          vals.push(coerceListItem(ta.value, itemType));
         });
-        groupValues.push({ groupId: groupId, entries: entries });
+        return vals;
+      }
+      if (kind === 'composite') {
+        // Unlike a list, a single composite has no "legitimately empty but present"
+        // reading \u2014 an optional composite the user left entirely blank means unset,
+        // same as a blank scalar, so it must be omitted (RFC-039 absence=unset) rather
+        // than sent as {}. (A required composite left blank still surfaces a real
+        // validation error either way \u2014 omission just produces the clearer one.)
+        var obj = collectContainer(fieldEl.querySelector('.composite-body'));
+        return isEffectivelyEmpty(obj) ? undefined : obj;
+      }
+      if (kind === 'list-composite') {
+        // Drop entries left entirely blank \u2014 e.g. "+ Add" clicked then Save without
+        // filling anything in (or the per-entry Remove button not used). Without this,
+        // a stray {} (or a partial object missing every field) gets submitted as a
+        // real entry.
+        var out = [];
+        var entriesEl = fieldEl.querySelector('.entries');
+        directChildrenWithAttr(entriesEl, 'data-entry').forEach(function(entryEl) {
+          var obj = collectContainer(entryEl);
+          if (!isEffectivelyEmpty(obj)) out.push(obj);
+        });
+        return out;
+      }
+    }
+    function collectContainer(container) {
+      var obj = {};
+      directChildrenWithAttr(container, 'data-field').forEach(function(fieldEl) {
+        var name = fieldEl.getAttribute('data-field');
+        var kind = fieldEl.getAttribute('data-kind');
+        var val = collectFieldValue(fieldEl, kind);
+        if (val !== undefined) obj[name] = val;
       });
-      return groupValues;
+      return obj;
     }
 
-    function wireRemoveGroupEntry(btn) {
-      btn.addEventListener('click', function() {
-        btn.closest('[data-group-entry]').remove();
-      });
-    }
-    function wireGroupRepeatAdd(btn) {
-      btn.addEventListener('click', function() {
-        var list = btn.parentElement.querySelector('.repeat-list');
+    document.getElementById('editor-form').addEventListener('click', function(ev) {
+      var removeEntryBtn = ev.target.closest('.btn-remove-entry');
+      if (removeEntryBtn) { removeEntryBtn.closest('[data-repeat-entry]').remove(); return; }
+
+      var removeGroupBtn = ev.target.closest('.btn-remove-group-entry');
+      if (removeGroupBtn) { removeGroupBtn.closest('[data-entry]').remove(); return; }
+
+      // Scoped relative to the clicked button's own field element, never by id \u2014 a
+      // cloned entry's nested fields share no unique id with their template origin,
+      // so getElementById would always resolve to the first-ever-rendered clone.
+      var addRepeatBtn = ev.target.closest('.btn-add-entry[data-add="value"]');
+      if (addRepeatBtn) {
+        var list = addRepeatBtn.parentElement.querySelector('.repeat-list');
         var entry = document.createElement('div');
         entry.className = 'repeat-entry';
         entry.setAttribute('data-repeat-entry', '');
@@ -2445,80 +2531,70 @@ function buildRecordForm(record, fields, groups = []) {
           '<button type="button" class="btn-remove-entry" title="Remove">\\u2715</button>';
         list.appendChild(entry);
         entry.querySelector('.repeat-value').focus();
-        wireRemoveEntry(entry.querySelector('.btn-remove-entry'));
-      });
-    }
-    function wireAddGroupEntry(btn) {
-      btn.addEventListener('click', function() {
-        var gi = btn.getAttribute('data-add-group');
-        var template = document.getElementById('group-entry-template-' + gi);
-        var container = document.getElementById('group-entries-' + gi);
+        return;
+      }
+
+      var addEntriesBtn = ev.target.closest('.btn-add-entry[data-add="entry"]');
+      if (addEntriesBtn) {
+        var container = addEntriesBtn.parentElement.querySelector('.entries');
+        // Direct-child only: a live existing entry may itself contain a nested
+        // list-composite field with its OWN <template> deeper in the tree, which a
+        // plain (descendant) querySelector('template') would find first.
+        var template = addEntriesBtn.parentElement.querySelector(':scope > template');
         container.appendChild(template.content.cloneNode(true));
-        var newEntry = container.lastElementChild;
-        wireRemoveGroupEntry(newEntry.querySelector('.btn-remove-group-entry'));
-        newEntry.querySelectorAll('.btn-add-entry[data-add-repeat]').forEach(wireGroupRepeatAdd);
-      });
-    }
-    document.querySelectorAll('.btn-remove-group-entry').forEach(wireRemoveGroupEntry);
-    document.querySelectorAll('.btn-add-entry[data-add-repeat]').forEach(wireGroupRepeatAdd);
-    document.querySelectorAll('.btn-add-entry[data-add-group]').forEach(wireAddGroupEntry);
-  ` : "";
-  const collectJs = `
-  <script>
-    var repeatableIndices = ${JSON.stringify(repeatableIndices)};
+        return;
+      }
+    });
 
     function collectFormData() {
       var form = document.getElementById('editor-form');
-      var instanceId = form.querySelector('[name="instanceId"]').value;
-      var typeId = form.querySelector('[name="typeId"]').value;
-      var typeName = form.querySelector('[name="typeName"]').value;
-      var typeNamespace = form.querySelector('[name="typeNamespace"]').value;
-      var typeVersion = parseInt(form.querySelector('[name="typeVersion"]').value, 10);
-      var createdAt = form.querySelector('[name="createdAt"]').value || undefined;
-      var fieldCount = parseInt(form.querySelector('[name="fieldCount"]').value, 10);
-      var fieldValues = [];
-      for (var i = 0; i < fieldCount; i++) {
-        var fieldId = form.querySelector('[name="field_id_' + i + '"]').value;
-        if (repeatableIndices.indexOf(i) >= 0) {
-          var list = form.querySelector('#repeat-list-' + i);
-          var entries = [];
-          list.querySelectorAll('[data-repeat-entry] .repeat-value').forEach(function(ta) {
-            var v = ta.value.trim();
-            if (v) entries.push({ value: v });
-          });
-          // Always include repeatable fields (even if empty, for min-items validation)
-          fieldValues.push({ fieldId: fieldId, value: '', entries: entries });
-        } else {
-          var value = form.querySelector('[name="field_value_' + i + '"]').value;
-          if (value.trim()) {
-            fieldValues.push({ fieldId: fieldId, value: value.trim() });
-          }
-        }
-      }
-      var result = { instanceId: instanceId, typeId: typeId, typeName: typeName,
-               typeNamespace: typeNamespace, typeVersion: typeVersion,
-               createdAt: createdAt, fieldValues: fieldValues };
-      ${hasGroups ? "result.groupValues = collectGroupValues();" : ""}
-      return result;
+      return {
+        instanceId: form.querySelector('[name="instanceId"]').value,
+        typeId: form.querySelector('[name="typeId"]').value,
+        typeName: form.querySelector('[name="typeName"]').value,
+        typeNamespace: form.querySelector('[name="typeNamespace"]').value,
+        typeVersion: parseInt(form.querySelector('[name="typeVersion"]').value, 10),
+        createdAt: form.querySelector('[name="createdAt"]').value || undefined,
+        fieldValues: collectContainer(document.getElementById('fields-root')),
+      };
     }
-
-    ${REPEAT_ENTRY_JS.trim()}
-    ${groupJs}
   </script>`;
+function buildRecordForm(record, fields) {
+  const sorted = [...fields].sort((a, b) => a.order - b.order);
+  const fieldsHtml = sorted.map((f) => renderField(f, record.fieldValues[f.name])).join("");
   return `
-    ${fieldHtml}
-    ${groupsHtml}
+    <div id="fields-root">${fieldsHtml}</div>
     <input type="hidden" name="instanceId" value="${escAttr(record.instanceId)}">
     <input type="hidden" name="typeId" value="${escAttr(record.typeId)}">
     <input type="hidden" name="typeName" value="${escAttr(record.typeName)}">
     <input type="hidden" name="typeNamespace" value="${escAttr(record.typeNamespace)}">
     <input type="hidden" name="typeVersion" value="${escAttr(String(record.typeVersion))}">
     <input type="hidden" name="createdAt" value="${escAttr(record.createdAt ?? "")}">
-    <input type="hidden" name="fieldCount" value="${fieldCount}">
-    ${collectJs}`;
+    ${RECORD_FORM_JS}`;
 }
 
 // src/commands/editCommands.ts
+function deepEqual(a, b) {
+  if (a === b)
+    return true;
+  if (typeof a !== typeof b || a === null || b === null || a === void 0 || b === void 0)
+    return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length)
+      return false;
+    return a.every((v, i) => deepEqual(v, b[i]));
+  }
+  if (typeof a === "object") {
+    const ao = a;
+    const bo = b;
+    const ak = Object.keys(ao);
+    const bk = Object.keys(bo);
+    if (ak.length !== bk.length)
+      return false;
+    return ak.every((k) => Object.prototype.hasOwnProperty.call(bo, k) && deepEqual(ao[k], bo[k]));
+  }
+  return false;
+}
 function registerEditCommands(context, cli, repoProvider, treeProvider) {
   context.subscriptions.push(
     vscode14.commands.registerCommand(
@@ -2667,26 +2743,7 @@ async function editTag(context, cli, repoPath, id, treeProvider) {
 async function editRecord(context, cli, repoPath, id, treeProvider) {
   const payload = await cli.runOk(repoPath, ["record", "get", id]);
   const record = payload.record;
-  const typePayload = await cli.runOk(repoPath, [
-    "type",
-    "get",
-    record.typeId
-  ]);
-  const typeFields = typePayload.type.fields;
-  const fieldGroups = typePayload.type.fieldGroups ?? [];
-  const allFieldIds = [.../* @__PURE__ */ new Set([
-    ...typeFields.map((f) => f.fieldId),
-    ...fieldGroups.flatMap((g) => g.fields.map((f) => f.fieldId))
-  ])];
-  const fieldResults = await Promise.allSettled(
-    allFieldIds.map((fieldId) => cli.runOk(repoPath, ["field", "get", fieldId]))
-  );
-  const fieldNameById = /* @__PURE__ */ new Map();
-  allFieldIds.forEach((fieldId, i) => {
-    const fr = fieldResults[i];
-    if (fr.status === "fulfilled")
-      fieldNameById.set(fieldId, fr.value.field.name);
-  });
+  const fieldData = await resolveTypeFields(cli, repoPath, record.typeId, record.typeVersion);
   const recordData = {
     instanceId: record.instanceId,
     typeId: record.typeId,
@@ -2694,36 +2751,22 @@ async function editRecord(context, cli, repoPath, id, treeProvider) {
     typeNamespace: record.typeNamespace,
     typeVersion: record.typeVersion,
     createdAt: record.createdAt,
-    fieldValues: record.fieldValues,
-    groupValues: record.groupValues
+    fieldValues: record.fieldValues
   };
-  const toFieldData = (f) => ({
-    fieldId: f.fieldId,
-    displayLabel: f.displayLabel ?? fieldNameById.get(f.fieldId),
-    order: f.order,
-    required: f.required,
-    repeatable: f.repeatable,
-    minItems: f.minItems,
-    maxItems: f.maxItems
-  });
-  const fieldData = typeFields.map(toFieldData);
-  const groupData = fieldGroups.map((g) => ({
-    groupId: g.groupId,
-    label: g.label,
-    description: g.description,
-    order: g.order,
-    required: g.required,
-    repeatable: g.repeatable,
-    minItems: g.minItems,
-    maxItems: g.maxItems,
-    fields: g.fields.map(toFieldData)
-  }));
   const panelTitle = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
-  const html = formWrapHtml(panelTitle, buildRecordForm(recordData, fieldData, groupData));
+  const html = formWrapHtml(panelTitle, buildRecordForm(recordData, fieldData));
   EntityEditorPanel.show(context, `record:${id}`, panelTitle, html, async (data) => {
     const d = data;
+    const projectedNames = new Set(fieldData.map((f) => f.name));
     const refetch = await cli.runOk(repoPath, ["record", "get", id]);
-    if (refetch.record.fieldValues.length !== record.fieldValues.length) {
+    const projectedOnly = (fv) => {
+      const out = {};
+      for (const name of projectedNames)
+        if (fv[name] !== void 0)
+          out[name] = fv[name];
+      return out;
+    };
+    if (!deepEqual(projectedOnly(refetch.record.fieldValues), projectedOnly(record.fieldValues))) {
       const proceed = await vscode14.window.showWarningMessage(
         `SRS: Record was modified since you opened it. Overwrite?`,
         { modal: true },
@@ -2732,8 +2775,13 @@ async function editRecord(context, cli, repoPath, id, treeProvider) {
       if (proceed !== "Overwrite")
         return;
     }
+    const preserved = {};
+    for (const [name, value] of Object.entries(refetch.record.fieldValues)) {
+      if (!projectedNames.has(name))
+        preserved[name] = value;
+    }
     await cli.runOk(repoPath, ["record", "update", id], {
-      stdin: JSON.stringify(d)
+      stdin: JSON.stringify({ fieldValues: { ...preserved, ...d.fieldValues } })
     });
     treeProvider.refresh();
   });
@@ -3509,7 +3557,7 @@ async function cmdCreateRecord(cli, repoProvider, attention, treeProvider) {
       repo.rootPath,
       ["record", "create", "--type", typeName, "--version", String(picked.type.version)],
       {
-        stdin: JSON.stringify({ fieldValues: [] }),
+        stdin: JSON.stringify({ fieldValues: {} }),
         containerId: cid
       }
     );
@@ -4106,29 +4154,6 @@ function setMode(navigator, mode) {
 var vscode20 = __toESM(require("vscode"));
 
 // src/webview/guides/guideTypes.ts
-var F = {
-  slug: "2e3be0f8-0497-4754-a8b2-62ce6b05493f",
-  title: "e5b359b0-8f8b-4807-bae9-b841adbd6248",
-  subtitle: "9bb3d21d-3a02-4b87-863d-99fdfcdb8a3e",
-  body: "cd97f7d2-29e4-435e-a991-9be8281d6a78",
-  // universal prose: guide intro + section body
-  blocks: "dabb80dc-a04e-48e9-afd8-37a6410bd43b",
-  heading: "9629c9b5-3b17-4766-b3d3-b2890902821a",
-  callout: "138e40f4-888b-49ed-9c26-bedc9567e806",
-  listItems: "e5e6ebce-8dfe-446f-a7fd-e329d4f5d67e",
-  outro: "04ce57ec-46bc-4e1e-9238-34bf7247905a",
-  // closing prose: was confirmation (list) + note (table)
-  itemTerm: "a02b147b-4319-4cdd-b263-781640c93fcb",
-  // was tipTitle — term/title for items group entries
-  itemBody: "6fafae71-f6f1-4e83-b091-19765517ff80",
-  // was tip — body for items group entries
-  // table block fields — used in groupValues["tables"] entries
-  columns: "15d81030-07db-40a7-9885-d23b1d6b39f7",
-  rows: "876daf6a-aefa-421c-80b5-2e3c3a4c6397",
-  subheading: "4523e0e0-f7b6-4c72-9f30-b526ca74799e",
-  tableLabel: "920fd0a2-5fb2-40c4-9362-7c6c86ab8ccd",
-  widths: "8d98614d-f420-4597-90fd-c141e8584b06"
-};
 var TYPE_PREFIX = {
   guide: "8f138dd6",
   sectionText: "4408a98e",
@@ -4137,11 +4162,14 @@ var TYPE_PREFIX = {
 };
 
 // src/webview/guides/guideLoader.ts
-function fv(record, fieldId) {
-  const entry = record.fieldValues.find((e) => e.fieldId === fieldId);
-  if (entry == null)
-    return "";
-  return typeof entry.value === "string" ? entry.value : "";
+function str(record, name) {
+  const v = record.fieldValues[name];
+  return typeof v === "string" ? v : "";
+}
+function strArray(v) {
+  if (!Array.isArray(v))
+    return [];
+  return v.map((x) => typeof x === "string" ? x : x === null || x === void 0 ? "" : String(x));
 }
 function sortByPrecedes(ids, precedesMap) {
   const hasIncoming = new Set(ids.filter((id) => [...precedesMap.values()].includes(id)));
@@ -4167,6 +4195,22 @@ function sectionTypeFromPrefix(typeId) {
     return "table";
   throw new Error(`Unknown section typeId prefix: ${p} (${typeId})`);
 }
+function toTableBlock(raw) {
+  const r = raw && typeof raw === "object" ? raw : {};
+  const rows = Array.isArray(r.rows) ? r.rows.map((row) => strArray(row && typeof row === "object" ? row.cells : void 0)) : [];
+  const block = { columns: strArray(r.columns), rows };
+  if (typeof r.subheading === "string" && r.subheading)
+    block.subheading = r.subheading;
+  if (typeof r.label === "string" && r.label)
+    block.label = r.label;
+  if (typeof r.widths === "string" && r.widths) {
+    try {
+      block.widths = JSON.parse(r.widths);
+    } catch {
+    }
+  }
+  return block;
+}
 function toSectionDoc(record) {
   const type = sectionTypeFromPrefix(record.typeId);
   const section = {
@@ -4174,62 +4218,31 @@ function toSectionDoc(record) {
     typeId: record.typeId,
     typeVersion: record.typeVersion,
     type,
-    heading: fv(record, F.heading),
-    slug: fv(record, F.slug)
+    heading: str(record, "heading"),
+    slug: str(record, "slug")
   };
   if (type === "text") {
-    section.body = fv(record, F.body);
-    section.callout = fv(record, F.callout);
+    section.body = str(record, "body");
+    section.callout = str(record, "callout");
   } else if (type === "list") {
-    section.body = fv(record, F.body);
-    section.listItems = fv(record, F.listItems);
-    section.outro = fv(record, F.outro);
+    section.body = str(record, "body");
+    section.listItems = str(record, "list-items");
+    section.outro = str(record, "outro");
   } else if (type === "table") {
-    section.body = fv(record, F.body);
-    const tablesGroup = record.groupValues?.find((gv) => gv.groupId === "tables");
-    section.tables = (tablesGroup?.entries ?? []).map((entry) => {
-      const fval = (id) => entry.fieldValues.find((e) => e.fieldId === id)?.value;
-      let columns = [];
-      let rows = [];
-      let widths;
-      try {
-        columns = JSON.parse(String(fval(F.columns) ?? "[]"));
-      } catch {
-        columns = [];
-      }
-      try {
-        rows = JSON.parse(String(fval(F.rows) ?? "[]"));
-      } catch {
-        rows = [];
-      }
-      const widthsRaw = fval(F.widths);
-      if (widthsRaw) {
-        try {
-          widths = JSON.parse(String(widthsRaw));
-        } catch {
-        }
-      }
-      const block = { columns, rows };
-      const sub = fval(F.subheading);
-      const lbl = fval(F.tableLabel);
-      if (typeof sub === "string" && sub)
-        block.subheading = sub;
-      if (typeof lbl === "string" && lbl)
-        block.label = lbl;
-      if (widths)
-        block.widths = widths;
-      return block;
-    });
-    const itemsGroup = record.groupValues?.find((gv) => gv.groupId === "items");
-    section.items = (itemsGroup?.entries ?? []).map((entry) => {
-      const term = entry.fieldValues.find((e) => e.fieldId === F.itemTerm)?.value;
-      const body = entry.fieldValues.find((e) => e.fieldId === F.itemBody)?.value;
+    section.body = str(record, "body");
+    const tables = record.fieldValues.tables;
+    section.tables = Array.isArray(tables) ? tables.map(toTableBlock) : [];
+    const items = record.fieldValues.items;
+    section.items = Array.isArray(items) ? items.map((it) => {
+      const r = it && typeof it === "object" ? it : {};
+      const term = r["item-term"];
+      const body = r["item-body"];
       return {
         term: typeof term === "string" && term ? term : void 0,
         body: typeof body === "string" ? body : ""
       };
-    });
-    section.outro = fv(record, F.outro);
+    }) : [];
+    section.outro = str(record, "outro");
   }
   return section;
 }
@@ -4271,89 +4284,93 @@ async function loadGuide(cli, repoPath, containerId2) {
     guideInstanceId: guideId,
     guideTypeId: guideRecord.typeId,
     guideTypeVersion: guideRecord.typeVersion,
-    slug: fv(guideRecord, F.slug),
-    title: fv(guideRecord, F.title),
-    subtitle: fv(guideRecord, F.subtitle),
-    body: fv(guideRecord, F.body),
+    slug: str(guideRecord, "slug"),
+    title: str(guideRecord, "title"),
+    subtitle: str(guideRecord, "subtitle"),
+    body: str(guideRecord, "body"),
     sections
   };
 }
 
 // src/webview/guides/guideSaver.ts
-function buildFieldValues(pairs) {
-  return pairs.filter(([, v]) => v !== void 0 && v !== "").map(([fieldId, value]) => ({ fieldId, value }));
+function set(target, name, value) {
+  if (value !== void 0 && value !== "")
+    target[name] = value;
+  else
+    delete target[name];
 }
-function guideUpdateInput(guide) {
-  return {
-    instanceId: guide.guideInstanceId,
-    typeId: guide.guideTypeId,
-    typeVersion: guide.guideTypeVersion,
-    fieldValues: buildFieldValues([
-      [F.slug, guide.slug],
-      [F.title, guide.title],
-      [F.subtitle, guide.subtitle],
-      [F.body, guide.body]
-    ])
+function tableBlockToFieldValues(t) {
+  const out = {
+    columns: t.columns ?? [],
+    rows: (t.rows ?? []).map((cells) => ({ cells }))
   };
+  if (t.subheading)
+    out.subheading = t.subheading;
+  if (t.label)
+    out.label = t.label;
+  if (t.widths)
+    out.widths = JSON.stringify(t.widths);
+  return out;
 }
-function sectionUpdateInput(section) {
-  const pairs = [
-    [F.heading, section.heading],
-    [F.slug, section.slug]
-  ];
+function applySectionFields(fieldValues, section) {
+  set(fieldValues, "heading", section.heading);
+  set(fieldValues, "slug", section.slug);
   if (section.type === "text") {
-    pairs.push([F.body, section.body], [F.callout, section.callout]);
+    set(fieldValues, "body", section.body);
+    set(fieldValues, "callout", section.callout);
   } else if (section.type === "list") {
-    pairs.push([F.body, section.body], [F.listItems, section.listItems], [F.outro, section.outro]);
+    set(fieldValues, "body", section.body);
+    set(fieldValues, "list-items", section.listItems);
+    set(fieldValues, "outro", section.outro);
   } else if (section.type === "table") {
-    pairs.push([F.body, section.body], [F.outro, section.outro]);
-  }
-  const fieldValues = buildFieldValues(pairs);
-  const groupValues = [];
-  if (section.type === "table") {
+    set(fieldValues, "body", section.body);
+    set(fieldValues, "outro", section.outro);
+    if (section.tables !== void 0)
+      fieldValues.tables = section.tables.map(tableBlockToFieldValues);
     if (section.items !== void 0) {
-      groupValues.push({
-        groupId: "items",
-        entries: section.items.map((item) => ({
-          fieldValues: [
-            ...item.term ? [{ fieldId: F.itemTerm, value: item.term }] : [],
-            { fieldId: F.itemBody, value: item.body }
-          ]
-        }))
-      });
-    }
-    if (section.tables !== void 0) {
-      groupValues.push({
-        groupId: "tables",
-        entries: section.tables.map((t) => ({
-          fieldValues: [
-            { fieldId: F.columns, value: JSON.stringify(t.columns ?? []) },
-            { fieldId: F.rows, value: JSON.stringify(t.rows) },
-            ...t.subheading ? [{ fieldId: F.subheading, value: t.subheading }] : [],
-            ...t.label ? [{ fieldId: F.tableLabel, value: t.label }] : [],
-            ...t.widths ? [{ fieldId: F.widths, value: JSON.stringify(t.widths) }] : []
-          ]
-        }))
+      fieldValues.items = section.items.map((item) => {
+        const entry = { "item-body": item.body };
+        if (item.term)
+          entry["item-term"] = item.term;
+        return entry;
       });
     }
   }
-  return {
-    instanceId: section.instanceId,
-    typeId: section.typeId,
-    typeVersion: section.typeVersion,
-    fieldValues,
-    ...groupValues.length > 0 ? { groupValues } : {}
-  };
+}
+async function mergedFieldValues(cli, repoPath, instanceId, apply) {
+  const current = await cli.runOk(repoPath, ["record", "get", instanceId]);
+  const fieldValues = { ...current.record.fieldValues };
+  apply(fieldValues);
+  return fieldValues;
+}
+async function saveOne(cli, repoPath, instanceId, apply) {
+  const fieldValues = await mergedFieldValues(cli, repoPath, instanceId, apply);
+  await cli.runOk(repoPath, ["record", "update", instanceId], {
+    stdin: JSON.stringify({ fieldValues })
+  });
 }
 async function saveGuide(cli, repoPath, guide) {
-  const updates = [
-    { id: guide.guideInstanceId, input: guideUpdateInput(guide) },
-    ...guide.sections.map((s) => ({ id: s.instanceId, input: sectionUpdateInput(s) }))
+  const targets = [
+    {
+      label: `guide "${guide.title}"`,
+      save: () => saveOne(cli, repoPath, guide.guideInstanceId, (fv) => {
+        set(fv, "slug", guide.slug);
+        set(fv, "title", guide.title);
+        set(fv, "subtitle", guide.subtitle);
+        set(fv, "body", guide.body);
+      })
+    },
+    ...guide.sections.map((section, i) => ({
+      label: `section ${i + 1} (${section.heading || section.instanceId})`,
+      save: () => saveOne(cli, repoPath, section.instanceId, (fv) => applySectionFields(fv, section))
+    }))
   ];
-  for (const { id, input } of updates) {
-    await cli.runOk(repoPath, ["record", "update", id], {
-      stdin: JSON.stringify(input)
-    });
+  const results = await Promise.allSettled(targets.map((t) => t.save()));
+  const failures = results.map((r, i) => ({ result: r, label: targets[i].label })).filter((x) => x.result.status === "rejected");
+  if (failures.length > 0) {
+    const succeeded = targets.length - failures.length;
+    const detail = failures.map(({ result, label }) => `${label}: ${String(result.reason)}`).join("; ");
+    throw new Error(`${succeeded}/${targets.length} saved; failed \u2014 ${detail}`);
   }
 }
 

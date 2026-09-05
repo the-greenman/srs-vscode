@@ -12,7 +12,7 @@
         "typeId": {
           "type": "string",
           "format": "uuid",
-          "description": "Exact match on Record.typeId. Only Tier 2 Records carry typeId; Tier 0/1 instances do not match this predicate."
+          "description": "Exact match on Record.typeId. Only Tier 2 Records carry typeId; Tier 0 instances do not match this predicate."
         },
         "typeNamespace": {
           "type": "string",
@@ -36,14 +36,19 @@
           "type": "string",
           "description": "Exact match on Record.lifecycleState (case-sensitive). Requires ext:lifecycle. Instances without a lifecycleState field do not match."
         },
+        "lifecycleStates": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "RFC-012 Rev 11 (srs#525) — inclusive multi-value lifecycle filter, OR semantics: matches an instance whose Record.lifecycleState equals ANY listed value. An instance with no lifecycleState does not match when this predicate is present and non-empty. Independent of the exact-match lifecycleState predicate above (do not combine the two on one query). Formerly SectionSource.type-query's own lifecycleStates axis (RFC-011 Change A, I-142); carried forward here as the SectionSource → DiscoveryQuery collapse's one query mechanism (srs#525). Requires ext:lifecycle; instances without ext:lifecycle declared MUST ignore this predicate."
+        },
         "excludeLifecycleStates": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Exclusion filter (parity with the RFC-011 type-query axis of the same name): an instance whose Record.lifecycleState matches ANY listed value is excluded. Applied after lifecycleState. Lets an authored view declare default-hidden states (e.g. superseded, closed) while a client offers a runtime show-all override by passing an empty list. Requires ext:lifecycle; instances with no lifecycleState are never excluded by this axis."
+          "description": "Exclusion filter (parity with the former RFC-011 type-query axis of the same name, now retired in its favor — srs#525): an instance whose Record.lifecycleState matches ANY listed value is excluded. Applied after lifecycleState/lifecycleStates. Lets an authored view declare default-hidden states (e.g. superseded, closed) while a client offers a runtime show-all override by passing an empty list. Requires ext:lifecycle; instances with no lifecycleState are never excluded by this axis."
         },
         "tier": {
-          "enum": [0, 1, 2],
-          "description": "Instance tier filter. 0 = Note, 1 = TypedRecord, 2 = Record."
+          "enum": [0, 2],
+          "description": "Instance tier filter. 0 = Note, 2 = Record. Tier 1 (TypedRecord) was removed (rfc-decision-53635966); the gap in numbering is retained deliberately for reference stability."
         },
         "contentMatch": {
           "type": "string",
@@ -59,11 +64,11 @@
       "properties": {
         "fieldId": {
           "type": "string",
-          "description": "UUID of the field definition for package-resolved fields; sentinel string for special segments: 'note-title', 'note-section', 'typed-record-title', 'typed-record-field', 'tag', 'label'."
+          "description": "UUID of the field definition for package-resolved fields; sentinel string for special segments: 'note-title', 'note-section', 'tag', 'label'."
         },
         "fieldName": {
           "type": "string",
-          "description": "Field name (snake_case) for package-resolved fields; sentinel string for special segments matching fieldId sentinels; or TypedField.name / NoteSection.name for named special segments."
+          "description": "Field name (snake_case) for package-resolved fields; sentinel string for special segments matching fieldId sentinels; or NoteSection.name for named special segments."
         },
         "text": {
           "type": "string",
@@ -97,6 +102,32 @@
         "exactMatch": {
           "type": "boolean",
           "description": "If true, the result set MUST equal expectedInstanceIds exactly (structured-filter scenario). If false, the result set MUST be a superset of expectedInstanceIds (content-match scenario)."
+        },
+        "expectedSegments": {
+          "$ref": "#/$defs/ExpectedSegments",
+          "description": "Optional. When present, the runner MUST additionally verify the exact ordered TextSegment sequence for one field of one instance — the segment COUNT and ORDER, which expectedInstanceIds/exactMatch alone cannot express (I-120's list-cardinality rule: one segment per array element, in array order)."
+        }
+      }
+    },
+    "ExpectedSegments": {
+      "type": "object",
+      "description": "A structured expectation over the exact ordered list of TextSegments one field of one instance projects. Added by RFC-012 [R11] (srs#483) to make segment count and order testable, closing the gap left by expectedInstanceIds alone.",
+      "required": ["instanceId", "fieldName", "segments"],
+      "additionalProperties": false,
+      "properties": {
+        "instanceId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The instance whose Text Projection is inspected."
+        },
+        "fieldName": {
+          "type": "string",
+          "description": "The TextSegment.fieldName to filter the instance's projection to before checking count and order."
+        },
+        "segments": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The exact ordered list of TextSegment.text values expected for fieldName. The runner MUST assert that the projected segment count equals segments.length and that segment i's text equals segments[i], for every i, in order."
         }
       }
     }

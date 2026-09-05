@@ -4,9 +4,21 @@
   "title": "SRS Relation Type Definition",
   "description": "Declares a named relation type within a package's relation type vocabulary. Relation types describe the semantic meaning and structural shape of a class of relations.",
   "type": "object",
-  "required": ["$schema", "id", "version", "key", "namespace", "label", "description", "category", "createdAt"],
+  "required": [
+    "$schema",
+    "id",
+    "version",
+    "key",
+    "namespace",
+    "label",
+    "description",
+    "category",
+    "createdAt"
+  ],
   "properties": {
-    "$schema": { "type": "string" },
+    "$schema": {
+      "type": "string"
+    },
     "id": {
       "type": "string",
       "format": "uuid",
@@ -35,7 +47,19 @@
     },
     "category": {
       "type": "string",
-      "enum": ["composition", "refinement", "dependency", "sequence", "derivation", "evidence", "governance", "association", "lifecycle", "provenance", "other"],
+      "enum": [
+        "composition",
+        "refinement",
+        "dependency",
+        "sequence",
+        "derivation",
+        "evidence",
+        "governance",
+        "association",
+        "lifecycle",
+        "provenance",
+        "other"
+      ],
       "description": "Structural category."
     },
     "canonicalDirection": {
@@ -44,29 +68,24 @@
     },
     "inverseType": {
       "type": "string",
-      "description": "The relationType of the inverse relation, if one is formally declared."
+      "description": "Key of the derived inverse (e.g. supersedes -> superseded-by); need not resolve. Only the canonical forward form is ever stored or installed as a RelationTypeDefinition — inverse forms are derived display labels, never asserted (R2) — so this key is not guaranteed to name an installed RelationTypeDefinition."
     },
     "irreflexive": {
       "type": "boolean",
       "description": "When true, a relation from an instance to itself is invalid."
     },
-    "allowedSourceTypes": {
-      "type": "array",
-      "items": { "type": "string" },
-      "description": "Allowed semanticObjectType values for the source instance. Absent means any type is permitted."
-    },
-    "allowedTargetTypes": {
-      "type": "array",
-      "items": { "type": "string" },
-      "description": "Allowed semanticObjectType values for the target instance. Absent means any type is permitted."
-    },
-    "requireSameSemanticObjectType": {
+    "requireSameType": {
       "type": "boolean",
-      "description": "When true, source and target must have the same semanticObjectType."
+      "description": "When true, source and target must resolve to the same bound Type. srs-rust#910: re-keys the retired requireSameSemanticObjectType onto the Type system (owner ruling on #383, srs#372/#524, rfc-decision-c8704763). allowedSourceTypes/allowedTargetTypes retired with no successor — both were keyed on the same retired semanticObjectType string and could never fire against a schema-conforming Record/Note."
     },
     "status": {
       "type": "string",
-      "enum": ["active", "deprecated", "tombstone", "retired"],
+      "enum": [
+        "active",
+        "deprecated",
+        "tombstone",
+        "retired"
+      ],
       "description": "Lifecycle status. Absent means active. deprecated: resolves but new writes rejected. tombstone: resolves for reads only. retired: does not resolve."
     },
     "createdAt": {
@@ -79,10 +98,11 @@
       "format": "date-time",
       "description": "ISO 8601 timestamp when this definition was last updated."
     },
-    "properties": {
+    "meta": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Arbitrary metadata per substrate Change H policy. Unknown top-level fields are rejected; use this instead."
+      "description": "Arbitrary metadata per substrate Change H policy (rfc-decision-6fc7e142: the one escape-bag name, matching the instance layer's meta). Unknown top-level fields are rejected; use this instead."
     }
-  }
+  },
+  "additionalProperties": false
 }

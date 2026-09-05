@@ -5,6 +5,7 @@ import { AttentionManager } from "../container/AttentionManager";
 import { SrsTreeDataProvider, EntityNode } from "../tree/SrsTreeDataProvider";
 import { DocViewNode } from "../tree/NavigatorTreeDataProvider";
 import { PreviewPanel, wrapHtml, esc } from "../preview/PreviewPanel";
+import { resolveTypeFields, ResolvedField } from "../cli/typeFields";
 import type {
   DocumentViewListPayload,
   ContainerListPayload,
@@ -14,6 +15,7 @@ import type {
   RecordListPayload,
   ProtocolStagesPayload,
   BlueprintStructurePayload,
+  FieldValues,
 } from "../cli/types";
 
 // ---- Payload shapes (local — only what we need for rendering) ----
@@ -36,36 +38,7 @@ interface RecordPayload {
     typeNamespace: string;
     typeVersion: number;
     createdAt?: string;
-    fieldValues: Array<{
-      fieldId: string;
-      value: unknown;
-      entries?: Array<{ value: unknown }>;
-    }>;
-  };
-}
-
-interface TypePayload {
-  type: {
-    id: string;
-    name: string;
-    namespace: string;
-    version: number;
-    fields: Array<{
-      fieldId: string;
-      displayLabel?: string;
-      order: number;
-      required: boolean;
-      repeatable?: boolean;
-    }>;
-  };
-}
-
-interface FieldPayload {
-  field: {
-    id: string;
-    name: string;
-    namespace: string;
-    valueType: string;
+    fieldValues: FieldValues;
   };
 }
 
@@ -310,6 +283,72 @@ async function previewNote(
 
 // ---- Record preview ----
 
+function stringifyFieldValue(v: unknown): string {
+  // A schema-invalid stored null (record get doesn't reject on validation failure —
+  // see repo validate diagnostics) must not render as the literal text "null"; same
+  // guard already applied to the list-scalar/composite branches below.
+  if (v === undefined || v === null) return "";
+  return typeof v === "string" ? v : JSON.stringify(v);
+}
+
+// Recurses into composite/list-composite fields (mirroring forms.ts's renderField)
+// instead of dumping their value as raw JSON — the same ResolvedField.children the
+// edit form uses to build nested inputs is used here to build nested read-only rows.
+function renderFieldRow(f: ResolvedField, value: unknown): string {
+  const isText = f.isMarkdown ?? false;
+  let valueHtml: string;
+
+  if (f.kind === "list-scalar") {
+    // Array.isArray(null) is false — guard explicitly rather than falling through to
+    // the generic stringify branch below and displaying the literal text "null" (a
+    // record loaded despite failing validation, e.g. hand-edited JSON, can carry a
+    // null the schema forbids; see the same guard on the composite branch above).
+    const items = (Array.isArray(value) ? value : [])
+      .map((v) => {
+        const s = stringifyFieldValue(v);
+        return isText
+          ? `<li class="markdown-value" data-md="${esc(s)}"></li>`
+          : `<li>${esc(s)}</li>`;
+      })
+      .join("");
+    valueHtml = `<ul class="repeatable-values">${items}</ul>`;
+  } else if (f.kind === "composite") {
+    // Guard null/non-object explicitly (not just "falsy") — a JSON null composite
+    // value must render as empty, not fall through to the generic stringify branch
+    // below and display the literal text "null".
+    const obj = (value && typeof value === "object" && !Array.isArray(value)) ? value as Record<string, unknown> : {};
+    const childRows = (f.children ?? [])
+      .filter((c) => obj[c.name] !== undefined)
+      .map((c) => renderFieldRow(c, obj[c.name]))
+      .join("");
+    valueHtml = childRows ? `<div class="nested-fields">${childRows}</div>` : `<span class="empty">—</span>`;
+  } else if (f.kind === "list-composite") {
+    const entries = Array.isArray(value) ? value : [];
+    const entriesHtml = entries
+      .map((entry, i) => {
+        const obj = (entry && typeof entry === "object") ? entry as Record<string, unknown> : {};
+        const childRows = (f.children ?? [])
+          .filter((c) => obj[c.name] !== undefined)
+          .map((c) => renderFieldRow(c, obj[c.name]))
+          .join("");
+        return `<div class="nested-entry"><div class="nested-entry-index">#${i + 1}</div><div class="nested-fields">${childRows}</div></div>`;
+      })
+      .join("");
+    valueHtml = entriesHtml || `<span class="empty">—</span>`;
+  } else {
+    const v = stringifyFieldValue(value);
+    valueHtml = isText
+      ? `<div class="markdown-value" data-md="${esc(v)}"></div>`
+      : esc(v);
+  }
+
+  const rowClass = isText ? "field-row field-row--text" : "field-row";
+  return `<div class="${rowClass}">
+        <div class="field-label">${esc(f.displayLabel)}</div>
+        <div class="field-value">${valueHtml}</div>
+      </div>`;
+}
+
 async function previewRecord(
   context: vscode.ExtensionContext,
   cli: CliClient,
@@ -320,37 +359,20 @@ async function previewRecord(
   const { record } = payload;
 
   // Fetch type, relations, and entity lists in parallel
-  let labelMap = new Map<string, string>();
-  let repeatableSet = new Set<string>();
-  let textFieldSet = new Set<string>();
+  let resolvedFields: ResolvedField[] = [];
   let relatedItems: Array<{ relationId: string; relationType: string; direction: "outgoing" | "incoming"; peerId: string; peerLabel: string; peerKind: string }> = [];
 
   const [typeResult, relResult, noteResult, recordListResult] = await Promise.allSettled([
-    cli.runOk<TypePayload>(repoPath, ["type", "get", record.typeId]),
+    resolveTypeFields(cli, repoPath, record.typeId, record.typeVersion),
     cli.runOk<RelationListPayload>(repoPath, ["relation", "list"]),
     cli.runOk<NoteListPayload>(repoPath, ["note", "list"]),
     cli.runOk<RecordListPayload>(repoPath, ["record", "list"]),
   ]);
 
   if (typeResult.status === "fulfilled") {
-    const typeFields = typeResult.value.type.fields;
-    for (const f of typeFields) {
-      if (f.repeatable) repeatableSet.add(f.fieldId);
-    }
-    // Fetch field definitions in parallel to get valueType and field name for labeling
-    const fieldResults = await Promise.allSettled(
-      typeFields.map((f) => cli.runOk<FieldPayload>(repoPath, ["field", "get", f.fieldId]))
-    );
-    for (let i = 0; i < typeFields.length; i++) {
-      const f = typeFields[i];
-      const fr = fieldResults[i];
-      const fieldName = fr.status === "fulfilled" ? fr.value.field.name : undefined;
-      labelMap.set(f.fieldId, f.displayLabel ?? fieldName ?? f.fieldId.slice(0, 8));
-      if (fr.status === "fulfilled" && fr.value.field.valueType === "text") {
-        textFieldSet.add(fr.value.field.id);
-      }
-    }
+    resolvedFields = typeResult.value;
   }
+  const typeResolutionFailed = typeResult.status === "rejected";
 
   if (relResult.status === "fulfilled") {
     const peerLabelMap = new Map<string, { label: string; kind: string }>();
@@ -392,34 +414,18 @@ async function previewRecord(
 
   const title = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
 
-  const rows = record.fieldValues
-    .map((fv) => {
-      const label = labelMap.get(fv.fieldId) ?? fv.fieldId.slice(0, 8);
-      const isText = textFieldSet.has(fv.fieldId);
-      let valueHtml: string;
-      if (repeatableSet.has(fv.fieldId) && fv.entries && fv.entries.length > 0) {
-        const items = fv.entries
-          .map((e) => {
-            const v = typeof e.value === "string" ? e.value : JSON.stringify(e.value);
-            return isText
-              ? `<li class="markdown-value" data-md="${esc(v)}"></li>`
-              : `<li>${esc(v)}</li>`;
-          })
-          .join("");
-        valueHtml = `<ul class="repeatable-values">${items}</ul>`;
-      } else {
-        const v = typeof fv.value === "string" ? fv.value : JSON.stringify(fv.value);
-        valueHtml = isText
-          ? `<div class="markdown-value" data-md="${esc(v)}"></div>`
-          : esc(v);
-      }
-      const rowClass = isText ? "field-row field-row--text" : "field-row";
-      return `<div class="${rowClass}">
-        <div class="field-label">${esc(label)}</div>
-        <div class="field-value">${valueHtml}</div>
-      </div>`;
-    })
-    .join("");
+  // A resolveTypeFields failure (stale CLI binary, or a typeVersion the package no
+  // longer resolves) must not render as an empty-looking record — fall back to the
+  // raw fieldValues with their carrier key as the label, same as the pre-RFC-039
+  // code always did regardless of type/field lookup failures.
+  const rows = typeResolutionFailed
+    ? Object.entries(record.fieldValues)
+        .map(([name, value]) => renderFieldRow({ name, displayLabel: name, order: 0, required: false, kind: "scalar" }, value))
+        .join("")
+    : resolvedFields
+        .filter((f) => record.fieldValues[f.name] !== undefined)
+        .map((f) => renderFieldRow(f, record.fieldValues[f.name]))
+        .join("");
 
   const meta = record.createdAt ? `Created: ${esc(record.createdAt.slice(0, 10))}` : "";
 
@@ -514,14 +520,16 @@ async function previewContainer(
           const cells = columns.map((col) => {
             let cellContent: string;
             if (col.isIdentityColumn) {
-              // Identity column: render as a clickable link to the entity.
-              const label = m.tier === 2 && m.record
-                ? (m.record.fieldValues.find((fv) => fv.fieldId === col.fieldId)?.value as string | undefined) ?? m.displayLabel
-                : m.displayLabel;
+              // Identity column: render as a clickable link to the entity. `as string`
+              // is compile-time only — a numeric/boolean identity field's value would
+              // otherwise reach esc() (which calls .replace) and throw, taking down
+              // the whole table's render, not just this cell.
+              const identityValue = m.tier === 2 && m.record ? m.record.fieldValues[col.fieldName] : undefined;
+              const label = identityValue !== undefined && identityValue !== null ? String(identityValue) : m.displayLabel;
               cellContent = `<a class="identity-link" href="#" data-id="${esc(m.instanceId)}" data-kind="${m.tier === 0 ? "note" : "record"}">${esc(label)}</a>`;
             } else if (m.tier === 2 && m.record) {
-              const fv = m.record.fieldValues.find((f) => f.fieldId === col.fieldId);
-              cellContent = fv !== undefined ? esc(String(fv.value ?? "")) : "";
+              const fv = m.record.fieldValues[col.fieldName];
+              cellContent = esc(String(fv ?? ""));
             } else {
               cellContent = "";
             }
