@@ -1,7 +1,6 @@
 import { CliClient } from "../../cli/CliClient";
 import { RelationListPayload } from "../../cli/types";
 import {
-  F,
   TYPE_PREFIX,
   GuideDoc,
   GuideTableBlock,
@@ -11,12 +10,18 @@ import {
   SectionDoc,
 } from "./guideTypes";
 
-function fv(record: RawRecord, fieldId: string): string {
-  const entry = record.fieldValues.find((e) => e.fieldId === fieldId);
-  if (entry == null) return "";
-  return typeof entry.value === "string" ? entry.value : "";
+function str(record: RawRecord, name: string): string {
+  const v = record.fieldValues[name];
+  return typeof v === "string" ? v : "";
 }
 
+// Coerce, never filter: a table row's cells are positional (aligned to the columns
+// declaration) — dropping a non-string entry instead of coercing it would shift every
+// later cell in the row left and misalign it under the wrong column header.
+function strArray(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.map((x) => (typeof x === "string" ? x : x === null || x === undefined ? "" : String(x)));
+}
 
 function sortByPrecedes(ids: string[], precedesMap: Map<string, string>): string[] {
   const hasIncoming = new Set(ids.filter((id) => [...precedesMap.values()].includes(id)));
@@ -40,6 +45,20 @@ function sectionTypeFromPrefix(typeId: string) {
   throw new Error(`Unknown section typeId prefix: ${p} (${typeId})`);
 }
 
+function toTableBlock(raw: unknown): GuideTableBlock {
+  const r = (raw && typeof raw === "object") ? raw as Record<string, unknown> : {};
+  const rows = Array.isArray(r.rows)
+    ? r.rows.map((row) => strArray((row && typeof row === "object") ? (row as Record<string, unknown>).cells : undefined))
+    : [];
+  const block: GuideTableBlock = { columns: strArray(r.columns), rows };
+  if (typeof r.subheading === "string" && r.subheading) block.subheading = r.subheading;
+  if (typeof r.label === "string" && r.label) block.label = r.label;
+  if (typeof r.widths === "string" && r.widths) {
+    try { block.widths = JSON.parse(r.widths); } catch { /* ignore malformed widths */ }
+  }
+  return block;
+}
+
 function toSectionDoc(record: RawRecord): SectionDoc {
   const type = sectionTypeFromPrefix(record.typeId);
   const section: SectionDoc = {
@@ -47,48 +66,34 @@ function toSectionDoc(record: RawRecord): SectionDoc {
     typeId: record.typeId,
     typeVersion: record.typeVersion,
     type,
-    heading: fv(record, F.heading),
-    slug: fv(record, F.slug),
+    heading: str(record, "heading"),
+    slug: str(record, "slug"),
   };
 
   if (type === "text") {
-    section.body = fv(record, F.body);
-    section.callout = fv(record, F.callout);
+    section.body = str(record, "body");
+    section.callout = str(record, "callout");
   } else if (type === "list") {
-    section.body = fv(record, F.body);
-    section.listItems = fv(record, F.listItems);
-    section.outro = fv(record, F.outro);
+    section.body = str(record, "body");
+    section.listItems = str(record, "list-items");
+    section.outro = str(record, "outro");
   } else if (type === "table") {
-    section.body = fv(record, F.body);
-    const tablesGroup = record.groupValues?.find((gv) => gv.groupId === "tables");
-    section.tables = (tablesGroup?.entries ?? []).map((entry) => {
-      const fval = (id: string) =>
-        entry.fieldValues.find((e) => e.fieldId === id)?.value;
-      let columns: string[] = [];
-      let rows: string[][] = [];
-      let widths: string[] | undefined;
-      try { columns = JSON.parse(String(fval(F.columns) ?? "[]")); } catch { columns = []; }
-      try { rows = JSON.parse(String(fval(F.rows) ?? "[]")); } catch { rows = []; }
-      const widthsRaw = fval(F.widths);
-      if (widthsRaw) { try { widths = JSON.parse(String(widthsRaw)); } catch { /* ignore */ } }
-      const block: GuideTableBlock = { columns, rows };
-      const sub = fval(F.subheading);
-      const lbl = fval(F.tableLabel);
-      if (typeof sub === "string" && sub) block.subheading = sub;
-      if (typeof lbl === "string" && lbl) block.label = lbl;
-      if (widths) block.widths = widths;
-      return block;
-    });
-    const itemsGroup = record.groupValues?.find((gv) => gv.groupId === "items");
-    section.items = (itemsGroup?.entries ?? []).map((entry) => {
-      const term = entry.fieldValues.find((e) => e.fieldId === F.itemTerm)?.value;
-      const body = entry.fieldValues.find((e) => e.fieldId === F.itemBody)?.value;
-      return {
-        term: typeof term === "string" && term ? term : undefined,
-        body: typeof body === "string" ? body : "",
-      };
-    });
-    section.outro = fv(record, F.outro);
+    section.body = str(record, "body");
+    const tables = record.fieldValues.tables;
+    section.tables = Array.isArray(tables) ? tables.map(toTableBlock) : [];
+    const items = record.fieldValues.items;
+    section.items = Array.isArray(items)
+      ? items.map((it) => {
+          const r = (it && typeof it === "object") ? it as Record<string, unknown> : {};
+          const term = r["item-term"];
+          const body = r["item-body"];
+          return {
+            term: typeof term === "string" && term ? term : undefined,
+            body: typeof body === "string" ? body : "",
+          };
+        })
+      : [];
+    section.outro = str(record, "outro");
   }
 
   return section;
@@ -144,10 +149,10 @@ export async function loadGuide(
     guideInstanceId: guideId,
     guideTypeId: guideRecord.typeId,
     guideTypeVersion: guideRecord.typeVersion,
-    slug: fv(guideRecord, F.slug),
-    title: fv(guideRecord, F.title),
-    subtitle: fv(guideRecord, F.subtitle),
-    body: fv(guideRecord, F.body),
+    slug: str(guideRecord, "slug"),
+    title: str(guideRecord, "title"),
+    subtitle: str(guideRecord, "subtitle"),
+    body: str(guideRecord, "body"),
     sections,
   };
 }

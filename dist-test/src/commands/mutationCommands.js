@@ -132,7 +132,7 @@ async function cmdCreateRecord(cli, repoProvider, attention, treeProvider) {
     try {
         const cid = containerId(attention);
         await cli.runOk(repo.rootPath, ["record", "create", "--type", typeName, "--version", String(picked.type.version)], {
-            stdin: JSON.stringify({ fieldValues: [] }),
+            stdin: JSON.stringify({ fieldValues: {} }),
             containerId: cid,
         });
         treeProvider.refresh();

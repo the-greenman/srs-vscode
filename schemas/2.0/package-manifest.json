@@ -28,6 +28,11 @@
       "type": "string",
       "description": "Semver string, e.g. 1.0.0."
     },
+    "dataModelRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "RFC-033 / #265 — the data-model generation this package's definitions were authored/generated for. Absent means revision 0. Distinct from the package's own semver version. Not dotted semver."
+    },
     "title": {
       "type": "string",
       "description": "Human-readable display name."
@@ -56,10 +61,10 @@
       "items": { "type": "string" },
       "description": "Relative paths from this package directory to L1 View definition files (ext:views-l1). Omit or use empty array if the package defines no Views."
     },
-    "documentViews": {
+    "compositions": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "ext:views-l2 — relative paths from this package directory to DocumentView definition files. Omit if the package defines no DocumentViews."
+      "description": "ext:views-l2 — relative paths from this package directory to Composition definition files. Omit if the package defines no Compositions."
     },
     "themes": {
       "type": "array",
@@ -91,10 +96,11 @@
       "items": { "type": "string" },
       "description": "Relative paths from this package directory to Protocol definition files (ext:protocol). Omit or use empty array if the package defines no Protocols."
     },
-    "dependencyRefs": {
+    "packageDependencies": {
       "type": "array",
       "items": { "$ref": "#/$defs/DependencyRef" },
-      "description": "Other packages this package depends on. Consumers must resolve these before using this package."
+      "description": "Other packages this package depends on. Consumers must resolve these before using this package.",
+      "$comment": "srs-rust#873/#910: renamed from `dependencyRefs` (srs#478, rfc-decision-c8704763 item 2) — the fold rides srs-rust#910's shared dataModelRevision 6 stamp per the map's accepted (unvetoed) proposal on srs#524. The old name is read only by the `composition-cutover` migration (#6), never the runtime load path."
     },
     "createdAt": {
       "type": "string",

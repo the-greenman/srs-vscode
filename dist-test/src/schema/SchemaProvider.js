@@ -44,13 +44,13 @@ const SCHEMA_ASSOCIATIONS = [
     // are whole-repo bundle extensions, never per-instance files — do not glob them.
     { glob: "**/records/**/*.json", schema: "schemas/2.0/record.json" },
     { glob: "**/notes/**/*.json", schema: "schemas/2.0/note.json" },
-    { glob: "**/typed-records/**/*.json", schema: "schemas/2.0/typed-record.json" },
     { glob: "**/package/fields/*.json", schema: "schemas/2.0/field.json" },
     { glob: "**/package/types/*.json", schema: "schemas/2.0/type.json" },
     { glob: "**/package/views/*.json", schema: "schemas/2.0/view.json" },
-    { glob: "**/package/document-views/*.json", schema: "schemas/2.0/document-view.json" },
     { glob: "**/package/package.json", schema: "schemas/2.0/package-manifest.json" },
-    { glob: "**/relations/relations.json", schema: "schemas/2.0/relations-collection.json" },
+    // RFC-038 Change E: one Relation per file at relations/<relationId>.json — the
+    // former single relations.json collection is retired.
+    { glob: "**/relations/**/*.json", schema: "schemas/2.0/relation.json" },
     { glob: "**/containers/*.json", schema: "schemas/2.0/container.json" },
     { glob: "**/*.meta.json", schema: "schemas/2.0/source-document-meta.json" },
 ];

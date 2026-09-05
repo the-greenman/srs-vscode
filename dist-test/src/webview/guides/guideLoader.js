@@ -2,11 +2,17 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.loadGuide = loadGuide;
 const guideTypes_1 = require("./guideTypes");
-function fv(record, fieldId) {
-    const entry = record.fieldValues.find((e) => e.fieldId === fieldId);
-    if (entry == null)
-        return "";
-    return typeof entry.value === "string" ? entry.value : "";
+function str(record, name) {
+    const v = record.fieldValues[name];
+    return typeof v === "string" ? v : "";
+}
+// Coerce, never filter: a table row's cells are positional (aligned to the columns
+// declaration) — dropping a non-string entry instead of coercing it would shift every
+// later cell in the row left and misalign it under the wrong column header.
+function strArray(v) {
+    if (!Array.isArray(v))
+        return [];
+    return v.map((x) => (typeof x === "string" ? x : x === null || x === undefined ? "" : String(x)));
 }
 function sortByPrecedes(ids, precedesMap) {
     const hasIncoming = new Set(ids.filter((id) => [...precedesMap.values()].includes(id)));
@@ -32,6 +38,24 @@ function sectionTypeFromPrefix(typeId) {
         return "table";
     throw new Error(`Unknown section typeId prefix: ${p} (${typeId})`);
 }
+function toTableBlock(raw) {
+    const r = (raw && typeof raw === "object") ? raw : {};
+    const rows = Array.isArray(r.rows)
+        ? r.rows.map((row) => strArray((row && typeof row === "object") ? row.cells : undefined))
+        : [];
+    const block = { columns: strArray(r.columns), rows };
+    if (typeof r.subheading === "string" && r.subheading)
+        block.subheading = r.subheading;
+    if (typeof r.label === "string" && r.label)
+        block.label = r.label;
+    if (typeof r.widths === "string" && r.widths) {
+        try {
+            block.widths = JSON.parse(r.widths);
+        }
+        catch { /* ignore malformed widths */ }
+    }
+    return block;
+}
 function toSectionDoc(record) {
     const type = sectionTypeFromPrefix(record.typeId);
     const section = {
@@ -39,66 +63,35 @@ function toSectionDoc(record) {
         typeId: record.typeId,
         typeVersion: record.typeVersion,
         type,
-        heading: fv(record, guideTypes_1.F.heading),
-        slug: fv(record, guideTypes_1.F.slug),
+        heading: str(record, "heading"),
+        slug: str(record, "slug"),
     };
     if (type === "text") {
-        section.body = fv(record, guideTypes_1.F.body);
-        section.callout = fv(record, guideTypes_1.F.callout);
+        section.body = str(record, "body");
+        section.callout = str(record, "callout");
     }
     else if (type === "list") {
-        section.body = fv(record, guideTypes_1.F.body);
-        section.listItems = fv(record, guideTypes_1.F.listItems);
-        section.outro = fv(record, guideTypes_1.F.outro);
+        section.body = str(record, "body");
+        section.listItems = str(record, "list-items");
+        section.outro = str(record, "outro");
     }
     else if (type === "table") {
-        section.body = fv(record, guideTypes_1.F.body);
-        const tablesGroup = record.groupValues?.find((gv) => gv.groupId === "tables");
-        section.tables = (tablesGroup?.entries ?? []).map((entry) => {
-            const fval = (id) => entry.fieldValues.find((e) => e.fieldId === id)?.value;
-            let columns = [];
-            let rows = [];
-            let widths;
-            try {
-                columns = JSON.parse(String(fval(guideTypes_1.F.columns) ?? "[]"));
-            }
-            catch {
-                columns = [];
-            }
-            try {
-                rows = JSON.parse(String(fval(guideTypes_1.F.rows) ?? "[]"));
-            }
-            catch {
-                rows = [];
-            }
-            const widthsRaw = fval(guideTypes_1.F.widths);
-            if (widthsRaw) {
-                try {
-                    widths = JSON.parse(String(widthsRaw));
-                }
-                catch { /* ignore */ }
-            }
-            const block = { columns, rows };
-            const sub = fval(guideTypes_1.F.subheading);
-            const lbl = fval(guideTypes_1.F.tableLabel);
-            if (typeof sub === "string" && sub)
-                block.subheading = sub;
-            if (typeof lbl === "string" && lbl)
-                block.label = lbl;
-            if (widths)
-                block.widths = widths;
-            return block;
-        });
-        const itemsGroup = record.groupValues?.find((gv) => gv.groupId === "items");
-        section.items = (itemsGroup?.entries ?? []).map((entry) => {
-            const term = entry.fieldValues.find((e) => e.fieldId === guideTypes_1.F.itemTerm)?.value;
-            const body = entry.fieldValues.find((e) => e.fieldId === guideTypes_1.F.itemBody)?.value;
-            return {
-                term: typeof term === "string" && term ? term : undefined,
-                body: typeof body === "string" ? body : "",
-            };
-        });
-        section.outro = fv(record, guideTypes_1.F.outro);
+        section.body = str(record, "body");
+        const tables = record.fieldValues.tables;
+        section.tables = Array.isArray(tables) ? tables.map(toTableBlock) : [];
+        const items = record.fieldValues.items;
+        section.items = Array.isArray(items)
+            ? items.map((it) => {
+                const r = (it && typeof it === "object") ? it : {};
+                const term = r["item-term"];
+                const body = r["item-body"];
+                return {
+                    term: typeof term === "string" && term ? term : undefined,
+                    body: typeof body === "string" ? body : "",
+                };
+            })
+            : [];
+        section.outro = str(record, "outro");
     }
     return section;
 }
@@ -138,10 +131,10 @@ async function loadGuide(cli, repoPath, containerId) {
         guideInstanceId: guideId,
         guideTypeId: guideRecord.typeId,
         guideTypeVersion: guideRecord.typeVersion,
-        slug: fv(guideRecord, guideTypes_1.F.slug),
-        title: fv(guideRecord, guideTypes_1.F.title),
-        subtitle: fv(guideRecord, guideTypes_1.F.subtitle),
-        body: fv(guideRecord, guideTypes_1.F.body),
+        slug: str(guideRecord, "slug"),
+        title: str(guideRecord, "title"),
+        subtitle: str(guideRecord, "subtitle"),
+        body: str(guideRecord, "body"),
         sections,
     };
 }

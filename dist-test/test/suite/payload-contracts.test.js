@@ -56,11 +56,29 @@ const assert = __importStar(require("assert"));
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const ajv_1 = __importDefault(require("ajv"));
-// Golden schema files are in the sibling srs-rust workspace.
-// From dist-test/test/suite/ go up 4 levels to reach semanticops/.
-const SCHEMA_DIR = path.resolve(__dirname, "../../../../srs-rust/crates/srs-cli/schemas/payload");
-const schemaDirExists = fs.existsSync(SCHEMA_DIR);
+// Golden schema files are in the sibling srs-rust workspace. A fixed relative depth
+// (e.g. "../../../../srs-rust") silently resolves to the wrong place inside a git
+// worktree checkout (srs-vscode-worktrees/<branch>/ nests one level deeper than the
+// plain srs-vscode/ checkout this repo is normally cloned as), which makes the whole
+// suite skip instead of validate — walk upward instead so both layouts work.
+function findSchemaDir(startDir) {
+    let dir = startDir;
+    for (let i = 0; i < 8; i++) {
+        const candidate = path.join(dir, "srs-rust/crates/srs-cli/schemas/payload");
+        if (fs.existsSync(candidate))
+            return candidate;
+        const parent = path.dirname(dir);
+        if (parent === dir)
+            break;
+        dir = parent;
+    }
+    return undefined;
+}
+const SCHEMA_DIR = findSchemaDir(__dirname);
+const schemaDirExists = SCHEMA_DIR !== undefined;
 function loadSchema(name) {
+    if (!SCHEMA_DIR)
+        return null;
     const schemaPath = path.join(SCHEMA_DIR, `${name}.json`);
     if (!fs.existsSync(schemaPath)) {
         return null;
