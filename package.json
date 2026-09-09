@@ -4,6 +4,7 @@
   "description": "Browse and validate Semantic Record System repositories via the srs CLI",
   "version": "0.2.0",
   "publisher": "semanticops",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/the-greenman/srs-vscode.git"
