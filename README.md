@@ -88,3 +88,9 @@ TypeScript (^5.3) targeting `@types/vscode` ^1.85 · **esbuild** bundler (`esbui
 - [`docs/adr/001-thin-client.md`](docs/adr/001-thin-client.md) — the "no SRS semantics in TypeScript" decision.
 - [`docs/schema-sync.md`](docs/schema-sync.md) — how the schema mirror stays in sync.
 - [`CLAUDE.md`](CLAUDE.md) — contributor guidance.
+
+## Licence
+
+The SRS VS Code extension is released under the [Apache License 2.0](LICENSE).
+
+Contributions to this repository are made under the terms of the [Developer Certificate of Origin](CONTRIBUTING.md#developer-certificate-of-origin). By submitting a pull request, you certify that you have the right to submit that work under the Apache License 2.0 by signing off your commits with `git commit -s`.
