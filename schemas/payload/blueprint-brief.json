@@ -1,0 +1,272 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BlueprintBriefPayload",
+  "type": "object",
+  "required": [
+    "blueprintId",
+    "diagnostics",
+    "name",
+    "namespace",
+    "rendered",
+    "requiredTypes",
+    "structure",
+    "types",
+    "version"
+  ],
+  "properties": {
+    "aiGuidance": true,
+    "blueprintId": {
+      "type": "string"
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "name": {
+      "type": "string"
+    },
+    "namespace": {
+      "type": "string"
+    },
+    "protocol": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/BriefProtocol"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "rendered": {
+      "description": "Markdown prose in AI guidance composition order. Always populated.",
+      "type": "string"
+    },
+    "requiredTypes": {
+      "type": "array",
+      "items": true
+    },
+    "structure": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/BriefRelationSpec"
+      }
+    },
+    "types": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/BriefType"
+      }
+    },
+    "version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
+    }
+  },
+  "definitions": {
+    "BriefField": {
+      "type": "object",
+      "required": [
+        "fieldId",
+        "fieldType",
+        "name",
+        "order",
+        "required"
+      ],
+      "properties": {
+        "aiGuidance": true,
+        "fieldId": {
+          "type": "string"
+        },
+        "fieldType": {
+          "description": "RFC-032 `fieldType`, carried whole. `schemars` cannot derive through `srs-core` (which must not depend on it), so the payload schema types this as an object; its shape is `$defs/FieldType` in `field.json`."
+        },
+        "name": {
+          "type": "string"
+        },
+        "order": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "BriefProtocol": {
+      "type": "object",
+      "required": [
+        "protocolId",
+        "protocolName",
+        "stages"
+      ],
+      "properties": {
+        "protocolId": {
+          "type": "string"
+        },
+        "protocolName": {
+          "type": "string"
+        },
+        "stages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/BriefStage"
+          }
+        }
+      }
+    },
+    "BriefRelationSpec": {
+      "type": "object",
+      "required": [
+        "relationType",
+        "sourceTypeId",
+        "targetTypeId"
+      ],
+      "properties": {
+        "cardinality": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "relationType": {
+          "type": "string"
+        },
+        "required": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "sourceTypeId": {
+          "type": "string"
+        },
+        "sourceTypeName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "targetTypeId": {
+          "type": "string"
+        },
+        "targetTypeName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "BriefStage": {
+      "type": "object",
+      "required": [
+        "dependsOn",
+        "name",
+        "order",
+        "stageId"
+      ],
+      "properties": {
+        "aiGuidance": true,
+        "completionCriteria": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "contributesTo": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/FieldRef"
+          }
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "type": "string"
+        },
+        "order": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "outputType": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "purpose": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "question": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stageId": {
+          "type": "string"
+        }
+      }
+    },
+    "BriefType": {
+      "type": "object",
+      "required": [
+        "fields",
+        "name",
+        "namespace",
+        "typeId"
+      ],
+      "properties": {
+        "aiGuidance": true,
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/BriefField"
+          }
+        },
+        "name": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "typeId": {
+          "type": "string"
+        }
+      }
+    },
+    "FieldRef": {
+      "description": "Payload mirror of `srs_core::types::protocol::FieldRef`. Separate struct because payload types must derive `JsonSchema`; srs-core must not depend on schemars (ADR-011).",
+      "type": "object",
+      "required": [
+        "fieldId"
+      ],
+      "properties": {
+        "fieldId": {
+          "type": "string"
+        },
+        "typeId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

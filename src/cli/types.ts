@@ -116,9 +116,11 @@ export interface TypeListPayload {
   }>;
 }
 
-// extension list  → payload.extensions
+// repo extensions list  → payload.extensions (plain declared-extension strings, e.g.
+// "ext:lifecycle" — there is no "extension get"; the extension moved from the retired
+// `extension list` command to `repo extensions list`, RFC-N/A, srs-rust f7c9bfec era)
 export interface ExtensionListPayload {
-  extensions: Array<{ instanceId: string; extensionId?: string }>;
+  extensions: string[];
 }
 
 // protocol list  → payload.protocols
@@ -148,11 +150,12 @@ export interface ViewListPayload {
   views: Array<{ id: string; name: string; namespace: string }>;
 }
 
-// document-view list / list-for-container  → payload.documentViews
-// Mirrors the Rust DocumentViewSummary (srs-repository view_service.rs): both
+// composition list / list-for-container  → payload.compositions
+// Mirrors the Rust CompositionSummary (srs-repository view_service.rs): both
 // `version` and `description` are always emitted; `containerType` is optional.
-export interface DocumentViewListPayload {
-  documentViews: Array<{
+// (Renamed from DocumentView → Composition, srs-rust PR #921 / f7c9bfec.)
+export interface CompositionListPayload {
+  compositions: Array<{
     id: string;
     name: string;
     namespace: string;
@@ -206,7 +209,7 @@ export interface BlueprintStructurePayload {
 export interface ContainerResolveViewPayload {
   containerView: {
     containerId: string;
-    documentViewId?: string;
+    compositionId?: string;
     root?: ContainerResolvedMember;
     members: ContainerResolvedMember[];
     columns: ContainerColumnSpec[];
@@ -289,6 +292,6 @@ export type EntityKind =
   | "protocol"
   | "blueprint"
   | "view"
-  | "document-view"
+  | "composition"
   | "theme"
   | "relation-type";

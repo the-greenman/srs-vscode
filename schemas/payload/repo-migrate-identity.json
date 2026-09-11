@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RepoMigrateIdentityPayload",
+  "type": "object",
+  "required": [
+    "newIdentityId",
+    "statement"
+  ],
+  "properties": {
+    "newIdentityId": {
+      "type": "string"
+    },
+    "oldIdentityId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "oldIdentityTier": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint8",
+      "minimum": 0.0
+    },
+    "statement": {
+      "type": "string"
+    },
+    "title": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

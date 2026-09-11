@@ -2,18 +2,19 @@ import * as vscode from "vscode";
 import { CliClient } from "../cli/CliClient";
 import { RepositoryProvider } from "../repository/RepositoryProvider";
 import { EntityNode } from "./SrsTreeDataProvider";
+import { buildLabelMap } from "../cli/labelMap";
 import type {
   RelationListPayload,
-  NoteListPayload,
   RecordListPayload,
   ContainerListPayload,
-  DocumentViewListPayload,
+  CompositionListPayload,
+  ContainerResolveViewPayload,
   EntityKind,
 } from "../cli/types";
 
 // ---- Mode ----
 
-export type NavigatorMode = "relations" | "document-views" | "containers";
+export type NavigatorMode = "relations" | "compositions" | "containers";
 
 // ---- Node types ----
 
@@ -57,34 +58,61 @@ export class RelationRootNode extends EntityNode {
   }
 }
 
-/** A document-view root node */
-export class DocViewNode extends vscode.TreeItem {
+// A Composition section's `source` discriminant (RFC-036/f7c9bfec collapsed away the
+// old `semanticObjectType` field). Real shapes seen live (muSrs): container-subset
+// `{type, containerId}`, discovery-query `{type, query: {typeNamespace, typeName, ...}}`,
+// and a multi-container variant `{type, containerIds, containerScope, query}`. `query`'s
+// full filter-axis shape (ext:discovery's DiscoveryQuery) isn't modeled beyond the two
+// keys the record-list drill-down needs.
+export interface CompositionSectionSource {
+  type: string;
+  containerId?: string;
+  containerIds?: string[];
+  query?: { typeNamespace?: string; typeName?: string };
+}
+
+export interface CompositionSection {
+  sectionId: string;
+  title?: string;
+  source?: CompositionSectionSource;
+}
+
+function isSectionExpandable(source: CompositionSectionSource | undefined): boolean {
+  return !!(
+    source?.containerId ||
+    (source?.containerIds && source.containerIds.length > 0) ||
+    (source?.query?.typeNamespace && source?.query?.typeName)
+  );
+}
+
+/** A composition root node */
+export class CompositionNode extends vscode.TreeItem {
   constructor(
-    public readonly viewId: string,
+    public readonly compositionId: string,
     label: string,
-    public readonly sections: Array<{ sectionId: string; title: string; semanticObjectType?: string }>,
+    public readonly sections: CompositionSection[],
   ) {
     super(label, vscode.TreeItemCollapsibleState.Collapsed);
-    this.contextValue = "srsNavDocView";
-    this.tooltip = viewId;
+    this.contextValue = "srsNavComposition";
+    this.tooltip = compositionId;
   }
 }
 
-/** A section within a document-view */
-export class DocViewSectionNode extends vscode.TreeItem {
+/** A section within a composition */
+export class CompositionSectionNode extends vscode.TreeItem {
   constructor(
     public readonly sectionId: string,
     label: string,
-    public readonly semanticObjectType: string | undefined,
+    public readonly source: CompositionSectionSource | undefined,
   ) {
     super(
       label,
-      semanticObjectType
+      isSectionExpandable(source)
         ? vscode.TreeItemCollapsibleState.Collapsed
         : vscode.TreeItemCollapsibleState.None,
     );
     this.contextValue = "srsNavSection";
-    this.tooltip = semanticObjectType ? `Type: ${semanticObjectType}` : sectionId;
+    this.tooltip = source ? `Source: ${source.type}` : sectionId;
   }
 }
 
@@ -107,8 +135,8 @@ export type NavigatorNode =
   | EntityNode
   | RelationTypeGroupNode
   | RelationRootNode
-  | DocViewNode
-  | DocViewSectionNode
+  | CompositionNode
+  | CompositionSectionNode
   | ContainerRootNode;
 
 // ---- Provider ----
@@ -176,14 +204,14 @@ export class NavigatorTreeDataProvider
       );
     }
 
-    if (element instanceof DocViewNode) {
+    if (element instanceof CompositionNode) {
       return element.sections.map(
-        (s) => new DocViewSectionNode(s.sectionId, s.title, s.semanticObjectType),
+        (s) => new CompositionSectionNode(s.sectionId, s.title ?? s.sectionId, s.source),
       );
     }
 
-    if (element instanceof DocViewSectionNode) {
-      return this._getSectionRecords(element.semanticObjectType, repo.rootPath);
+    if (element instanceof CompositionSectionNode) {
+      return this._getSectionRecords(element.source, repo.rootPath);
     }
 
     if (element instanceof ContainerRootNode) {
@@ -197,9 +225,9 @@ export class NavigatorTreeDataProvider
 
   private async _getRoots(repoPath: string): Promise<NavigatorNode[]> {
     switch (this._mode) {
-      case "relations":      return this._getRelationRoots(repoPath);
-      case "document-views": return this._getDocViewRoots(repoPath);
-      case "containers":     return this._getContainerRoots(repoPath);
+      case "relations":    return this._getRelationRoots(repoPath);
+      case "compositions": return this._getCompositionRoots(repoPath);
+      case "containers":   return this._getContainerRoots(repoPath);
     }
   }
 
@@ -221,43 +249,33 @@ export class NavigatorTreeDataProvider
     });
   }
 
-  private async _getDocViewRoots(repoPath: string): Promise<NavigatorNode[]> {
+  private async _getCompositionRoots(repoPath: string): Promise<NavigatorNode[]> {
     try {
-      const payload = await this.cli.runOk<DocumentViewListPayload>(repoPath, ["document-view", "list"]);
-      if (payload.documentViews.length === 0) return [new EmptyNode("No document views in this repository")];
+      const payload = await this.cli.runOk<CompositionListPayload>(repoPath, ["composition", "list"]);
+      if (payload.compositions.length === 0) return [new EmptyNode("No compositions in this repository")];
 
-      // Fetch each document-view's sections
+      // Fetch each composition's sections
       const nodes = await Promise.all(
-        payload.documentViews.map(async (dv) => {
-          const sections = await this._fetchDocViewSections(dv.id, repoPath);
-          return new DocViewNode(dv.id, `${dv.namespace}/${dv.name}`, sections);
+        payload.compositions.map(async (c) => {
+          const sections = await this._fetchCompositionSections(c.id, repoPath);
+          return new CompositionNode(c.id, `${c.namespace}/${c.name}`, sections);
         }),
       );
       return nodes;
     } catch {
-      return [new EmptyNode("Failed to load document views")];
+      return [new EmptyNode("Failed to load compositions")];
     }
   }
 
-  private async _fetchDocViewSections(
-    viewId: string,
+  private async _fetchCompositionSections(
+    compositionId: string,
     repoPath: string,
-  ): Promise<Array<{ sectionId: string; title: string; semanticObjectType?: string }>> {
+  ): Promise<CompositionSection[]> {
     try {
       const payload = await this.cli.runOk<{
-        documentView: {
-          sections: Array<{
-            sectionId: string;
-            title: string;
-            source?: { type: string; semanticObjectType?: string };
-          }>;
-        };
-      }>(repoPath, ["document-view", "get", viewId]);
-      return payload.documentView.sections.map((s) => ({
-        sectionId: s.sectionId,
-        title: s.title,
-        semanticObjectType: s.source?.semanticObjectType,
-      }));
+        composition: { sections: CompositionSection[] };
+      }>(repoPath, ["composition", "get", compositionId]);
+      return payload.composition.sections;
     } catch {
       return [];
     }
@@ -317,25 +335,50 @@ export class NavigatorTreeDataProvider
   }
 
   private async _getSectionRecords(
-    semanticObjectType: string | undefined,
+    source: CompositionSectionSource | undefined,
     repoPath: string,
   ): Promise<NavigatorNode[]> {
-    if (!semanticObjectType) return [new EmptyNode("No type binding for this section")];
+    if (!isSectionExpandable(source)) return [new EmptyNode("No source binding for this section")];
     try {
-      const payload = await this.cli.runOk<RecordListPayload>(repoPath, [
-        "record", "list", "--type", semanticObjectType,
-      ]);
-      if (payload.records.length === 0) return [new EmptyNode("No records")];
-      return payload.records.map(
-        (r) => new EntityNode(
-          r.instanceId,
-          "record",
-          r.displayLabel,
-          ["record", "get", r.instanceId],
-        ),
-      );
+      // container-subset (single or first of a multi-container set): resolve
+      // members via container resolve-view — already used by the container
+      // preview, and it carries displayLabel directly (no separate label-map
+      // round trip needed).
+      const containerId = source!.containerId ?? source!.containerIds?.[0];
+      if (containerId) {
+        const payload = await this.cli.runOk<ContainerResolveViewPayload>(repoPath, [
+          "container", "resolve-view", containerId,
+        ]);
+        const members = payload.containerView.members;
+        if (members.length === 0) return [new EmptyNode("No members")];
+        return members.map((m) => {
+          const kind: EntityKind = m.tier === 0 ? "note" : "record";
+          return new EntityNode(m.instanceId, kind, m.displayLabel, [kind, "get", m.instanceId]);
+        });
+      }
+
+      // discovery-query: `record list --type` wants namespace/name, not a UUID
+      // (was passing a UUID here before the rename too — a second, independent
+      // bug on top of the payload-key mismatch).
+      const q = source!.query;
+      if (q?.typeNamespace && q?.typeName) {
+        const payload = await this.cli.runOk<RecordListPayload>(repoPath, [
+          "record", "list", "--type", `${q.typeNamespace}/${q.typeName}`,
+        ]);
+        if (payload.records.length === 0) return [new EmptyNode("No records")];
+        return payload.records.map(
+          (r) => new EntityNode(
+            r.instanceId,
+            "record",
+            r.displayLabel,
+            ["record", "get", r.instanceId],
+          ),
+        );
+      }
+
+      return [new EmptyNode("Unsupported section source shape")];
     } catch {
-      return [new EmptyNode(`Failed to load records for ${semanticObjectType}`)];
+      return [new EmptyNode("Failed to load records for this section")];
     }
   }
 
@@ -344,22 +387,17 @@ export class NavigatorTreeDataProvider
     repoPath: string,
   ): Promise<NavigatorNode[]> {
     try {
-      const payload = await this.cli.runOk<{ containerId: string; memberInstanceIds: string[] }>(
-        repoPath,
-        ["container", "members", "list", containerId],
-      );
-      if (payload.memberInstanceIds.length === 0) return [new EmptyNode("No members")];
-
-      // Best-effort: resolve labels from the shared label map (built lazily)
-      const labelMap = await this._ensureLabelMap(repoPath);
-      return payload.memberInstanceIds.map((id) => {
-        const info = labelMap.get(id);
-        return new EntityNode(
-          id,
-          info?.kind ?? "record",
-          info?.label ?? id.slice(0, 8),
-          [(info?.kind ?? "record") === "note" ? "note" : "record", "get", id],
-        );
+      // container resolve-view (RFC-020, ADR-023) instead of `container members
+      // list`, which returns bare memberInstanceIds — resolve-view already
+      // carries displayLabel, so no separate label-map lookup is needed here.
+      const payload = await this.cli.runOk<ContainerResolveViewPayload>(repoPath, [
+        "container", "resolve-view", containerId,
+      ]);
+      const members = payload.containerView.members;
+      if (members.length === 0) return [new EmptyNode("No members")];
+      return members.map((m) => {
+        const kind: EntityKind = m.tier === 0 ? "note" : "record";
+        return new EntityNode(m.instanceId, kind, m.displayLabel, [kind, "get", m.instanceId]);
       });
     } catch {
       return [new EmptyNode("Failed to load members")];
@@ -383,24 +421,8 @@ export class NavigatorTreeDataProvider
     repoPath: string,
   ): Promise<Map<string, { label: string; kind: EntityKind }>> {
     if (this._labelMap) return this._labelMap;
-
-    const map = new Map<string, { label: string; kind: EntityKind }>();
-    const [noteResult, recordResult] = await Promise.allSettled([
-      this.cli.runOk<NoteListPayload>(repoPath, ["note", "list"]),
-      this.cli.runOk<RecordListPayload>(repoPath, ["record", "list"]),
-    ]);
-    if (noteResult.status === "fulfilled") {
-      for (const n of noteResult.value.notes) {
-        map.set(n.instanceId, { label: n.title, kind: "note" });
-      }
-    }
-    if (recordResult.status === "fulfilled") {
-      for (const r of recordResult.value.records) {
-        map.set(r.instanceId, { label: r.displayLabel, kind: "record" });
-      }
-    }
-    this._labelMap = map;
-    return map;
+    this._labelMap = await buildLabelMap(this.cli, repoPath);
+    return this._labelMap;
   }
 
   dispose(): void {

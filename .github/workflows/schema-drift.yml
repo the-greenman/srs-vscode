@@ -22,3 +22,29 @@ jobs:
       - name: Run schema drift check
         working-directory: srs-vscode
         run: scripts/check-schema-drift.sh ../srs
+
+  # Payload contract schemas (crates/srs-cli/schemas/payload/, ADR-011) mirror
+  # into schemas/payload/ (srs-vscode#119 workstream 7) the same way the
+  # spec-level schemas above mirror into schemas/2.0/ — checked out here
+  # against the sibling srs-rust repo rather than a release asset, since
+  # srs-rust's release.yml has no payload-schema tarball yet (see
+  # scripts/sync-payload-schemas.sh's header for the follow-up).
+  check-payload-schema-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout srs-vscode
+        uses: actions/checkout@v4
+        with:
+          path: srs-vscode
+
+      - name: Checkout srs-rust
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/srs-rust
+          path: srs-rust
+
+      - name: Run payload schema drift check
+        working-directory: srs-vscode
+        env:
+          SRS_RUST_DIR: ${{ github.workspace }}/srs-rust
+        run: scripts/check-payload-schema-drift.sh

@@ -1,10 +1,10 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import { EntityNode } from "../../src/tree/SrsTreeDataProvider";
-import { DocViewNode } from "../../src/tree/NavigatorTreeDataProvider";
+import { CompositionNode } from "../../src/tree/NavigatorTreeDataProvider";
 import { registerPreviewCommands } from "../../src/commands/previewCommands";
 
-// Two document views with distinct namespaces/versions, used to assert the
+// Two compositions with distinct namespaces/versions, used to assert the
 // picker item shape (label / description / detail) required by fix #1.
 const V1 = { id: "11111111-1111-4111-8111-111111111111", name: "spec-doc", namespace: "com.ex.a", version: 2 };
 const V2 = { id: "22222222-2222-4222-8222-222222222222", name: "rfc-doc", namespace: "com.ex.b", version: 1 };
@@ -19,10 +19,10 @@ class FakeCli {
   ) {}
   async runOk<T>(_repoPath: string, args: string[]): Promise<T> {
     this.calls.push(args);
-    if (args[0] === "document-view" && args[1] === "list-for-container") {
+    if (args[0] === "composition" && args[1] === "list-for-container") {
       return this.filtered as T;
     }
-    if (args[0] === "document-view" && args[1] === "list") {
+    if (args[0] === "composition" && args[1] === "list") {
       return this.full as T;
     }
     if (args[0] === "render") {
@@ -57,7 +57,7 @@ describe("cmdPreviewRender", () => {
   });
 
   it("(a) container node: type-filters via list-for-container, falls back to full list when empty, then renders the picked view", async () => {
-    const cli = new FakeCli({ documentViews: [V1, V2] }, { documentViews: [] });
+    const cli = new FakeCli({ compositions: [V1, V2] }, { compositions: [] });
     const node = new EntityNode(CID, "container", "My Container", ["container", "get", CID]);
 
     await invokeRender(cli, undefined, node);
@@ -65,11 +65,11 @@ describe("cmdPreviewRender", () => {
     const cmds = cli.cmds();
     // container context → list-for-container FIRST, using the container's own id
     assert.ok(
-      cmds.includes(`document-view list-for-container ${CID}`),
+      cmds.includes(`composition list-for-container ${CID}`),
       `expected list-for-container call, got: ${JSON.stringify(cmds)}`,
     );
     // filtered result empty → fall back to the unfiltered list
-    assert.ok(cmds.includes("document-view list"), "expected fallback to full list");
+    assert.ok(cmds.includes("composition list"), "expected fallback to full list");
 
     // Picker item shape (fix #1): label=namespace/name, description=v<version>, detail=id
     const capture = (vscode.window as never as { lastQuickPick: { items: Array<Record<string, unknown>>; options: Record<string, unknown> } }).lastQuickPick;
@@ -82,7 +82,7 @@ describe("cmdPreviewRender", () => {
 
     // Renders the picked (index 0) view, WITHOUT injecting --container
     assert.ok(
-      cmds.includes(`render document-view --view ${V1.id}`),
+      cmds.includes(`render composition --view ${V1.id}`),
       `expected plain render of picked view, got: ${JSON.stringify(cmds)}`,
     );
     assert.ok(
@@ -92,50 +92,50 @@ describe("cmdPreviewRender", () => {
   });
 
   it("(a') record node with an active container: filters via that container and uses the filtered set (no fallback)", async () => {
-    const cli = new FakeCli({ documentViews: [V1, V2] }, { documentViews: [V2] });
+    const cli = new FakeCli({ compositions: [V1, V2] }, { compositions: [V2] });
     const node = new EntityNode("rec-1", "record", "A Record", ["record", "get", "rec-1"]);
 
     await invokeRender(cli, { containerId: CID, title: "Ctx" }, node);
 
     const cmds = cli.cmds();
-    assert.ok(cmds.includes(`document-view list-for-container ${CID}`), "record resolves to active container");
+    assert.ok(cmds.includes(`composition list-for-container ${CID}`), "record resolves to active container");
     // filtered set non-empty → the full list is NOT consulted (genuine narrowing)
-    assert.ok(!cmds.includes("document-view list"), "should not fall back when filtered set is non-empty");
+    assert.ok(!cmds.includes("composition list"), "should not fall back when filtered set is non-empty");
     const capture = (vscode.window as never as { lastQuickPick: { items: Array<Record<string, unknown>> } }).lastQuickPick;
     assert.strictEqual(capture.items.length, 1);
     assert.strictEqual(capture.items[0].detail, V2.id);
   });
 
   it("(no context) uses the full list when there is no container context", async () => {
-    const cli = new FakeCli({ documentViews: [V1, V2] }, { documentViews: [] });
+    const cli = new FakeCli({ compositions: [V1, V2] }, { compositions: [] });
     const node = new EntityNode("rec-1", "record", "A Record", ["record", "get", "rec-1"]);
 
     await invokeRender(cli, undefined, node);
 
     const cmds = cli.cmds();
-    assert.ok(!cmds.some((c) => c.startsWith("document-view list-for-container")), "no container context → no list-for-container");
-    assert.ok(cmds.includes("document-view list"), "expected the full list");
+    assert.ok(!cmds.some((c) => c.startsWith("composition list-for-container")), "no container context → no list-for-container");
+    assert.ok(cmds.includes("composition list"), "expected the full list");
   });
 
-  it("(b) DocViewNode (Navigator): renders directly with no picker", async () => {
-    const cli = new FakeCli({ documentViews: [V1, V2] }, { documentViews: [] });
-    const node = new DocViewNode(V1.id, "com.ex.a/spec-doc", []);
+  it("(b) CompositionNode (Navigator): renders directly with no picker", async () => {
+    const cli = new FakeCli({ compositions: [V1, V2] }, { compositions: [] });
+    const node = new CompositionNode(V1.id, "com.ex.a/spec-doc", []);
 
     await invokeRender(cli, undefined, node);
 
     const capture = (vscode.window as never as { lastQuickPick: unknown }).lastQuickPick;
     assert.strictEqual(capture, undefined, "direct render must not show a picker");
-    assert.ok(cli.cmds().includes(`render document-view --view ${V1.id}`), "should render the node's view directly");
+    assert.ok(cli.cmds().includes(`render composition --view ${V1.id}`), "should render the node's view directly");
   });
 
-  it("(b') document-view EntityNode (main tree): renders directly with no picker", async () => {
-    const cli = new FakeCli({ documentViews: [V1, V2] }, { documentViews: [] });
-    const node = new EntityNode(V2.id, "document-view", "com.ex.b/rfc-doc", ["document-view", "get", V2.id]);
+  it("(b') composition EntityNode (main tree): renders directly with no picker", async () => {
+    const cli = new FakeCli({ compositions: [V1, V2] }, { compositions: [] });
+    const node = new EntityNode(V2.id, "composition", "com.ex.b/rfc-doc", ["composition", "get", V2.id]);
 
     await invokeRender(cli, undefined, node);
 
     const capture = (vscode.window as never as { lastQuickPick: unknown }).lastQuickPick;
     assert.strictEqual(capture, undefined, "direct render must not show a picker");
-    assert.ok(cli.cmds().includes(`render document-view --view ${V2.id}`), "should render the node's view directly");
+    assert.ok(cli.cmds().includes(`render composition --view ${V2.id}`), "should render the node's view directly");
   });
 });

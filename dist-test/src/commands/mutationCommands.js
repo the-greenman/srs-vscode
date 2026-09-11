@@ -186,7 +186,7 @@ function deleteArgsFor(kind, id) {
         case "protocol": return ["protocol", "delete", id];
         case "blueprint": return ["blueprint", "delete", id];
         case "view": return ["view", "delete", id];
-        case "document-view": return ["document-view", "delete", id];
+        case "composition": return ["composition", "delete", id];
         case "theme": return ["theme", "delete", id];
         default: return undefined;
     }
@@ -205,6 +205,21 @@ async function cmdAddToContainer(cli, repoProvider, attention, treeProvider, nod
         return;
     }
     try {
+        // A container created via `SRS: Create Container` starts with zero
+        // members and no anchorInstanceId (RFC-013's typing anchor must name an
+        // existing member, so it can't be set at creation — see
+        // containerCommands.ts). Give it one from the first member actually
+        // added, the earliest point a valid anchor exists; best-effort, since a
+        // missing anchor is a soft gap (composition list-for-container returns
+        // nothing for it), not a failure of the add itself.
+        let needsAnchor = false;
+        try {
+            const before = await cli.runOk(repo.rootPath, ["container", "get", cid]);
+            needsAnchor = !before.container.anchorInstanceId && before.container.memberInstanceIds.length === 0;
+        }
+        catch {
+            // best-effort — proceed without the anchor check
+        }
         await cli.runOk(repo.rootPath, [
             "container",
             "members",
@@ -212,6 +227,11 @@ async function cmdAddToContainer(cli, repoProvider, attention, treeProvider, nod
             cid,
             node.entityId,
         ]);
+        if (needsAnchor) {
+            await cli.runOk(repo.rootPath, ["container", "update", cid], {
+                stdin: JSON.stringify({ anchorInstanceId: node.entityId }),
+            }).catch(() => { });
+        }
         treeProvider.refresh();
     }
     catch (err) {

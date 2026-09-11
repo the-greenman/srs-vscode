@@ -29,8 +29,8 @@ The extension activates when a workspace contains a `.srs/` directory, a `manife
 Contributes **26 commands** (all under the `srs.*` namespace) and **two explorer tree views** (gated on an active SRS repository):
 
 - **Repository** — select / refresh / validate the active repository; open a repository map.
-- **Trees** — an `SRS Repository` tree and an `SRS Navigator` tree (relations, document views, containers) with toolbar actions.
-- **Entities** — create notes, tags, records, and relations; edit and delete entities; manage relation types; open an entity's raw JSON or a rendered preview / document view.
+- **Trees** — an `SRS Repository` tree and an `SRS Navigator` tree (relations, compositions, containers) with toolbar actions.
+- **Entities** — create notes, tags, records, and relations; edit and delete entities; manage relation types; open an entity's raw JSON or a rendered preview / composition.
 - **Containers** — set / clear the active container (persisted per workspace) and create containers; list/create/delete operations can be scoped to the active container.
 - **Graph** — a relation graph webview.
 - **Guides** — a blueprint-schema-driven guide-editor webview.

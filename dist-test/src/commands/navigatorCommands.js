@@ -36,7 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerNavigatorCommands = registerNavigatorCommands;
 const vscode = __importStar(require("vscode"));
 function registerNavigatorCommands(context, navigator) {
-    context.subscriptions.push(vscode.commands.registerCommand("srs.navigatorRelations", () => setMode(navigator, "relations")), vscode.commands.registerCommand("srs.navigatorDocumentViews", () => setMode(navigator, "document-views")), vscode.commands.registerCommand("srs.navigatorContainers", () => setMode(navigator, "containers")), vscode.commands.registerCommand("srs.navigatorRefresh", () => navigator.refresh()));
+    context.subscriptions.push(vscode.commands.registerCommand("srs.navigatorRelations", () => setMode(navigator, "relations")), vscode.commands.registerCommand("srs.navigatorCompositions", () => setMode(navigator, "compositions")), vscode.commands.registerCommand("srs.navigatorContainers", () => setMode(navigator, "containers")), vscode.commands.registerCommand("srs.navigatorRefresh", () => navigator.refresh()));
 }
 function setMode(navigator, mode) {
     navigator.setMode(mode);

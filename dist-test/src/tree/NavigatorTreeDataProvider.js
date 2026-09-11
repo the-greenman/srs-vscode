@@ -33,9 +33,10 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.NavigatorTreeDataProvider = exports.ContainerRootNode = exports.DocViewSectionNode = exports.DocViewNode = exports.RelationRootNode = exports.RelationTypeGroupNode = exports.EmptyNode = void 0;
+exports.NavigatorTreeDataProvider = exports.ContainerRootNode = exports.CompositionSectionNode = exports.CompositionNode = exports.RelationRootNode = exports.RelationTypeGroupNode = exports.EmptyNode = void 0;
 const vscode = __importStar(require("vscode"));
 const SrsTreeDataProvider_1 = require("./SrsTreeDataProvider");
+const labelMap_1 = require("../cli/labelMap");
 // ---- Node types ----
 /** Root placeholder shown when no repo is active */
 class EmptyNode extends vscode.TreeItem {
@@ -67,30 +68,35 @@ class RelationRootNode extends SrsTreeDataProvider_1.EntityNode {
     }
 }
 exports.RelationRootNode = RelationRootNode;
-/** A document-view root node */
-class DocViewNode extends vscode.TreeItem {
-    constructor(viewId, label, sections) {
+function isSectionExpandable(source) {
+    return !!(source?.containerId ||
+        (source?.containerIds && source.containerIds.length > 0) ||
+        (source?.query?.typeNamespace && source?.query?.typeName));
+}
+/** A composition root node */
+class CompositionNode extends vscode.TreeItem {
+    constructor(compositionId, label, sections) {
         super(label, vscode.TreeItemCollapsibleState.Collapsed);
-        this.viewId = viewId;
+        this.compositionId = compositionId;
         this.sections = sections;
-        this.contextValue = "srsNavDocView";
-        this.tooltip = viewId;
+        this.contextValue = "srsNavComposition";
+        this.tooltip = compositionId;
     }
 }
-exports.DocViewNode = DocViewNode;
-/** A section within a document-view */
-class DocViewSectionNode extends vscode.TreeItem {
-    constructor(sectionId, label, semanticObjectType) {
-        super(label, semanticObjectType
+exports.CompositionNode = CompositionNode;
+/** A section within a composition */
+class CompositionSectionNode extends vscode.TreeItem {
+    constructor(sectionId, label, source) {
+        super(label, isSectionExpandable(source)
             ? vscode.TreeItemCollapsibleState.Collapsed
             : vscode.TreeItemCollapsibleState.None);
         this.sectionId = sectionId;
-        this.semanticObjectType = semanticObjectType;
+        this.source = source;
         this.contextValue = "srsNavSection";
-        this.tooltip = semanticObjectType ? `Type: ${semanticObjectType}` : sectionId;
+        this.tooltip = source ? `Source: ${source.type}` : sectionId;
     }
 }
-exports.DocViewSectionNode = DocViewSectionNode;
+exports.CompositionSectionNode = CompositionSectionNode;
 /** A container root node */
 class ContainerRootNode extends vscode.TreeItem {
     constructor(containerId, label, containerType) {
@@ -140,11 +146,11 @@ class NavigatorTreeDataProvider {
         if (element instanceof RelationTypeGroupNode) {
             return element.peerIds.map((p) => new SrsTreeDataProvider_1.EntityNode(p.id, p.kind, p.label, [p.kind === "record" ? "record" : "note", "get", p.id]));
         }
-        if (element instanceof DocViewNode) {
-            return element.sections.map((s) => new DocViewSectionNode(s.sectionId, s.title, s.semanticObjectType));
+        if (element instanceof CompositionNode) {
+            return element.sections.map((s) => new CompositionSectionNode(s.sectionId, s.title ?? s.sectionId, s.source));
         }
-        if (element instanceof DocViewSectionNode) {
-            return this._getSectionRecords(element.semanticObjectType, repo.rootPath);
+        if (element instanceof CompositionSectionNode) {
+            return this._getSectionRecords(element.source, repo.rootPath);
         }
         if (element instanceof ContainerRootNode) {
             return this._getContainerMembers(element.containerId, repo.rootPath);
@@ -155,7 +161,7 @@ class NavigatorTreeDataProvider {
     async _getRoots(repoPath) {
         switch (this._mode) {
             case "relations": return this._getRelationRoots(repoPath);
-            case "document-views": return this._getDocViewRoots(repoPath);
+            case "compositions": return this._getCompositionRoots(repoPath);
             case "containers": return this._getContainerRoots(repoPath);
         }
     }
@@ -170,30 +176,26 @@ class NavigatorTreeDataProvider {
             return new RelationRootNode(id, info?.kind ?? "record", info?.label ?? id.slice(0, 8), [(info?.kind ?? "record") === "note" ? "note" : "record", "get", id]);
         });
     }
-    async _getDocViewRoots(repoPath) {
+    async _getCompositionRoots(repoPath) {
         try {
-            const payload = await this.cli.runOk(repoPath, ["document-view", "list"]);
-            if (payload.documentViews.length === 0)
-                return [new EmptyNode("No document views in this repository")];
-            // Fetch each document-view's sections
-            const nodes = await Promise.all(payload.documentViews.map(async (dv) => {
-                const sections = await this._fetchDocViewSections(dv.id, repoPath);
-                return new DocViewNode(dv.id, `${dv.namespace}/${dv.name}`, sections);
+            const payload = await this.cli.runOk(repoPath, ["composition", "list"]);
+            if (payload.compositions.length === 0)
+                return [new EmptyNode("No compositions in this repository")];
+            // Fetch each composition's sections
+            const nodes = await Promise.all(payload.compositions.map(async (c) => {
+                const sections = await this._fetchCompositionSections(c.id, repoPath);
+                return new CompositionNode(c.id, `${c.namespace}/${c.name}`, sections);
             }));
             return nodes;
         }
         catch {
-            return [new EmptyNode("Failed to load document views")];
+            return [new EmptyNode("Failed to load compositions")];
         }
     }
-    async _fetchDocViewSections(viewId, repoPath) {
+    async _fetchCompositionSections(compositionId, repoPath) {
         try {
-            const payload = await this.cli.runOk(repoPath, ["document-view", "get", viewId]);
-            return payload.documentView.sections.map((s) => ({
-                sectionId: s.sectionId,
-                title: s.title,
-                semanticObjectType: s.source?.semanticObjectType,
-            }));
+            const payload = await this.cli.runOk(repoPath, ["composition", "get", compositionId]);
+            return payload.composition.sections;
         }
         catch {
             return [];
@@ -243,31 +245,59 @@ class NavigatorTreeDataProvider {
             return [new EmptyNode("No relations")];
         return nodes;
     }
-    async _getSectionRecords(semanticObjectType, repoPath) {
-        if (!semanticObjectType)
-            return [new EmptyNode("No type binding for this section")];
+    async _getSectionRecords(source, repoPath) {
+        if (!isSectionExpandable(source))
+            return [new EmptyNode("No source binding for this section")];
         try {
-            const payload = await this.cli.runOk(repoPath, [
-                "record", "list", "--type", semanticObjectType,
-            ]);
-            if (payload.records.length === 0)
-                return [new EmptyNode("No records")];
-            return payload.records.map((r) => new SrsTreeDataProvider_1.EntityNode(r.instanceId, "record", r.displayLabel, ["record", "get", r.instanceId]));
+            // container-subset (single or first of a multi-container set): resolve
+            // members via container resolve-view — already used by the container
+            // preview, and it carries displayLabel directly (no separate label-map
+            // round trip needed).
+            const containerId = source.containerId ?? source.containerIds?.[0];
+            if (containerId) {
+                const payload = await this.cli.runOk(repoPath, [
+                    "container", "resolve-view", containerId,
+                ]);
+                const members = payload.containerView.members;
+                if (members.length === 0)
+                    return [new EmptyNode("No members")];
+                return members.map((m) => {
+                    const kind = m.tier === 0 ? "note" : "record";
+                    return new SrsTreeDataProvider_1.EntityNode(m.instanceId, kind, m.displayLabel, [kind, "get", m.instanceId]);
+                });
+            }
+            // discovery-query: `record list --type` wants namespace/name, not a UUID
+            // (was passing a UUID here before the rename too — a second, independent
+            // bug on top of the payload-key mismatch).
+            const q = source.query;
+            if (q?.typeNamespace && q?.typeName) {
+                const payload = await this.cli.runOk(repoPath, [
+                    "record", "list", "--type", `${q.typeNamespace}/${q.typeName}`,
+                ]);
+                if (payload.records.length === 0)
+                    return [new EmptyNode("No records")];
+                return payload.records.map((r) => new SrsTreeDataProvider_1.EntityNode(r.instanceId, "record", r.displayLabel, ["record", "get", r.instanceId]));
+            }
+            return [new EmptyNode("Unsupported section source shape")];
         }
         catch {
-            return [new EmptyNode(`Failed to load records for ${semanticObjectType}`)];
+            return [new EmptyNode("Failed to load records for this section")];
         }
     }
     async _getContainerMembers(containerId, repoPath) {
         try {
-            const payload = await this.cli.runOk(repoPath, ["container", "members", "list", containerId]);
-            if (payload.memberInstanceIds.length === 0)
+            // container resolve-view (RFC-020, ADR-023) instead of `container members
+            // list`, which returns bare memberInstanceIds — resolve-view already
+            // carries displayLabel, so no separate label-map lookup is needed here.
+            const payload = await this.cli.runOk(repoPath, [
+                "container", "resolve-view", containerId,
+            ]);
+            const members = payload.containerView.members;
+            if (members.length === 0)
                 return [new EmptyNode("No members")];
-            // Best-effort: resolve labels from the shared label map (built lazily)
-            const labelMap = await this._ensureLabelMap(repoPath);
-            return payload.memberInstanceIds.map((id) => {
-                const info = labelMap.get(id);
-                return new SrsTreeDataProvider_1.EntityNode(id, info?.kind ?? "record", info?.label ?? id.slice(0, 8), [(info?.kind ?? "record") === "note" ? "note" : "record", "get", id]);
+            return members.map((m) => {
+                const kind = m.tier === 0 ? "note" : "record";
+                return new SrsTreeDataProvider_1.EntityNode(m.instanceId, kind, m.displayLabel, [kind, "get", m.instanceId]);
             });
         }
         catch {
@@ -286,23 +316,8 @@ class NavigatorTreeDataProvider {
     async _ensureLabelMap(repoPath) {
         if (this._labelMap)
             return this._labelMap;
-        const map = new Map();
-        const [noteResult, recordResult] = await Promise.allSettled([
-            this.cli.runOk(repoPath, ["note", "list"]),
-            this.cli.runOk(repoPath, ["record", "list"]),
-        ]);
-        if (noteResult.status === "fulfilled") {
-            for (const n of noteResult.value.notes) {
-                map.set(n.instanceId, { label: n.title, kind: "note" });
-            }
-        }
-        if (recordResult.status === "fulfilled") {
-            for (const r of recordResult.value.records) {
-                map.set(r.instanceId, { label: r.displayLabel, kind: "record" });
-            }
-        }
-        this._labelMap = map;
-        return map;
+        this._labelMap = await (0, labelMap_1.buildLabelMap)(this.cli, repoPath);
+        return this._labelMap;
     }
     dispose() {
         this._onDidChangeTreeData.dispose();
