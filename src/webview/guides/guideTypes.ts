@@ -76,6 +76,13 @@ export interface ContainerGetPayload {
     containerType?: string;
     title: string;
     memberInstanceIds: string[];
-    rootInstanceIds: string[];
+    // Rust's Container.root_instance_ids is Option<Vec<String>> — an
+    // anchor-era container can omit it entirely, so this must stay optional
+    // (was typed as a required string[], a live TypeError on such a
+    // container: `undefined[0]`). anchorInstanceId (RFC-013 amended, I-145)
+    // is the explicit typing anchor and takes precedence; rootInstanceIds[0]
+    // is only the documented transitional fallback.
+    anchorInstanceId?: string;
+    rootInstanceIds?: string[];
   };
 }

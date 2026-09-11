@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { CliClient } from "../cli/CliClient";
-import type { RelationListPayload, NoteListPayload, RecordListPayload } from "../cli/types";
+import { buildLabelMap } from "../cli/labelMap";
+import type { RelationListPayload } from "../cli/types";
 
 interface GraphNode {
   id: string;
@@ -70,22 +71,10 @@ export class GraphPanel implements vscode.Disposable {
     this._panel.webview.html = loadingHtml();
 
     try {
-      const [relPayload, notePayload, recordPayload] = await Promise.all([
+      const [relPayload, entityLabelMap] = await Promise.all([
         cli.runOk<RelationListPayload>(repoPath, ["relation", "list"]),
-        cli.runOk<NoteListPayload>(repoPath, ["note", "list"]).catch(() => ({ notes: [] })),
-        cli.runOk<RecordListPayload>(repoPath, ["record", "list"]).catch(() => ({ records: [] })),
+        buildLabelMap(cli, repoPath),
       ]);
-
-      const labelMap = new Map<string, string>();
-      const kindMap = new Map<string, string>();
-      for (const n of notePayload.notes) {
-        labelMap.set(n.instanceId, n.title);
-        kindMap.set(n.instanceId, "note");
-      }
-      for (const r of recordPayload.records) {
-        labelMap.set(r.instanceId, r.displayLabel);
-        kindMap.set(r.instanceId, "record");
-      }
 
       const nodeIds = new Set<string>();
       const edges: GraphEdge[] = [];
@@ -100,11 +89,14 @@ export class GraphPanel implements vscode.Disposable {
         });
       }
 
-      const nodes: GraphNode[] = Array.from(nodeIds).map((id) => ({
-        id,
-        label: labelMap.get(id) ?? id.slice(0, 8),
-        kind: kindMap.get(id) ?? "note",
-      }));
+      const nodes: GraphNode[] = Array.from(nodeIds).map((id) => {
+        const info = entityLabelMap.get(id);
+        return {
+          id,
+          label: info?.label ?? id.slice(0, 8),
+          kind: info?.kind ?? "note",
+        };
+      });
 
       this._panel.webview.html = graphHtml(nodes, edges);
     } catch (err) {

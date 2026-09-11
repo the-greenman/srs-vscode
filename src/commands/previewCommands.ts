@@ -502,7 +502,7 @@ async function previewContainer(
   let bodyHtml: string;
 
   if (columns.length > 0) {
-    // Structured table view with DocumentView columns.
+    // Structured table view with Composition columns.
     // The identity column (isIdentityColumn=true) is rendered as a bold title link.
     const headerCells = columns
       .map((col) => {
@@ -559,7 +559,7 @@ async function previewContainer(
       </script>
     `;
   } else {
-    // Flat list fallback: no DocumentView columns resolved.
+    // Flat list fallback: no Composition columns resolved.
     const rows = members
       .map((m) => `<div class="member-row">${esc(m.displayLabel)}</div>`)
       .join("");

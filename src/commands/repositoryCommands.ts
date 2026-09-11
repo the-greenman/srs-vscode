@@ -182,6 +182,13 @@ async function cmdOpenEntityDefault(
   node: unknown,
 ): Promise<void> {
   if (!(node instanceof EntityNode)) return;
+  if (node.entityKind === "extension") {
+    // No "extension get" — the node's entityId IS the whole payload (a bare
+    // declared-extension string like "ext:lifecycle"), already shown as both
+    // label and tooltip. Nothing more to fetch or open.
+    vscode.window.showInformationMessage(`SRS: ${node.entityId}`);
+    return;
+  }
   if (PREVIEW_KINDS.has(node.entityKind)) {
     return vscode.commands.executeCommand("srs.previewEntity", node);
   }

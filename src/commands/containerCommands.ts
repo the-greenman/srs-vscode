@@ -145,6 +145,11 @@ async function cmdCreateContainer(
   const containerId = randomUUID();
   const now = new Date().toISOString();
 
+  // No anchorInstanceId here: RFC-013's typing anchor must name an existing
+  // member, and this container is created with zero members — there is
+  // nothing yet to anchor to. cmdAddToContainer (mutationCommands.ts) sets it
+  // from the first member actually added, which is the earliest point a
+  // valid anchor exists (srs-vscode#119 workstream 4).
   const containerJson = JSON.stringify({
     containerId,
     title: title.trim(),
