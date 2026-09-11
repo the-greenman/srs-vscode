@@ -1,20 +1,37 @@
 #!/usr/bin/env bash
 # Check that the vendored payload contract schemas (schemas/payload/) match
-# the sibling srs-rust checkout's crates/srs-cli/schemas/payload/ — the same
-# drift check pattern as scripts/check-schema-drift.sh for schemas/2.0/.
+# srs-rust's crates/srs-cli/schemas/payload/ at origin/master — the same drift
+# check pattern as scripts/check-schema-drift.sh for schemas/2.0/.
+#
+# Compares against the origin/master REF, never the sibling's working tree, so
+# a stale local checkout reports honest drift against what is actually
+# published rather than agreeing with itself. sync-payload-schemas.sh reads the
+# same ref; the two must not disagree about their source.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SRS_RUST_DIR="${SRS_RUST_DIR:-${REPO_DIR}/../srs-rust}"
-SRC="${SRS_RUST_DIR}/crates/srs-cli/schemas/payload"
 DST="${REPO_DIR}/schemas/payload"
 
-if [[ ! -d "${SRC}" ]]; then
-    echo "ERROR: Canonical payload schema directory not found: ${SRC}" >&2
+if [[ ! -e "${SRS_RUST_DIR}/.git" ]]; then
+    echo "ERROR: srs-rust checkout not found: ${SRS_RUST_DIR}" >&2
     echo "       Set SRS_RUST_DIR to the path of the srs-rust repo." >&2
     exit 1
 fi
+
+git -C "${SRS_RUST_DIR}" fetch --quiet origin master 2>/dev/null || true
+if ! git -C "${SRS_RUST_DIR}" rev-parse --quiet --verify "origin/master:crates/srs-cli/schemas/payload" >/dev/null; then
+    echo "ERROR: crates/srs-cli/schemas/payload not found at ${SRS_RUST_DIR} origin/master." >&2
+    exit 1
+fi
+
+# Materialise the canonical copy from the ref into a temp dir for comparison.
+SRC="$(mktemp -d)"
+trap 'rm -rf "${SRC}"' EXIT
+git -C "${SRS_RUST_DIR}" archive origin/master crates/srs-cli/schemas/payload \
+    | tar -x -C "${SRC}" --strip-components=4 --wildcards '*.json'
+echo "Comparing against ${SRS_RUST_DIR} @ origin/master ($(git -C "${SRS_RUST_DIR}" rev-parse --short origin/master))"
 
 if [[ ! -d "${DST}" ]]; then
     echo "ERROR: Vendored payload schema directory not found: ${DST}" >&2
