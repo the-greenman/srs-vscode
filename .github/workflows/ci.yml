@@ -41,5 +41,23 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # test/suite/argvSmoke.test.ts cross-checks the extension's CLI argv
+      # against the real clap grammar — it needs `srs` on PATH to do that (and
+      # skips itself, rather than failing, when it isn't found). The payload
+      # contract suite (test/suite/payload-contracts.test.ts) needs no such
+      # install: its golden schemas are vendored in schemas/payload/.
+      - name: Install srs CLI (release binary, for the argv smoke test)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/srs-cli
+          gh release download \
+            --repo "${{ github.repository_owner }}/srs-rust" \
+            --pattern 'srs-x86_64-unknown-linux-gnu.tar.gz' \
+            --dir /tmp/srs-cli --clobber
+          tar -xzf /tmp/srs-cli/srs-x86_64-unknown-linux-gnu.tar.gz -C /tmp/srs-cli
+          echo "/tmp/srs-cli" >> "$GITHUB_PATH"
+
       - name: Test
         run: npm test

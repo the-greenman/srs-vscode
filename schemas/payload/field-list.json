@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FieldListPayload",
+  "type": "object",
+  "required": [
+    "fields"
+  ],
+  "properties": {
+    "fields": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/FieldListEntry"
+      }
+    }
+  },
+  "definitions": {
+    "FieldListEntry": {
+      "description": "A single entry in a field list — the subset of `FieldSummary` exposed by the CLI. (Omits `description`, which was never in the prior output. Carries `fieldType` — the RFC-032 successor of `valueType` — so the discovery ladder's list step can resolve a field set without a `field get` per field; srs-rust#958.)",
+      "type": "object",
+      "required": [
+        "fieldType",
+        "id",
+        "name",
+        "namespace",
+        "version"
+      ],
+      "properties": {
+        "fieldType": {
+          "description": "`schemars` cannot derive through `srs-core` (which must not depend on it), so the payload schema types this as an object; its shape is `$defs/FieldType` in `field.json` (same convention as `BriefField`)."
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "sourcePackage": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    }
+  }
+}

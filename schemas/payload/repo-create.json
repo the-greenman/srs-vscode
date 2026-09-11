@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RepoCreatePayload",
+  "type": "object",
+  "required": [
+    "packageId",
+    "repoRoot",
+    "repositoryId"
+  ],
+  "properties": {
+    "identityInstanceId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "packageId": {
+      "type": "string"
+    },
+    "repoRoot": {
+      "type": "string"
+    },
+    "repositoryId": {
+      "type": "string"
+    }
+  }
+}

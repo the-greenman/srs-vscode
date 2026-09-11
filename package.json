@@ -318,6 +318,7 @@
     "compile-tests": "tsc -p tsconfig.test.json",
     "test": "npm run compile-tests && node --require ./test/fixtures/register-vscode-mock.js ./dist-test/test/suite/index.js",
     "check-schema-drift": "scripts/check-schema-drift.sh",
+    "check-payload-schema-drift": "scripts/check-payload-schema-drift.sh",
     "package": "npx --yes @vscode/vsce package --out srs-vscode.vsix",
     "install:local": "scripts/install-local.sh"
   },
