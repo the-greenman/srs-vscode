@@ -10,8 +10,8 @@ export function registerNavigatorCommands(
     vscode.commands.registerCommand("srs.navigatorRelations", () =>
       setMode(navigator, "relations"),
     ),
-    vscode.commands.registerCommand("srs.navigatorDocumentViews", () =>
-      setMode(navigator, "document-views"),
+    vscode.commands.registerCommand("srs.navigatorCompositions", () =>
+      setMode(navigator, "compositions"),
     ),
     vscode.commands.registerCommand("srs.navigatorContainers", () =>
       setMode(navigator, "containers"),

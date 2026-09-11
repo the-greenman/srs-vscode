@@ -111,7 +111,7 @@ export class CliClient {
         }
       });
 
-      proc.on("close", () => {
+      proc.on("close", (code) => {
         if (this.tracing && stdout) {
           this.outputChannel.appendLine(`[srs stdout] ${stdout.slice(0, 2000)}`);
         }
@@ -122,7 +122,17 @@ export class CliClient {
         try {
           resolve(parseEnvelope<T>(stdout, commandHint));
         } catch (err) {
-          reject(err);
+          // A non-zero exit with unparseable/empty stdout (e.g. clap rejecting an
+          // unknown subcommand) is far more legible from stderr than from the
+          // generic "srs produced no output" parseEnvelope throws by default —
+          // surface it instead so a rename/typo argv bug reads as
+          // "error: unrecognized subcommand 'document-view'" rather than a mystery.
+          if (code !== 0 && stderr.trim()) {
+            const lines = stderr.trim().split("\n").filter(Boolean);
+            reject(new CliError(`srs exited ${code}: ${lines[0]}`, lines, commandHint));
+          } else {
+            reject(err);
+          }
         }
       });
     });

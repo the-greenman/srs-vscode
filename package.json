@@ -80,7 +80,7 @@
       },
       {
         "command": "srs.previewRender",
-        "title": "SRS: Render Document View"
+        "title": "SRS: Render Composition"
       },
       {
         "command": "srs.editEntity",
@@ -111,12 +111,12 @@
         "title": "SRS: Update View"
       },
       {
-        "command": "srs.createDocumentView",
-        "title": "SRS: Create Document View"
+        "command": "srs.createComposition",
+        "title": "SRS: Create Composition"
       },
       {
-        "command": "srs.updateDocumentView",
-        "title": "SRS: Update Document View"
+        "command": "srs.updateComposition",
+        "title": "SRS: Update Composition"
       },
       {
         "command": "srs.createTheme",
@@ -137,8 +137,8 @@
         "icon": "$(references)"
       },
       {
-        "command": "srs.navigatorDocumentViews",
-        "title": "SRS Navigator: Document Views",
+        "command": "srs.navigatorCompositions",
+        "title": "SRS Navigator: Compositions",
         "icon": "$(book)"
       },
       {
@@ -239,7 +239,7 @@
           "group": "navigation@1"
         },
         {
-          "command": "srs.navigatorDocumentViews",
+          "command": "srs.navigatorCompositions",
           "when": "view == srsNavigatorTree",
           "group": "navigation@2"
         },
@@ -262,12 +262,12 @@
         },
         {
           "command": "srs.previewRender",
-          "when": "viewItem =~ /^srsEntity\\.(documentView|container)$/",
+          "when": "viewItem =~ /^srsEntity\\.(composition|container)$/",
           "group": "srs@2"
         },
         {
           "command": "srs.previewRender",
-          "when": "view == srsNavigatorTree && viewItem == srsNavDocView",
+          "when": "view == srsNavigatorTree && viewItem == srsNavComposition",
           "group": "srs@2"
         },
         {

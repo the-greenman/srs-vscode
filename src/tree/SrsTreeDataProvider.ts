@@ -1,7 +1,9 @@
 import * as vscode from "vscode";
 import { CliClient } from "../cli/CliClient";
+import { CliError } from "../cli/errors";
 import { RepositoryProvider } from "../repository/RepositoryProvider";
 import { AttentionManager } from "../container/AttentionManager";
+import { buildLabelMap } from "../cli/labelMap";
 import type {
   EntityKind,
   NoteListPayload,
@@ -15,13 +17,13 @@ import type {
   ProtocolListPayload,
   BlueprintListPayload,
   ViewListPayload,
-  DocumentViewListPayload,
+  CompositionListPayload,
   ThemeListPayload,
   RelationTypeListPayload,
 } from "../cli/types";
 
 // Convert an EntityKind into a regex-safe camelCase contextValue suffix,
-// e.g. "document-view" → "documentView", "relation-type" → "relationType".
+// e.g. "relation-type" → "relationType" ("composition" needs no conversion).
 function entityKindToContext(kind: EntityKind): string {
   return kind.replace(/-([a-z])/g, (_m, c: string) => c.toUpperCase());
 }
@@ -53,11 +55,19 @@ export class EntityNode extends vscode.TreeItem {
   ) {
     super(label, vscode.TreeItemCollapsibleState.None);
     // Per-kind contextValue so menus can target specific kinds (e.g. only
-    // document-view / container get the render action). The `srsEntity.` prefix
+    // composition / container get the render action). The `srsEntity.` prefix
     // is matched by the generic entity menus via `viewItem =~ /^srsEntity/`.
     this.contextValue = `srsEntity.${entityKindToContext(entityKind)}`;
-    this.tooltip = `${entityKind}: ${entityId}`;
-    this.description = entityId.slice(0, 8);
+    if (entityKind === "extension") {
+      // `repo extensions list` returns plain strings, not instances with an
+      // instanceId — entityId IS the label (e.g. "ext:lifecycle"); there is no
+      // "extension get" to describe or link to. See openEntityDefault's
+      // special case for this kind.
+      this.tooltip = entityId;
+    } else {
+      this.tooltip = `${entityKind}: ${entityId}`;
+      this.description = entityId.slice(0, 8);
+    }
     this.command = {
       command: "srs.openEntityDefault",
       title: "Open",
@@ -66,7 +76,19 @@ export class EntityNode extends vscode.TreeItem {
   }
 }
 
-export type SrsTreeNode = GroupNode | EntityNode;
+/** Shown in place of a group's children when the underlying CLI call failed —
+ * so a broken group reads as an actionable error, not indistinguishable from
+ * "this repository legitimately has zero of these". */
+export class ErrorNode extends vscode.TreeItem {
+  constructor(message: string) {
+    super(message, vscode.TreeItemCollapsibleState.None);
+    this.contextValue = "srsError";
+    this.iconPath = new vscode.ThemeIcon("error");
+    this.tooltip = message;
+  }
+}
+
+export type SrsTreeNode = GroupNode | EntityNode | ErrorNode;
 
 // ---- Entity spec table ----
 // Each entry maps an EntityKind to its list CLI args, a payload extractor,
@@ -106,6 +128,9 @@ const ENTITY_SPECS: Record<EntityKind, EntitySpec> = {
       })),
     getArgs: (id) => ["record", "get", id],
   },
+  // Labels are resolved separately in loadGroupChildren (needs the async label
+  // map) — extractItems here is the id-only fallback used if that path is
+  // bypassed, and stays uuid8-based on purpose as a degrade-gracefully floor.
   relation: {
     listArgs: ["relation", "list"],
     extractItems: (p) =>
@@ -142,14 +167,19 @@ const ENTITY_SPECS: Record<EntityKind, EntitySpec> = {
       })),
     getArgs: (id) => ["type", "get", id],
   },
+  // `extension list` no longer exists — moved to `repo extensions list`, which
+  // returns plain declared-extension strings (payload.extensions: string[]),
+  // not objects with an instanceId. There is no "extension get"; these are
+  // leaf nodes labeled by the string itself (see EntityNode's extension-kind
+  // special case and openEntityDefault's).
   extension: {
-    listArgs: ["extension", "list"],
+    listArgs: ["repo", "extensions", "list"],
     extractItems: (p) =>
       (p as ExtensionListPayload).extensions.map((e) => ({
-        id: e.instanceId,
-        label: e.extensionId ?? e.instanceId,
+        id: e,
+        label: e,
       })),
-    getArgs: (id) => ["extension", "get", id],
+    getArgs: () => ["repo", "extensions", "list"],
   },
   protocol: {
     listArgs: ["protocol", "list"],
@@ -178,14 +208,14 @@ const ENTITY_SPECS: Record<EntityKind, EntitySpec> = {
       })),
     getArgs: (id) => ["view", "get", id],
   },
-  "document-view": {
-    listArgs: ["document-view", "list"],
+  composition: {
+    listArgs: ["composition", "list"],
     extractItems: (p) =>
-      (p as DocumentViewListPayload).documentViews.map((d) => ({
+      (p as CompositionListPayload).compositions.map((d) => ({
         id: d.id,
         label: `${d.namespace}/${d.name}`,
       })),
-    getArgs: (id) => ["document-view", "get", id],
+    getArgs: (id) => ["composition", "get", id],
   },
   theme: {
     listArgs: ["theme", "list"],
@@ -220,7 +250,7 @@ const GROUP_ORDER: Array<[EntityKind, string]> = [
   ["protocol", "Protocols"],
   ["blueprint", "Blueprints"],
   ["view", "Views"],
-  ["document-view", "Document Views"],
+  ["composition", "Compositions"],
   ["theme", "Themes"],
   ["relation-type", "Relation Types"],
 ];
@@ -291,10 +321,26 @@ export class SrsTreeDataProvider implements vscode.TreeDataProvider<SrsTreeNode>
   private async loadGroupChildren(
     kind: EntityKind,
     repoPath: string,
-  ): Promise<EntityNode[]> {
+  ): Promise<Array<EntityNode | ErrorNode>> {
     const spec = ENTITY_SPECS[kind];
     const containerId = this.attention?.active?.containerId;
     try {
+      if (kind === "relation") {
+        // Resolve source/target labels via the shared label map instead of the
+        // uuid8→uuid8 stub extractItems falls back to — this is the "every
+        // relation renders as <uuid8>→<uuid8>" bug (srs-vscode#119 workstream 5).
+        const [payload, labelMap] = await Promise.all([
+          this.cli.runOk<RelationListPayload>(repoPath, spec.listArgs, { containerId }),
+          buildLabelMap(this.cli, repoPath),
+        ]);
+        return payload.relations.map((r) => {
+          const s = labelMap.get(r.sourceId);
+          const t = labelMap.get(r.targetId);
+          const label = `${r.relationType}: ${s?.label ?? r.sourceId.slice(0, 8)} → ${t?.label ?? r.targetId.slice(0, 8)}`;
+          return new EntityNode(r.relationId, kind, label, spec.getArgs(r.relationId));
+        });
+      }
+
       const payload = await this.cli.runOk<unknown>(repoPath, spec.listArgs, {
         containerId,
       });
@@ -302,9 +348,13 @@ export class SrsTreeDataProvider implements vscode.TreeDataProvider<SrsTreeNode>
       return items.map(
         (item) => new EntityNode(item.id, kind, item.label, spec.getArgs(item.id)),
       );
-    } catch {
-      // Silently return empty — error already logged to output channel by CliClient
-      return [];
+    } catch (err) {
+      // Surface the failure as a node instead of silently returning [] — an
+      // unknown-subcommand or repo error must be visible, not indistinguishable
+      // from "this repository legitimately has zero of these" (srs-vscode#119
+      // workstream 6). CliClient already logs the raw error to the output channel.
+      const msg = err instanceof CliError ? err.message : String(err);
+      return [new ErrorNode(`Failed to load ${kind}: ${msg}`)];
     }
   }
 
