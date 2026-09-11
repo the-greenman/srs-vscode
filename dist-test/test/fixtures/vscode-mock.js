@@ -2,7 +2,7 @@
 // Minimal vscode API stub for running unit tests outside the extension host.
 // Only covers the surface used by the files under test.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ViewColumn = exports.ProgressLocation = exports.EventEmitter = exports.commands = exports.window = exports.workspace = exports.ThemeIcon = exports.TreeItem = exports.TreeItemCollapsibleState = void 0;
+exports.ViewColumn = exports.ProgressLocation = exports.EventEmitter = exports.commands = exports.executedCommands = exports.window = exports.workspace = exports.ThemeIcon = exports.TreeItem = exports.TreeItemCollapsibleState = void 0;
 exports.getRegisteredCommand = getRegisteredCommand;
 var TreeItemCollapsibleState;
 (function (TreeItemCollapsibleState) {
@@ -42,6 +42,7 @@ exports.window = {
     showWarningMessage: () => Promise.resolve(undefined),
     showInformationMessage: () => Promise.resolve(undefined),
     showTextDocument: () => Promise.resolve(undefined),
+    showInputBox: () => Promise.resolve(undefined),
     lastQuickPick: undefined,
     quickPickIndex: 0,
     showQuickPick(items, options) {
@@ -83,8 +84,14 @@ const _commandRegistry = {};
 function getRegisteredCommand(id) {
     return _commandRegistry[id];
 }
+// Records every executeCommand call so tests can assert on delegation
+// (e.g. srs.openEntityById routing to srs.previewEntity rather than raw JSON).
+exports.executedCommands = [];
 exports.commands = {
-    executeCommand: () => Promise.resolve(undefined),
+    executeCommand: (id, ...args) => {
+        exports.executedCommands.push({ id, args });
+        return Promise.resolve(undefined);
+    },
     registerCommand: (id, cb) => {
         _commandRegistry[id] = cb;
         return { dispose: () => { } };

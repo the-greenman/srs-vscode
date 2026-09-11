@@ -370,12 +370,21 @@ function recordHtml(rec: SourceRecordModel, fields: ResolvedField[]): string {
 
 // ---- Chrome ----
 
+const FORMAT_LABELS: Record<DocumentFormat, string> = {
+  html: "HTML",
+  markdown: "Markdown",
+  text: "Plain text",
+  adoc: "AsciiDoc",
+};
+
 function toolbarHtml(state: PanelState): string {
   const modeBtn = (mode: string, label: string) =>
     `<button data-mode="${mode}"${state.mode === mode ? ' class="active"' : ""}>${label}</button>`;
-  const formats: DocumentFormat[] = ["html", "markdown", "text", "adoc"];
-  const options = formats
-    .map((f) => `<option value="${f}"${state.format === f ? " selected" : ""}>${f}</option>`)
+  const options = Object.entries(FORMAT_LABELS)
+    .map(
+      ([f, label]) =>
+        `<option value="${f}"${state.format === f ? " selected" : ""}>${label}</option>`,
+    )
     .join("");
   const scope = [
     state.containerId ? "container" : "",

@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.GraphPanel = void 0;
 const vscode = __importStar(require("vscode"));
 const labelMap_1 = require("../cli/labelMap");
+const escape_1 = require("../webview/escape");
 class GraphPanel {
     static async show(context, cli, repoPath, repoTitle) {
         const key = `graph:${repoPath}`;
@@ -115,7 +116,7 @@ function loadingHtml() {
   </head><body><p>Loading relation graph…</p></body></html>`;
 }
 function errorHtml(msg) {
-    const safe = msg.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const safe = (0, escape_1.esc)(msg);
     return `<!DOCTYPE html><html><head><meta charset="UTF-8">
   <style>body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);
   background:var(--vscode-editor-background);padding:2em}</style>

@@ -33,10 +33,10 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.PreviewPanel = void 0;
+exports.esc = exports.PreviewPanel = void 0;
 exports.wrapHtml = wrapHtml;
-exports.esc = esc;
 const vscode = __importStar(require("vscode"));
+const escape_1 = require("../webview/escape");
 /**
  * A single, reusable webview panel keyed by a stable string id.
  * Calling PreviewPanel.show() with the same id brings the existing panel
@@ -46,7 +46,7 @@ class PreviewPanel {
     static show(context, id, title, html, options) {
         const existing = PreviewPanel._panels.get(id);
         if (existing) {
-            existing._panel.reveal(vscode.ViewColumn.Active);
+            existing._panel.reveal(options?.viewColumn ?? vscode.ViewColumn.Active);
             existing._panel.title = title;
             existing._update(html);
             if (options?.onMessage) {
@@ -60,7 +60,7 @@ class PreviewPanel {
     }
     constructor(context, _id, title, html, options) {
         this._id = _id;
-        this._panel = vscode.window.createWebviewPanel("srsPreview", title, { viewColumn: vscode.ViewColumn.Active, preserveFocus: false }, {
+        this._panel = vscode.window.createWebviewPanel("srsPreview", title, { viewColumn: options?.viewColumn ?? vscode.ViewColumn.Active, preserveFocus: false }, {
             enableScripts: options?.enableScripts ?? false,
             localResourceRoots: [],
         });
@@ -142,13 +142,8 @@ function wrapHtml(title, body, options) {
     const csp = options?.enableScripts
         ? `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline';">`
         : `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';">`;
-    return `<!DOCTYPE html><html><head><meta charset="UTF-8">${csp}${CSS}<title>${esc(title)}</title></head><body>${body}</body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="UTF-8">${csp}${CSS}<title>${(0, escape_1.esc)(title)}</title></head><body>${body}</body></html>`;
 }
-function esc(s) {
-    return s
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
-}
+var escape_2 = require("../webview/escape");
+Object.defineProperty(exports, "esc", { enumerable: true, get: function () { return escape_2.esc; } });
 //# sourceMappingURL=PreviewPanel.js.map

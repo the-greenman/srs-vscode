@@ -2,10 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildGuideForm = buildGuideForm;
 const forms_1 = require("../forms");
-function esc(s) {
-    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-function escAttr(s) { return esc(s); }
+const escape_1 = require("../escape");
+function escAttr(s) { return (0, escape_1.esc)(s); }
 function escText(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
 // ---- Section type label ----
 const TYPE_LABEL = {
@@ -18,10 +16,10 @@ function textField(label, name, value, opts = {}) {
     const req = opts.required ? ` <span class="required-mark">*</span>` : "";
     const reqAttr = opts.required ? " required" : "";
     const rows = opts.rows ?? 2;
-    const hint = opts.hint ? `<div class="hint">${esc(opts.hint)}</div>` : "";
+    const hint = opts.hint ? `<div class="hint">${(0, escape_1.esc)(opts.hint)}</div>` : "";
     return `
     <div class="field">
-      <label>${esc(label)}${req}</label>
+      <label>${(0, escape_1.esc)(label)}${req}</label>
       <textarea name="${escAttr(name)}" rows="${rows}"${reqAttr}>${escText(value)}</textarea>
       ${hint}
     </div>`;
@@ -31,7 +29,7 @@ function inputField(label, name, value, opts = {}) {
     const reqAttr = opts.required ? " required" : "";
     return `
     <div class="field">
-      <label>${esc(label)}${req}</label>
+      <label>${(0, escape_1.esc)(label)}${req}</label>
       <input type="text" name="${escAttr(name)}" value="${escAttr(value)}"${reqAttr}>
     </div>`;
 }
@@ -129,7 +127,7 @@ function sectionBlock(s, i) {
     return `
     <div class="section-block" data-section-index="${i}">
       <div class="section-block-header">
-        <span class="section-type-badge">${esc(typeLabel)}</span>
+        <span class="section-type-badge">${(0, escape_1.esc)(typeLabel)}</span>
       </div>
       ${inputField("Heading", `s_${i}_heading`, s.heading, { required: true })}
       ${inputField("Slug (id)", `s_${i}_slug`, s.slug)}

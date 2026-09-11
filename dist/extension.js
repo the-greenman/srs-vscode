@@ -4403,10 +4403,17 @@ function recordHtml(rec, fields) {
     ${rows ? `<details><summary>Fields</summary>${rows}</details>` : ""}
   </div>`;
 }
+var FORMAT_LABELS = {
+  html: "HTML",
+  markdown: "Markdown",
+  text: "Plain text",
+  adoc: "AsciiDoc"
+};
 function toolbarHtml(state) {
   const modeBtn = (mode, label) => `<button data-mode="${mode}"${state.mode === mode ? ' class="active"' : ""}>${label}</button>`;
-  const formats = ["html", "markdown", "text", "adoc"];
-  const options = formats.map((f) => `<option value="${f}"${state.format === f ? " selected" : ""}>${f}</option>`).join("");
+  const options = Object.entries(FORMAT_LABELS).map(
+    ([f, label]) => `<option value="${f}"${state.format === f ? " selected" : ""}>${label}</option>`
+  ).join("");
   const scope = [
     state.containerId ? "container" : "",
     state.themeVariant ? `theme: ${state.themeVariant}` : "",

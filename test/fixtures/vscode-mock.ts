@@ -67,6 +67,7 @@ export const window = {
   showWarningMessage: () => Promise.resolve(undefined),
   showInformationMessage: () => Promise.resolve(undefined),
   showTextDocument: () => Promise.resolve(undefined),
+  showInputBox: () => Promise.resolve(undefined),
   lastQuickPick: undefined as QuickPickCapture | undefined,
   quickPickIndex: 0,
   showQuickPick(items: Array<Record<string, unknown>>, options?: unknown) {
@@ -117,8 +118,15 @@ export function getRegisteredCommand(
   return _commandRegistry[id];
 }
 
+// Records every executeCommand call so tests can assert on delegation
+// (e.g. srs.openEntityById routing to srs.previewEntity rather than raw JSON).
+export const executedCommands: Array<{ id: string; args: unknown[] }> = [];
+
 export const commands = {
-  executeCommand: () => Promise.resolve(undefined),
+  executeCommand: (id: string, ...args: unknown[]) => {
+    executedCommands.push({ id, args });
+    return Promise.resolve(undefined);
+  },
   registerCommand: (id: string, cb: (...args: unknown[]) => unknown) => {
     _commandRegistry[id] = cb;
     return { dispose: () => {} };
