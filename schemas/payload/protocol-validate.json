@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProtocolValidatePayload",
+  "type": "object",
+  "required": [
+    "diagnostics",
+    "protocolId",
+    "valid"
+  ],
+  "properties": {
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "protocolId": {
+      "type": "string"
+    },
+    "valid": {
+      "type": "boolean"
+    }
+  }
+}

@@ -2,7 +2,7 @@
 // Minimal vscode API stub for running unit tests outside the extension host.
 // Only covers the surface used by the files under test.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ViewColumn = exports.ProgressLocation = exports.EventEmitter = exports.commands = exports.window = exports.workspace = exports.TreeItem = exports.TreeItemCollapsibleState = void 0;
+exports.ViewColumn = exports.ProgressLocation = exports.EventEmitter = exports.commands = exports.window = exports.workspace = exports.ThemeIcon = exports.TreeItem = exports.TreeItemCollapsibleState = void 0;
 exports.getRegisteredCommand = getRegisteredCommand;
 var TreeItemCollapsibleState;
 (function (TreeItemCollapsibleState) {
@@ -17,6 +17,13 @@ class TreeItem {
     }
 }
 exports.TreeItem = TreeItem;
+// Used by ErrorNode (SrsTreeDataProvider.ts) for its iconPath.
+class ThemeIcon {
+    constructor(id) {
+        this.id = id;
+    }
+}
+exports.ThemeIcon = ThemeIcon;
 // Stub for anything else the code imports from vscode that isn't needed in tests
 exports.workspace = {
     getConfiguration: () => ({

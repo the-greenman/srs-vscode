@@ -139,6 +139,13 @@ const EDIT_KINDS = new Set(["note", "tag", "record"]);
 async function cmdOpenEntityDefault(repoProvider, entityProvider, node) {
     if (!(node instanceof SrsTreeDataProvider_1.EntityNode))
         return;
+    if (node.entityKind === "extension") {
+        // No "extension get" — the node's entityId IS the whole payload (a bare
+        // declared-extension string like "ext:lifecycle"), already shown as both
+        // label and tooltip. Nothing more to fetch or open.
+        vscode.window.showInformationMessage(`SRS: ${node.entityId}`);
+        return;
+    }
     if (PREVIEW_KINDS.has(node.entityKind)) {
         return vscode.commands.executeCommand("srs.previewEntity", node);
     }

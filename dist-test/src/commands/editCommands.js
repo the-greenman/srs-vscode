@@ -39,6 +39,7 @@ const CliClient_1 = require("../cli/CliClient");
 const SrsTreeDataProvider_1 = require("../tree/SrsTreeDataProvider");
 const EntityEditorPanel_1 = require("../webview/EntityEditorPanel");
 const forms_1 = require("../webview/forms");
+const PreviewPanel_1 = require("../preview/PreviewPanel");
 const typeFields_1 = require("../cli/typeFields");
 // Structural, non-recursive-enough-to-loop deep equality — used only by the record editor's
 // concurrent-change guard, where a same-key-set-but-changed-value edit must still be caught
@@ -66,7 +67,7 @@ function deepEqual(a, b) {
 }
 // ---- Registration ----
 function registerEditCommands(context, cli, repoProvider, treeProvider) {
-    context.subscriptions.push(vscode.commands.registerCommand("srs.editEntity", (node) => cmdEditEntity(context, cli, repoProvider, treeProvider, node)), vscode.commands.registerCommand("srs.createRelation", () => cmdCreateRelation(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.createRelationType", () => cmdCreateRelationType(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.updateRelationType", () => cmdUpdateRelationType(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.deleteRelationType", () => cmdDeleteRelationType(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.createView", () => cmdCreateView(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.updateView", () => cmdUpdateView(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.createDocumentView", () => cmdCreateDocumentView(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.updateDocumentView", () => cmdUpdateDocumentView(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.createTheme", () => cmdCreateTheme(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.updateTheme", () => cmdUpdateTheme(cli, repoProvider, treeProvider)));
+    context.subscriptions.push(vscode.commands.registerCommand("srs.editEntity", (node) => cmdEditEntity(context, cli, repoProvider, treeProvider, node)), vscode.commands.registerCommand("srs.createRelation", () => cmdCreateRelation(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.createRelationType", () => cmdCreateRelationType(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.updateRelationType", () => cmdUpdateRelationType(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.deleteRelationType", () => cmdDeleteRelationType(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.createView", () => cmdCreateView(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.updateView", () => cmdUpdateView(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.createComposition", () => cmdCreateComposition(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.updateComposition", () => cmdUpdateComposition(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.createTheme", () => cmdCreateTheme(cli, repoProvider, treeProvider)), vscode.commands.registerCommand("srs.updateTheme", () => cmdUpdateTheme(cli, repoProvider, treeProvider)));
 }
 // ---- Dispatch ----
 async function cmdEditEntity(context, cli, repoProvider, treeProvider, node) {
@@ -88,8 +89,8 @@ async function cmdEditEntity(context, cli, repoProvider, treeProvider, node) {
             case "view":
                 await editView(cli, repo.rootPath, node.entityId, treeProvider);
                 break;
-            case "document-view":
-                await editDocumentView(cli, repo.rootPath, node.entityId, treeProvider);
+            case "composition":
+                await editComposition(cli, repo.rootPath, node.entityId, treeProvider);
                 break;
             case "theme":
                 await editTheme(cli, repo.rootPath, node.entityId, treeProvider);
@@ -146,8 +147,15 @@ async function editRecord(context, cli, repoPath, id, treeProvider) {
         createdAt: record.createdAt,
         fieldValues: record.fieldValues,
     };
-    const panelTitle = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
-    const html = (0, forms_1.formWrapHtml)(panelTitle, (0, forms_1.buildRecordForm)(recordData, fieldData));
+    // Panel title is the record's own resolved label (payload.displayLabel), not
+    // the type — ten Problems in the editor otherwise all read the same
+    // "com.mudemocracy.argument/problem v1" title. The type moves to a meta line.
+    const typeLabel = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
+    // Fall back to the type label if displayLabel is somehow absent (e.g. a
+    // pre-RFC-039 CLI) rather than crashing esc() on undefined.
+    const panelTitle = payload.displayLabel ?? typeLabel;
+    const metaHtml = `<div class="meta">${(0, PreviewPanel_1.esc)(typeLabel)}</div>`;
+    const html = (0, forms_1.formWrapHtml)(panelTitle, metaHtml + (0, forms_1.buildRecordForm)(recordData, fieldData));
     EntityEditorPanel_1.EntityEditorPanel.show(context, `record:${id}`, panelTitle, html, async (data) => {
         const d = data;
         const projectedNames = new Set(fieldData.map((f) => f.name));
@@ -263,7 +271,7 @@ async function editView(cli, repoPath, id, treeProvider) {
     }
 }
 // ---- Document View CRUD ----
-async function cmdCreateDocumentView(cli, repoProvider, treeProvider) {
+async function cmdCreateComposition(cli, repoProvider, treeProvider) {
     const repo = repoProvider.active;
     if (!repo) {
         vscode.window.showWarningMessage("SRS: No active repository.");
@@ -271,10 +279,10 @@ async function cmdCreateDocumentView(cli, repoProvider, treeProvider) {
     }
     const { randomUUID } = await Promise.resolve().then(() => __importStar(require("crypto")));
     const scaffold = JSON.stringify({
-        $schema: "https://srs.semanticops.com/schema/2.0/document-view.json",
+        $schema: "https://srs.semanticops.com/schema/2.0/composition.json",
         id: randomUUID(),
         namespace: "com.example",
-        name: "my-document-view",
+        name: "my-composition",
         version: 1,
         description: "Description of what document this produces.",
         sections: [],
@@ -282,48 +290,48 @@ async function cmdCreateDocumentView(cli, repoProvider, treeProvider) {
     }, null, 2);
     const doc = await vscode.workspace.openTextDocument({ content: scaffold, language: "json" });
     await vscode.window.showTextDocument(doc);
-    const answer = await vscode.window.showInformationMessage("SRS: Edit the document view definition above, then click Create.", "Create", "Cancel");
+    const answer = await vscode.window.showInformationMessage("SRS: Edit the composition definition above, then click Create.", "Create", "Cancel");
     if (answer !== "Create")
         return;
     try {
-        await cli.runOk(repo.rootPath, ["document-view", "create"], { stdin: doc.getText() });
+        await cli.runOk(repo.rootPath, ["composition", "create"], { stdin: doc.getText() });
         treeProvider.refresh();
-        vscode.window.showInformationMessage("SRS: Document view created.");
+        vscode.window.showInformationMessage("SRS: Composition created.");
     }
     catch (err) {
         const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
-        vscode.window.showErrorMessage(`SRS: Failed to create document view: ${msg}`);
+        vscode.window.showErrorMessage(`SRS: Failed to create composition: ${msg}`);
     }
 }
-async function cmdUpdateDocumentView(cli, repoProvider, treeProvider) {
+async function cmdUpdateComposition(cli, repoProvider, treeProvider) {
     const repo = repoProvider.active;
     if (!repo) {
         vscode.window.showWarningMessage("SRS: No active repository.");
         return;
     }
-    const picked = await pickDocumentView(cli, repo.rootPath);
+    const picked = await pickComposition(cli, repo.rootPath);
     if (!picked)
         return;
-    await editDocumentView(cli, repo.rootPath, picked.id, treeProvider);
+    await editComposition(cli, repo.rootPath, picked.id, treeProvider);
 }
-async function editDocumentView(cli, repoPath, id, treeProvider) {
-    const payload = await cli.runOk(repoPath, ["document-view", "get", id]);
+async function editComposition(cli, repoPath, id, treeProvider) {
+    const payload = await cli.runOk(repoPath, ["composition", "get", id]);
     const doc = await vscode.workspace.openTextDocument({
-        content: JSON.stringify(payload.documentView, null, 2),
+        content: JSON.stringify(payload.composition, null, 2),
         language: "json",
     });
     await vscode.window.showTextDocument(doc);
-    const answer = await vscode.window.showInformationMessage(`SRS: Edit the document view definition above, then click Update.`, "Update", "Cancel");
+    const answer = await vscode.window.showInformationMessage(`SRS: Edit the composition definition above, then click Update.`, "Update", "Cancel");
     if (answer !== "Update")
         return;
     try {
-        await cli.runOk(repoPath, ["document-view", "update", id], { stdin: doc.getText() });
+        await cli.runOk(repoPath, ["composition", "update", id], { stdin: doc.getText() });
         treeProvider.refresh();
-        vscode.window.showInformationMessage("SRS: Document view updated.");
+        vscode.window.showInformationMessage("SRS: Composition updated.");
     }
     catch (err) {
         const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
-        vscode.window.showErrorMessage(`SRS: Failed to update document view: ${msg}`);
+        vscode.window.showErrorMessage(`SRS: Failed to update composition: ${msg}`);
     }
 }
 // ---- Theme CRUD ----
@@ -578,19 +586,19 @@ async function pickView(cli, repoPath) {
     }));
     return vscode.window.showQuickPick(items, { placeHolder: "Select view" });
 }
-async function pickDocumentView(cli, repoPath) {
+async function pickComposition(cli, repoPath) {
     let views = [];
     try {
-        const payload = await cli.runOk(repoPath, ["document-view", "list"]);
-        views = payload.documentViews;
+        const payload = await cli.runOk(repoPath, ["composition", "list"]);
+        views = payload.compositions;
     }
     catch (err) {
         const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
-        vscode.window.showErrorMessage(`SRS: Could not load document views: ${msg}`);
+        vscode.window.showErrorMessage(`SRS: Could not load compositions: ${msg}`);
         return undefined;
     }
     if (views.length === 0) {
-        vscode.window.showWarningMessage("SRS: No document view definitions found in this repository.");
+        vscode.window.showWarningMessage("SRS: No composition definitions found in this repository.");
         return undefined;
     }
     const items = views.map((v) => ({
@@ -598,7 +606,7 @@ async function pickDocumentView(cli, repoPath) {
         description: `v${v.version}`,
         id: v.id,
     }));
-    return vscode.window.showQuickPick(items, { placeHolder: "Select document view" });
+    return vscode.window.showQuickPick(items, { placeHolder: "Select composition" });
 }
 async function pickTheme(cli, repoPath) {
     let themes = [];

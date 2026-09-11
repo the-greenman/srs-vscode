@@ -3,16 +3,16 @@ import { CliClient, CliError } from "../cli/CliClient";
 import { RepositoryProvider } from "../repository/RepositoryProvider";
 import { AttentionManager } from "../container/AttentionManager";
 import { SrsTreeDataProvider, EntityNode } from "../tree/SrsTreeDataProvider";
-import { DocViewNode } from "../tree/NavigatorTreeDataProvider";
+import { CompositionNode } from "../tree/NavigatorTreeDataProvider";
 import { PreviewPanel, wrapHtml, esc } from "../preview/PreviewPanel";
 import { resolveTypeFields, ResolvedField } from "../cli/typeFields";
+import { buildLabelMap } from "../cli/labelMap";
 import type {
-  DocumentViewListPayload,
+  CompositionListPayload,
   ContainerListPayload,
   ContainerResolveViewPayload,
   RelationListPayload,
-  NoteListPayload,
-  RecordListPayload,
+  TypeListPayload,
   ProtocolStagesPayload,
   BlueprintStructurePayload,
   FieldValues,
@@ -31,6 +31,8 @@ interface NotePayload {
 }
 
 interface RecordPayload {
+  /** Resolved human label — the same resolution `srs tree` uses (RFC-039). */
+  displayLabel: string;
   record: {
     instanceId: string;
     typeId: string;
@@ -99,7 +101,7 @@ async function cmdPreviewEntity(
 
 /**
  * Resolve the container context for a render invocation, used to type-filter the
- * document-view picker. A container node names itself; a record/note (or a
+ * composition picker. A container node names itself; a record/note (or a
  * palette invocation) resolves to the active "scoped" container if one is set.
  * Returns undefined when there is no container context.
  */
@@ -113,12 +115,12 @@ function resolveContainerContext(
   return attention.active?.containerId;
 }
 
-/** Extract the view id + label when render was invoked directly on a document-view node. */
+/** Extract the view id + label when render was invoked directly on a composition node. */
 function directRenderTarget(node: unknown): { viewId: string; viewLabel: string } | undefined {
-  if (node instanceof DocViewNode) {
-    return { viewId: node.viewId, viewLabel: String(node.label) };
+  if (node instanceof CompositionNode) {
+    return { viewId: node.compositionId, viewLabel: String(node.label) };
   }
-  if (node instanceof EntityNode && node.entityKind === "document-view") {
+  if (node instanceof EntityNode && node.entityKind === "composition") {
     return { viewId: node.entityId, viewLabel: String(node.label) };
   }
   return undefined;
@@ -143,16 +145,16 @@ async function cmdPreviewRender(
 
   const direct = directRenderTarget(node);
   if (direct) {
-    // Render invoked directly on a document-view node (main tree or Navigator) — no picker.
+    // Render invoked directly on a composition node (main tree or Navigator) — no picker.
     viewId = direct.viewId;
     viewLabel = direct.viewLabel;
     // Best-effort containerType lookup from the full list (non-fatal if it fails).
     try {
-      const payload = await cli.runOk<DocumentViewListPayload>(repo.rootPath, [
-        "document-view",
+      const payload = await cli.runOk<CompositionListPayload>(repo.rootPath, [
+        "composition",
         "list",
       ]);
-      selectedContainerType = payload.documentViews.find((v) => v.id === viewId)?.containerType;
+      selectedContainerType = payload.compositions.find((v) => v.id === viewId)?.containerType;
     } catch {
       // fall through — render without a container is still valid
     }
@@ -161,31 +163,31 @@ async function cmdPreviewRender(
     // views applicable to that container's root type; otherwise (or when nothing
     // applies) fall back to the full list so the user is never stranded.
     const containerCtxId = resolveContainerContext(node, attention);
-    let views: DocumentViewListPayload["documentViews"] = [];
+    let views: CompositionListPayload["compositions"] = [];
     try {
       if (containerCtxId) {
-        const filtered = await cli.runOk<DocumentViewListPayload>(repo.rootPath, [
-          "document-view",
+        const filtered = await cli.runOk<CompositionListPayload>(repo.rootPath, [
+          "composition",
           "list-for-container",
           containerCtxId,
         ]);
-        views = filtered.documentViews;
+        views = filtered.compositions;
       }
       if (views.length === 0) {
-        const full = await cli.runOk<DocumentViewListPayload>(repo.rootPath, [
-          "document-view",
+        const full = await cli.runOk<CompositionListPayload>(repo.rootPath, [
+          "composition",
           "list",
         ]);
-        views = full.documentViews;
+        views = full.compositions;
       }
     } catch (err) {
       const msg = err instanceof CliError ? err.message : String(err);
-      vscode.window.showErrorMessage(`SRS: Failed to list document views: ${msg}`);
+      vscode.window.showErrorMessage(`SRS: Failed to list compositions: ${msg}`);
       return;
     }
 
     if (views.length === 0) {
-      vscode.window.showWarningMessage("SRS: No document views defined in this repository.");
+      vscode.window.showWarningMessage("SRS: No compositions defined in this repository.");
       return;
     }
 
@@ -197,7 +199,7 @@ async function cmdPreviewRender(
         view: v,
       })),
       {
-        placeHolder: "Select a document view to render",
+        placeHolder: "Select a composition to render",
         matchOnDescription: true,
         matchOnDetail: true,
       },
@@ -242,7 +244,7 @@ async function cmdPreviewRender(
   }
 
   try {
-    const args = ["render", "document-view", "--view", viewId];
+    const args = ["render", "composition", "--view", viewId];
     if (containerId) args.push("--container", containerId);
     const payload = await cli.runOk<RenderPayload>(repo.rootPath, args);
     await openMarkdownPreview(payload.rendered, viewLabel ?? viewId);
@@ -362,11 +364,10 @@ async function previewRecord(
   let resolvedFields: ResolvedField[] = [];
   let relatedItems: Array<{ relationId: string; relationType: string; direction: "outgoing" | "incoming"; peerId: string; peerLabel: string; peerKind: string }> = [];
 
-  const [typeResult, relResult, noteResult, recordListResult] = await Promise.allSettled([
+  const [typeResult, relResult, labelMap] = await Promise.allSettled([
     resolveTypeFields(cli, repoPath, record.typeId, record.typeVersion),
     cli.runOk<RelationListPayload>(repoPath, ["relation", "list"]),
-    cli.runOk<NoteListPayload>(repoPath, ["note", "list"]),
-    cli.runOk<RecordListPayload>(repoPath, ["record", "list"]),
+    buildLabelMap(cli, repoPath),
   ]);
 
   if (typeResult.status === "fulfilled") {
@@ -375,17 +376,7 @@ async function previewRecord(
   const typeResolutionFailed = typeResult.status === "rejected";
 
   if (relResult.status === "fulfilled") {
-    const peerLabelMap = new Map<string, { label: string; kind: string }>();
-    if (noteResult.status === "fulfilled") {
-      for (const n of noteResult.value.notes) {
-        peerLabelMap.set(n.instanceId, { label: n.title, kind: "note" });
-      }
-    }
-    if (recordListResult.status === "fulfilled") {
-      for (const r of recordListResult.value.records) {
-        peerLabelMap.set(r.instanceId, { label: r.displayLabel, kind: "record" });
-      }
-    }
+    const peerLabelMap = labelMap.status === "fulfilled" ? labelMap.value : new Map<string, { label: string; kind: string }>();
 
     for (const rel of relResult.value.relations) {
       if (rel.sourceId === id) {
@@ -412,7 +403,13 @@ async function previewRecord(
     }
   }
 
-  const title = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
+  // The record's own resolved label (payload.displayLabel), not the type — ten
+  // Problems previewed one after another otherwise all show the same
+  // "com.mudemocracy.argument/problem v1" heading. The type moves to the meta line.
+  const typeLabel = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
+  // Fall back to the type label if displayLabel is somehow absent (e.g. a
+  // pre-RFC-039 CLI) rather than rendering an empty <h1>.
+  const title = payload.displayLabel ?? typeLabel;
 
   // A resolveTypeFields failure (stale CLI binary, or a typeVersion the package no
   // longer resolves) must not render as an empty-looking record — fall back to the
@@ -427,7 +424,10 @@ async function previewRecord(
         .map((f) => renderFieldRow(f, record.fieldValues[f.name]))
         .join("");
 
-  const meta = record.createdAt ? `Created: ${esc(record.createdAt.slice(0, 10))}` : "";
+  const meta = [
+    esc(typeLabel),
+    record.createdAt ? `Created: ${esc(record.createdAt.slice(0, 10))}` : "",
+  ].filter(Boolean).join("  ·  ");
 
   const relationsHtml = relatedItems.length === 0
     ? '<p class="empty">No relations.</p>'
@@ -504,7 +504,7 @@ async function previewContainer(
   let bodyHtml: string;
 
   if (columns.length > 0) {
-    // Structured table view with DocumentView columns.
+    // Structured table view with Composition columns.
     // The identity column (isIdentityColumn=true) is rendered as a bold title link.
     const headerCells = columns
       .map((col) => {
@@ -561,7 +561,7 @@ async function previewContainer(
       </script>
     `;
   } else {
-    // Flat list fallback: no DocumentView columns resolved.
+    // Flat list fallback: no Composition columns resolved.
     const rows = members
       .map((m) => `<div class="member-row">${esc(m.displayLabel)}</div>`)
       .join("");
@@ -688,13 +688,24 @@ async function previewBlueprint(
   repoPath: string,
   id: string,
 ): Promise<void> {
-  const [getResult, structureResult] = await Promise.allSettled([
+  const [getResult, structureResult, typeListResult] = await Promise.allSettled([
     cli.runOk<BlueprintGetPayload>(repoPath, ["blueprint", "get", id]),
     cli.runOk<BlueprintStructurePayload>(repoPath, ["blueprint", "structure", id]),
+    cli.runOk<TypeListPayload>(repoPath, ["type", "list"]),
   ]);
 
   const bp = getResult.status === "fulfilled" ? getResult.value.blueprint : undefined;
   const specs = structureResult.status === "fulfilled" ? structureResult.value.relationSpecs : [];
+
+  // Join sourceTypeId/targetTypeId against `type list` for a readable namespace/name
+  // instead of a bare uuid8 stub — the id is still the tooltip.
+  const typeLabelMap = new Map<string, string>();
+  if (typeListResult.status === "fulfilled") {
+    for (const t of typeListResult.value.types) {
+      typeLabelMap.set(t.id, `${t.namespace}/${t.name}`);
+    }
+  }
+  const typeLabel = (typeId: string) => typeLabelMap.get(typeId) ?? `${typeId.slice(0, 8)}…`;
 
   const ns = bp?.namespace ?? "";
   const name = bp?.name ?? id.slice(0, 8);
@@ -710,8 +721,8 @@ async function previewBlueprint(
         <tbody>
           ${specs.map((s) => `<tr>
             <td>${esc(s.relationType)}</td>
-            <td><code>${esc(s.sourceTypeId.slice(0, 8))}…</code></td>
-            <td><code>${esc(s.targetTypeId.slice(0, 8))}…</code></td>
+            <td title="${esc(s.sourceTypeId)}">${esc(typeLabel(s.sourceTypeId))}</td>
+            <td title="${esc(s.targetTypeId)}">${esc(typeLabel(s.targetTypeId))}</td>
             <td>${s.cardinality ? esc(s.cardinality) : "—"}</td>
             <td>${s.required ? "yes" : "—"}</td>
           </tr>`).join("")}

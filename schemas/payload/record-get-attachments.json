@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RecordGetAttachmentsPayload",
+  "type": "object",
+  "required": [
+    "attachments",
+    "instanceId",
+    "sourceDocumentsPath"
+  ],
+  "properties": {
+    "attachments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ResolvedAttachmentPayload"
+      }
+    },
+    "instanceId": {
+      "type": "string"
+    },
+    "sourceDocumentsPath": {
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "ResolvedAttachmentPayload": {
+      "type": "object",
+      "required": [
+        "documentId"
+      ],
+      "properties": {
+        "contentChecksum": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "contentPath": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "documentId": {
+          "type": "string"
+        },
+        "sidecarChecksum": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sidecarPath": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sizeBytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}
