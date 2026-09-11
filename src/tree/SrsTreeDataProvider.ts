@@ -52,6 +52,10 @@ export class EntityNode extends vscode.TreeItem {
     label: string,
     // CLI args to retrieve this entity, e.g. ["note", "get", "<id>"]
     public readonly getArgs: string[],
+    // Human-meaningful secondary text the payload already carries (a record's
+    // type, a definition's version, a container's type, ...) — falls back to
+    // a uuid8 stub only when the caller has nothing better to show.
+    description?: string,
   ) {
     super(label, vscode.TreeItemCollapsibleState.None);
     // Per-kind contextValue so menus can target specific kinds (e.g. only
@@ -66,7 +70,7 @@ export class EntityNode extends vscode.TreeItem {
       this.tooltip = entityId;
     } else {
       this.tooltip = `${entityKind}: ${entityId}`;
-      this.description = entityId.slice(0, 8);
+      this.description = description ?? entityId.slice(0, 8);
     }
     this.command = {
       command: "srs.openEntityDefault",
@@ -96,7 +100,7 @@ export type SrsTreeNode = GroupNode | EntityNode | ErrorNode;
 
 interface EntitySpec {
   listArgs: string[];
-  extractItems: (payload: unknown) => Array<{ id: string; label: string }>;
+  extractItems: (payload: unknown) => Array<{ id: string; label: string; description?: string }>;
   getArgs: (id: string) => string[];
 }
 
@@ -125,6 +129,7 @@ const ENTITY_SPECS: Record<EntityKind, EntitySpec> = {
       (p as RecordListPayload).records.map((r) => ({
         id: r.instanceId,
         label: r.displayLabel,
+        description: `${r.record.typeNamespace}/${r.record.typeName}`,
       })),
     getArgs: (id) => ["record", "get", id],
   },
@@ -146,6 +151,7 @@ const ENTITY_SPECS: Record<EntityKind, EntitySpec> = {
       (p as ContainerListPayload).containers.map((c) => ({
         id: c.containerId,
         label: c.title,
+        description: c.containerType,
       })),
     getArgs: (id) => ["container", "get", id],
   },
@@ -155,6 +161,7 @@ const ENTITY_SPECS: Record<EntityKind, EntitySpec> = {
       (p as FieldListPayload).fields.map((f) => ({
         id: f.id,
         label: `${f.namespace}/${f.name}`,
+        description: `v${f.version}`,
       })),
     getArgs: (id) => ["field", "get", id],
   },
@@ -164,6 +171,7 @@ const ENTITY_SPECS: Record<EntityKind, EntitySpec> = {
       (p as TypeListPayload).types.map((t) => ({
         id: t.id,
         label: `${t.namespace}/${t.name}`,
+        description: `v${t.version}`,
       })),
     getArgs: (id) => ["type", "get", id],
   },
@@ -214,6 +222,7 @@ const ENTITY_SPECS: Record<EntityKind, EntitySpec> = {
       (p as CompositionListPayload).compositions.map((d) => ({
         id: d.id,
         label: `${d.namespace}/${d.name}`,
+        description: `v${d.version}`,
       })),
     getArgs: (id) => ["composition", "get", id],
   },
@@ -223,6 +232,7 @@ const ENTITY_SPECS: Record<EntityKind, EntitySpec> = {
       (p as ThemeListPayload).themes.map((t) => ({
         id: t.id,
         label: `${t.namespace}/${t.name}`,
+        description: `v${t.version}`,
       })),
     getArgs: (id) => ["theme", "get", id],
   },
@@ -232,6 +242,7 @@ const ENTITY_SPECS: Record<EntityKind, EntitySpec> = {
       (p as RelationTypeListPayload).relationTypeDefinitions.map((rt) => ({
         id: rt.id,
         label: rt.label,
+        description: rt.relationType,
       })),
     getArgs: (id) => ["relation-type", "get", id],
   },
@@ -346,7 +357,7 @@ export class SrsTreeDataProvider implements vscode.TreeDataProvider<SrsTreeNode>
       });
       const items = spec.extractItems(payload);
       return items.map(
-        (item) => new EntityNode(item.id, kind, item.label, spec.getArgs(item.id)),
+        (item) => new EntityNode(item.id, kind, item.label, spec.getArgs(item.id), item.description),
       );
     } catch (err) {
       // Surface the failure as a node instead of silently returning [] — an
