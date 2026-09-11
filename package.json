@@ -181,10 +181,20 @@
       {
         "command": "srs.attachmentExport",
         "title": "SRS: Export Attachment…"
+      },
+      {
+        "command": "srs.refreshCompositions",
+        "title": "SRS: Refresh Compositions",
+        "icon": "$(refresh)"
       }
     ],
     "views": {
       "explorer": [
+        {
+          "id": "srsCompositions",
+          "name": "SRS Compositions",
+          "when": "srs.repositoryActive"
+        },
         {
           "id": "srsRepositoryTree",
           "name": "SRS Repository",
@@ -209,6 +219,11 @@
         }
       ],
       "view/title": [
+        {
+          "command": "srs.refreshCompositions",
+          "when": "view == srsCompositions",
+          "group": "navigation"
+        },
         {
           "command": "srs.saveArchive",
           "when": "view == srsRepositoryTree && srs.activeRepoIsArchive",

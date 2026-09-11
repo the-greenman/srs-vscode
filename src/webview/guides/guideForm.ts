@@ -1,9 +1,7 @@
 import { formWrapHtml } from "../forms";
+import { esc } from "../escape";
 import { GuideDoc, GuideTableBlock, SectionDoc, SectionType } from "./guideTypes";
 
-function esc(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
 function escAttr(s: string): string { return esc(s); }
 function escText(s: string): string { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
 

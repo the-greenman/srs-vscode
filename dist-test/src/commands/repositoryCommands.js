@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.PREVIEW_KINDS = void 0;
 exports.registerRepositoryCommands = registerRepositoryCommands;
 const vscode = __importStar(require("vscode"));
 const CliClient_1 = require("../cli/CliClient");
@@ -132,8 +133,9 @@ async function cmdOpenRepositoryMap(cli, repoProvider, outputChannel) {
         vscode.window.showErrorMessage(`SRS: ${msg}`);
     }
 }
-// Kinds with a rich preview webview
-const PREVIEW_KINDS = new Set(["note", "record", "container"]);
+// Kinds with a rich preview webview. A composition's preview is its document
+// panel (srs.openComposition), reached through srs.previewRender.
+exports.PREVIEW_KINDS = new Set(["note", "record", "container", "composition"]);
 // Kinds with a form editor
 const EDIT_KINDS = new Set(["note", "tag", "record"]);
 async function cmdOpenEntityDefault(repoProvider, entityProvider, node) {
@@ -146,7 +148,7 @@ async function cmdOpenEntityDefault(repoProvider, entityProvider, node) {
         vscode.window.showInformationMessage(`SRS: ${node.entityId}`);
         return;
     }
-    if (PREVIEW_KINDS.has(node.entityKind)) {
+    if (exports.PREVIEW_KINDS.has(node.entityKind)) {
         return vscode.commands.executeCommand("srs.previewEntity", node);
     }
     if (EDIT_KINDS.has(node.entityKind)) {

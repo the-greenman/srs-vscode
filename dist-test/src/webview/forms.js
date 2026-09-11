@@ -1,20 +1,14 @@
 "use strict";
-// HTML form builders for SRS entity editors.
-// No vscode dependency — pure string generation.
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.formWrapHtml = formWrapHtml;
 exports.buildNoteForm = buildNoteForm;
 exports.buildRecordForm = buildRecordForm;
+// HTML form builders for SRS entity editors.
+// No vscode dependency — pure string generation.
+const escape_1 = require("./escape");
 // ---- HTML escape ----
-function esc(s) {
-    return s
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
-}
 function escAttr(s) {
-    return esc(s);
+    return (0, escape_1.esc)(s);
 }
 function escText(s) {
     // For textarea content — only escape < and & (not quotes)
@@ -191,10 +185,10 @@ function formWrapHtml(title, body) {
   <meta charset="UTF-8">
   ${CSP}
   ${FORM_CSS}
-  <title>${esc(title)}</title>
+  <title>${(0, escape_1.esc)(title)}</title>
 </head>
 <body>
-  <h1>${esc(title)}</h1>
+  <h1>${(0, escape_1.esc)(title)}</h1>
   <div id="error-banner"></div>
   <form id="editor-form" novalidate>
     ${body}
@@ -320,13 +314,13 @@ function renderField(f, value) {
             // option — which then gets submitted as if the user chose it, corrupting an
             // unset optional field into an arbitrary one (RFC-039 "absence = unset").
             const options = [`<option value=""${current === "" ? " selected" : ""}></option>`]
-                .concat(knownValues.map((v) => `<option value="${escAttr(v)}"${v === current ? " selected" : ""}>${esc(v)}</option>`))
+                .concat(knownValues.map((v) => `<option value="${escAttr(v)}"${v === current ? " selected" : ""}>${(0, escape_1.esc)(v)}</option>`))
                 // A stored value outside the current enum (e.g. vocabulary drifted since this
                 // record was written) would otherwise match no <option>, so the browser falls
                 // back to the blank one and the value is silently dropped on save. Surface it
                 // as its own selected option instead of losing it.
                 .concat(current !== "" && !knownValues.includes(current)
-                ? [`<option value="${escAttr(current)}" selected>${esc(current)} (not in current vocabulary)</option>`]
+                ? [`<option value="${escAttr(current)}" selected>${(0, escape_1.esc)(current)} (not in current vocabulary)</option>`]
                 : [])
                 .join("");
             body = `<select class="scalar-input" data-scalar-type="string"${f.required ? " required" : ""}>${options}</select>`;
@@ -376,7 +370,7 @@ function renderField(f, value) {
             // for any number of clones.
             body = `
         <div class="entries group-entries">${entriesHtml}</div>
-        <button type="button" class="btn-add-entry" data-add="entry">+ Add ${esc(label)}</button>
+        <button type="button" class="btn-add-entry" data-add="entry">+ Add ${(0, escape_1.esc)(label)}</button>
         ${hint}
         <template>${renderEntry({})}</template>`;
             break;
@@ -384,7 +378,7 @@ function renderField(f, value) {
     }
     return `
     <div class="field" data-field="${escAttr(f.name)}" data-kind="${f.kind}" data-scalar-type="${escAttr(f.scalarType ?? "string")}">
-      <label>${esc(label)}${requiredMark}</label>
+      <label>${(0, escape_1.esc)(label)}${requiredMark}</label>
       ${body}
     </div>`;
 }

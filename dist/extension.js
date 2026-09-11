@@ -34,7 +34,7 @@ __export(extension_exports, {
   deactivate: () => deactivate
 });
 module.exports = __toCommonJS(extension_exports);
-var vscode25 = __toESM(require("vscode"));
+var vscode27 = __toESM(require("vscode"));
 
 // src/cli/CliClient.ts
 var cp = __toESM(require("child_process"));
@@ -221,6 +221,7 @@ var CliClient = class _CliClient {
 };
 
 // src/repository/RepositoryProvider.ts
+var path = __toESM(require("node:path"));
 var vscode2 = __toESM(require("vscode"));
 var RepositoryProvider = class {
   constructor(cli) {
@@ -246,12 +247,23 @@ var RepositoryProvider = class {
       return void 0;
     }
   }
-  // Scan all workspace folders concurrently; return those where probe succeeds.
+  // Scan the workspace concurrently; return every directory where probe succeeds.
+  // Workspace-folder roots plus every directory holding a manifest.json, so a
+  // repository nested in a subdirectory is found too (issue #117). The `.srs`
+  // marker directory is empty, so it cannot be located with findFiles.
   async discoverAll() {
-    const folders = vscode2.workspace.workspaceFolders ?? [];
-    const results = await Promise.all(
-      folders.map((f) => this.probe(f.uri.fsPath))
+    const roots = new Set(
+      (vscode2.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath)
     );
+    const manifests = await vscode2.workspace.findFiles(
+      "**/manifest.json",
+      "**/node_modules/**",
+      100
+    );
+    for (const m of manifests) {
+      roots.add(path.dirname(m.fsPath));
+    }
+    const results = await Promise.all([...roots].map((r) => this.probe(r)));
     return results.filter((r) => r !== void 0);
   }
   // Set (or clear) the active repository and broadcast the change.
@@ -794,7 +806,7 @@ function getArgsFor(kind, entityId) {
 
 // src/diagnostics/DiagnosticsProvider.ts
 var vscode8 = __toESM(require("vscode"));
-var path = __toESM(require("path"));
+var path2 = __toESM(require("path"));
 var REPO_DIAGNOSTIC_SOURCE = "SRS";
 var DiagnosticsProvider = class {
   constructor(cli, repoProvider) {
@@ -817,7 +829,7 @@ var DiagnosticsProvider = class {
       ["repo", "validate"]
     );
     if (!envelope.ok) {
-      const uri = vscode8.Uri.file(path.join(repo.rootPath, "manifest.json"));
+      const uri = vscode8.Uri.file(path2.join(repo.rootPath, "manifest.json"));
       this._collection.set(uri, [
         new vscode8.Diagnostic(
           new vscode8.Range(0, 0, 0, 0),
@@ -833,7 +845,7 @@ var DiagnosticsProvider = class {
     }
     const byUri = /* @__PURE__ */ new Map();
     for (const d of diagnostics) {
-      const uri = d.path ? vscode8.Uri.file(path.join(repo.rootPath, d.path)).toString() : vscode8.Uri.file(path.join(repo.rootPath, "manifest.json")).toString();
+      const uri = d.path ? vscode8.Uri.file(path2.join(repo.rootPath, d.path)).toString() : vscode8.Uri.file(path2.join(repo.rootPath, "manifest.json")).toString();
       const severity = severityFor(d.severity);
       const diag = new vscode8.Diagnostic(
         new vscode8.Range(0, 0, 0, 0),
@@ -1004,7 +1016,7 @@ async function cmdOpenRepositoryMap(cli, repoProvider, outputChannel) {
     vscode9.window.showErrorMessage(`SRS: ${msg}`);
   }
 }
-var PREVIEW_KINDS = /* @__PURE__ */ new Set(["note", "record", "container"]);
+var PREVIEW_KINDS = /* @__PURE__ */ new Set(["note", "record", "container", "composition"]);
 var EDIT_KINDS = /* @__PURE__ */ new Set(["note", "tag", "record"]);
 async function cmdOpenEntityDefault(repoProvider, entityProvider, node) {
   if (!(node instanceof EntityNode))
@@ -1346,13 +1358,20 @@ var NavigatorTreeDataProvider = class {
 
 // src/preview/PreviewPanel.ts
 var vscode11 = __toESM(require("vscode"));
+
+// src/webview/escape.ts
+function esc(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+// src/preview/PreviewPanel.ts
 var PreviewPanel = class _PreviewPanel {
   constructor(context, _id, title, html, options) {
     this._id = _id;
     this._panel = vscode11.window.createWebviewPanel(
       "srsPreview",
       title,
-      { viewColumn: vscode11.ViewColumn.Active, preserveFocus: false },
+      { viewColumn: options?.viewColumn ?? vscode11.ViewColumn.Active, preserveFocus: false },
       {
         enableScripts: options?.enableScripts ?? false,
         localResourceRoots: []
@@ -1373,7 +1392,7 @@ var PreviewPanel = class _PreviewPanel {
   static show(context, id, title, html, options) {
     const existing = _PreviewPanel._panels.get(id);
     if (existing) {
-      existing._panel.reveal(vscode11.ViewColumn.Active);
+      existing._panel.reveal(options?.viewColumn ?? vscode11.ViewColumn.Active);
       existing._panel.title = title;
       existing._update(html);
       if (options?.onMessage) {
@@ -1450,9 +1469,6 @@ var CSS = `
 function wrapHtml(title, body, options) {
   const csp = options?.enableScripts ? `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline';">` : `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';">`;
   return `<!DOCTYPE html><html><head><meta charset="UTF-8">${csp}${CSS}<title>${esc(title)}</title></head><body>${body}</body></html>`;
-}
-function esc(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 // src/cli/typeFields.ts
@@ -1531,27 +1547,42 @@ function registerPreviewCommands(context, cli, repoProvider, attention) {
     )
   );
 }
+function asEntityRef(node) {
+  if (node instanceof EntityNode) {
+    return { entityId: node.entityId, entityKind: node.entityKind, label: String(node.label) };
+  }
+  const n = node;
+  if (typeof n?.entityId === "string" && typeof n?.entityKind === "string") {
+    return { entityId: n.entityId, entityKind: n.entityKind, label: n.label, viewColumn: n.viewColumn };
+  }
+  return void 0;
+}
 async function cmdPreviewEntity(context, cli, repoProvider, node) {
-  if (!(node instanceof EntityNode))
+  const ref = asEntityRef(node);
+  if (!ref)
     return;
   const repo = repoProvider.active;
   if (!repo)
     return;
+  const column = ref.viewColumn;
   try {
-    switch (node.entityKind) {
+    switch (ref.entityKind) {
       case "note":
-        return await previewNote(context, cli, repo.rootPath, node.entityId);
+        return await previewNote(context, cli, repo.rootPath, ref.entityId, column);
       case "record":
-        return await previewRecord(context, cli, repo.rootPath, node.entityId);
+        return await previewRecord(context, cli, repo.rootPath, ref.entityId, column);
       case "container":
-        return await previewContainer(context, cli, repo.rootPath, node.entityId);
+        return await previewContainer(context, cli, repo.rootPath, ref.entityId, column);
       case "protocol":
-        return await previewProtocol(context, cli, repo.rootPath, node.entityId);
+        return await previewProtocol(context, cli, repo.rootPath, ref.entityId, column);
       case "blueprint":
-        return await previewBlueprint(context, cli, repo.rootPath, node.entityId);
+        return await previewBlueprint(context, cli, repo.rootPath, ref.entityId, column);
+      case "composition":
+        await vscode12.commands.executeCommand("srs.previewRender", node);
+        return;
       default:
         vscode12.window.showInformationMessage(
-          `SRS: No preview available for '${node.entityKind}'. Use Open Entity for raw JSON.`
+          `SRS: No preview available for '${ref.entityKind}'. Use Open Entity for raw JSON.`
         );
     }
   } catch (err) {
@@ -1569,8 +1600,9 @@ function directRenderTarget(node) {
   if (node instanceof CompositionNode) {
     return { viewId: node.compositionId, viewLabel: String(node.label) };
   }
-  if (node instanceof EntityNode && node.entityKind === "composition") {
-    return { viewId: node.entityId, viewLabel: String(node.label) };
+  const ref = asEntityRef(node);
+  if (ref?.entityKind === "composition") {
+    return { viewId: ref.entityId, viewLabel: ref.label ?? ref.entityId };
   }
   return void 0;
 }
@@ -1672,18 +1704,13 @@ async function cmdPreviewRender(context, cli, repoProvider, attention, node) {
       return;
     containerId2 = picked.id;
   }
-  try {
-    const args = ["render", "composition", "--view", viewId];
-    if (containerId2)
-      args.push("--container", containerId2);
-    const payload = await cli.runOk(repo.rootPath, args);
-    await openMarkdownPreview(payload.rendered, viewLabel ?? viewId);
-  } catch (err) {
-    const msg = err instanceof CliError ? err.message : String(err);
-    vscode12.window.showErrorMessage(`SRS: Render failed: ${msg}`);
-  }
+  await vscode12.commands.executeCommand("srs.openComposition", {
+    compositionId: viewId,
+    title: viewLabel ?? viewId,
+    containerId: containerId2
+  });
 }
-async function previewNote(_context, cli, repoPath, id) {
+async function previewNote(_context, cli, repoPath, id, column) {
   const payload = await cli.runOk(repoPath, ["note", "get", id]);
   const { note } = payload;
   const tagLine = (note.tags ?? []).map((t) => `\`${t}\``).join(" ");
@@ -1695,7 +1722,7 @@ async function previewNote(_context, cli, repoPath, id) {
 
 ${s.content}`).join("\n\n---\n\n");
   const md = [`# ${note.title}`, metaLine, sectionsMd || "*No sections.*"].filter(Boolean).join("\n\n");
-  await openMarkdownPreview(md, note.title);
+  await openMarkdownPreview(md, note.title, column);
 }
 function stringifyFieldValue(v) {
   if (v === void 0 || v === null)
@@ -1733,7 +1760,7 @@ function renderFieldRow(f, value) {
         <div class="field-value">${valueHtml}</div>
       </div>`;
 }
-async function previewRecord(context, cli, repoPath, id) {
+async function previewRecord(context, cli, repoPath, id, column) {
   const payload = await cli.runOk(repoPath, ["record", "get", id]);
   const { record } = payload;
   let resolvedFields = [];
@@ -1812,6 +1839,7 @@ async function previewRecord(context, cli, repoPath, id) {
   `, { enableScripts: true });
   PreviewPanel.show(context, `record:${id}`, title, html, {
     enableScripts: true,
+    viewColumn: column,
     onMessage: (msg) => {
       const m = msg;
       if (m.type === "openEntity" && m.id && m.kind) {
@@ -1820,7 +1848,7 @@ async function previewRecord(context, cli, repoPath, id) {
     }
   });
 }
-async function previewContainer(context, cli, repoPath, id) {
+async function previewContainer(context, cli, repoPath, id, column) {
   let resolvedView;
   try {
     const viewPayload = await cli.runOk(repoPath, [
@@ -1901,15 +1929,16 @@ async function previewContainer(context, cli, repoPath, id) {
   `, { enableScripts: columns.length > 0 });
   PreviewPanel.show(context, `container:${id}`, title, html, columns.length > 0 ? {
     enableScripts: true,
+    viewColumn: column,
     onMessage: (msg) => {
       const m = msg;
       if (m.type === "openEntity" && m.id && m.kind) {
         vscode12.commands.executeCommand("srs.openEntityById", m.id, m.kind, repoPath);
       }
     }
-  } : void 0);
+  } : { viewColumn: column });
 }
-async function previewProtocol(context, cli, repoPath, id) {
+async function previewProtocol(context, cli, repoPath, id, column) {
   const [getResult, stagesResult] = await Promise.allSettled([
     cli.runOk(repoPath, ["protocol", "get", id]),
     cli.runOk(repoPath, ["protocol", "stages", id])
@@ -1942,9 +1971,9 @@ async function previewProtocol(context, cli, repoPath, id) {
     <h2>Stages (${stages.length})</h2>
     ${stagesHtml}
   `);
-  PreviewPanel.show(context, `protocol:${id}`, title, html);
+  PreviewPanel.show(context, `protocol:${id}`, title, html, { viewColumn: column });
 }
-async function previewBlueprint(context, cli, repoPath, id) {
+async function previewBlueprint(context, cli, repoPath, id, column) {
   const [getResult, structureResult, typeListResult] = await Promise.allSettled([
     cli.runOk(repoPath, ["blueprint", "get", id]),
     cli.runOk(repoPath, ["blueprint", "structure", id]),
@@ -1983,15 +2012,15 @@ async function previewBlueprint(context, cli, repoPath, id) {
     <h2>Structure (${specs.length} relation spec${specs.length === 1 ? "" : "s"})</h2>
     ${specsHtml}
   `);
-  PreviewPanel.show(context, `blueprint:${id}`, title, html);
+  PreviewPanel.show(context, `blueprint:${id}`, title, html, { viewColumn: column });
 }
-async function openMarkdownPreview(markdown, _title) {
+async function openMarkdownPreview(markdown, _title, column) {
   const doc = await vscode12.workspace.openTextDocument({
     content: markdown,
     language: "markdown"
   });
   await vscode12.window.showTextDocument(doc, {
-    viewColumn: vscode12.ViewColumn.Active,
+    viewColumn: column ?? vscode12.ViewColumn.Active,
     preview: true,
     preserveFocus: false
   });
@@ -2091,11 +2120,8 @@ var EntityEditorPanel = class _EntityEditorPanel {
 };
 
 // src/webview/forms.ts
-function esc2(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
 function escAttr(s) {
-  return esc2(s);
+  return esc(s);
 }
 function escText(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
@@ -2268,10 +2294,10 @@ function formWrapHtml(title, body) {
   <meta charset="UTF-8">
   ${CSP}
   ${FORM_CSS}
-  <title>${esc2(title)}</title>
+  <title>${esc(title)}</title>
 </head>
 <body>
-  <h1>${esc2(title)}</h1>
+  <h1>${esc(title)}</h1>
   <div id="error-banner"></div>
   <form id="editor-form" novalidate>
     ${body}
@@ -2381,8 +2407,8 @@ function renderField(f, value) {
     case "enum": {
       const current = fmtScalar(value);
       const knownValues = f.enumValues ?? [];
-      const options = [`<option value=""${current === "" ? " selected" : ""}></option>`].concat(knownValues.map((v) => `<option value="${escAttr(v)}"${v === current ? " selected" : ""}>${esc2(v)}</option>`)).concat(
-        current !== "" && !knownValues.includes(current) ? [`<option value="${escAttr(current)}" selected>${esc2(current)} (not in current vocabulary)</option>`] : []
+      const options = [`<option value=""${current === "" ? " selected" : ""}></option>`].concat(knownValues.map((v) => `<option value="${escAttr(v)}"${v === current ? " selected" : ""}>${esc(v)}</option>`)).concat(
+        current !== "" && !knownValues.includes(current) ? [`<option value="${escAttr(current)}" selected>${esc(current)} (not in current vocabulary)</option>`] : []
       ).join("");
       body = `<select class="scalar-input" data-scalar-type="string"${f.required ? " required" : ""}>${options}</select>`;
       break;
@@ -2421,7 +2447,7 @@ function renderField(f, value) {
       const entriesHtml = items.map((it) => renderEntry(it && typeof it === "object" ? it : {})).join("");
       body = `
         <div class="entries group-entries">${entriesHtml}</div>
-        <button type="button" class="btn-add-entry" data-add="entry">+ Add ${esc2(label)}</button>
+        <button type="button" class="btn-add-entry" data-add="entry">+ Add ${esc(label)}</button>
         ${hint}
         <template>${renderEntry({})}</template>`;
       break;
@@ -2429,7 +2455,7 @@ function renderField(f, value) {
   }
   return `
     <div class="field" data-field="${escAttr(f.name)}" data-kind="${f.kind}" data-scalar-type="${escAttr(f.scalarType ?? "string")}">
-      <label>${esc2(label)}${requiredMark}</label>
+      <label>${esc(label)}${requiredMark}</label>
       ${body}
     </div>`;
 }
@@ -3701,7 +3727,7 @@ function loadingHtml() {
   </head><body><p>Loading relation graph\u2026</p></body></html>`;
 }
 function errorHtml(msg) {
-  const safe = msg.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const safe = esc(msg);
   return `<!DOCTYPE html><html><head><meta charset="UTF-8">
   <style>body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);
   background:var(--vscode-editor-background);padding:2em}</style>
@@ -4071,6 +4097,14 @@ async function cmdOpenEntityById(id, kind, repoPath, repoProvider, entityProvide
   if (!repo)
     return;
   const entityKind = kind;
+  if (PREVIEW_KINDS.has(entityKind)) {
+    await vscode18.commands.executeCommand("srs.previewEntity", {
+      entityId: id,
+      entityKind,
+      viewColumn: vscode18.ViewColumn.Beside
+    });
+    return;
+  }
   try {
     const uri = entityUri(repo.repositoryId, entityKind, id);
     const doc = await vscode18.workspace.openTextDocument(uri);
@@ -4085,23 +4119,367 @@ async function cmdOpenEntityById(id, kind, repoPath, repoProvider, entityProvide
   }
 }
 
-// src/commands/navigatorCommands.ts
+// src/tree/CompositionsTreeDataProvider.ts
 var vscode19 = __toESM(require("vscode"));
+var CompositionsTreeDataProvider = class {
+  constructor(cli, repoProvider) {
+    this.cli = cli;
+    this.repoProvider = repoProvider;
+    this._onDidChangeTreeData = new vscode19.EventEmitter();
+    this.onDidChangeTreeData = this._onDidChangeTreeData.event;
+    this._disposables = [];
+    this._disposables.push(repoProvider.onDidChangeActive(() => this.refresh()));
+  }
+  refresh() {
+    this._onDidChangeTreeData.fire();
+  }
+  getTreeItem(element) {
+    return element;
+  }
+  async getChildren(element) {
+    const repo = this.repoProvider.active;
+    if (element || !repo)
+      return [];
+    try {
+      const [list, presentations] = await Promise.all([
+        this.cli.runOk(repo.rootPath, ["composition", "list"]),
+        // RFC-015: which document a conformant viewer opens. Best-effort — an
+        // older CLI or a repo without renderedPresentations just marks nothing.
+        this.cli.runOk(repo.rootPath, ["repo", "presentation", "list"]).catch(() => ({ presentations: [] }))
+      ]);
+      const defaultId = defaultPresentation(presentations.presentations);
+      return list.compositions.map((c) => {
+        const isDefault = c.id === defaultId;
+        const node = new EntityNode(
+          c.id,
+          "composition",
+          `${c.namespace}/${c.name}`,
+          ["composition", "get", c.id],
+          isDefault ? `v${c.version} \xB7 default` : `v${c.version}`
+        );
+        node.tooltip = c.description ?? `composition: ${c.id}`;
+        node.iconPath = new vscode19.ThemeIcon(isDefault ? "star-full" : "book");
+        return node;
+      });
+    } catch (err) {
+      const msg = err instanceof CliError ? err.message : String(err);
+      return [new ErrorNode(`Failed to load compositions: ${msg}`)];
+    }
+  }
+  dispose() {
+    this._onDidChangeTreeData.dispose();
+    this._disposables.forEach((d) => d.dispose());
+  }
+};
+function defaultPresentation(presentations) {
+  return (presentations.find((p) => p.isDefault) ?? presentations[0])?.compositionId;
+}
+
+// src/commands/compositionCommands.ts
+var vscode20 = __toESM(require("vscode"));
+var PANEL_STATE = /* @__PURE__ */ new Map();
+function registerCompositionCommands(context, cli, repoProvider, compositionsProvider) {
+  context.subscriptions.push(
+    vscode20.commands.registerCommand(
+      "srs.openComposition",
+      (args) => cmdOpenComposition(context, cli, repoProvider, args)
+    ),
+    vscode20.commands.registerCommand(
+      "srs.refreshCompositions",
+      () => compositionsProvider?.refresh()
+    )
+  );
+}
+async function cmdOpenComposition(context, cli, repoProvider, args) {
+  const repo = repoProvider.active;
+  if (!repo || !args?.compositionId)
+    return;
+  const existing = PANEL_STATE.get(args.compositionId);
+  const state = existing ? { ...existing, ...args } : { ...args, mode: "document", format: "html" };
+  PANEL_STATE.set(args.compositionId, state);
+  await renderPanel(context, cli, repo.rootPath, state);
+}
+async function renderPanel(context, cli, repoPath, state) {
+  let payload;
+  try {
+    payload = await cli.runOk(repoPath, renderArgs(state));
+  } catch (err) {
+    const msg = err instanceof CliError ? err.message : String(err);
+    vscode20.window.showErrorMessage(`SRS: Render failed: ${msg}`);
+    return;
+  }
+  const body = state.mode === "source" ? await sourceBodyHtml(cli, repoPath, payload.projection) : documentBodyHtml(state, payload.rendered);
+  const html = wrapHtml(
+    state.title,
+    `${toolbarHtml(state)}
+    ${diagnosticsHtml(payload.diagnostics ?? [])}
+    ${body}
+    ${PANEL_CSS}
+    <script>
+      const vscode = acquireVsCodeApi();
+      function post(msg) { vscode.postMessage(msg); }
+      document.querySelectorAll('[data-mode]').forEach(function (el) {
+        el.addEventListener('click', function () { post({ type: 'mode', mode: el.dataset.mode }); });
+      });
+      document.querySelectorAll('[data-act]').forEach(function (el) {
+        el.addEventListener('click', function () { post({ type: el.dataset.act }); });
+      });
+      const fmt = document.getElementById('srs-format');
+      if (fmt) fmt.addEventListener('change', function () { post({ type: 'format', format: fmt.value }); });
+      document.querySelectorAll('.rec-link').forEach(function (el) {
+        el.addEventListener('click', function (ev) {
+          ev.preventDefault();
+          post({ type: 'openEntity', id: el.dataset.id, kind: el.dataset.kind });
+        });
+      });
+    </script>`,
+    { enableScripts: true }
+  );
+  PreviewPanel.show(context, `composition:${state.compositionId}`, state.title, html, {
+    enableScripts: true,
+    onMessage: (msg) => handleMessage(context, cli, repoPath, state, msg).catch((err) => {
+      const m = err instanceof CliError ? err.message : String(err);
+      vscode20.window.showErrorMessage(`SRS: ${m}`);
+    })
+  });
+}
+function renderArgs(state) {
+  const args = [
+    "render",
+    "composition",
+    "--view",
+    state.compositionId,
+    "--view-format",
+    state.mode === "source" ? "json" : state.format
+  ];
+  if (state.containerId)
+    args.push("--container", state.containerId);
+  if (state.themeVariant)
+    args.push("--theme-variant", state.themeVariant);
+  if (state.instance)
+    args.push("--instance", state.instance);
+  return args;
+}
+async function handleMessage(context, cli, repoPath, state, msg) {
+  const m = msg;
+  switch (m.type) {
+    case "mode":
+      state.mode = m.mode === "source" ? "source" : "document";
+      return renderPanel(context, cli, repoPath, state);
+    case "format":
+      state.mode = "document";
+      state.format = m.format ?? "html";
+      return renderPanel(context, cli, repoPath, state);
+    case "theme": {
+      const value = await vscode20.window.showInputBox({
+        prompt: "Theme variant defined on this Composition (empty to clear)",
+        value: state.themeVariant ?? ""
+      });
+      if (value === void 0)
+        return;
+      state.themeVariant = value || void 0;
+      return renderPanel(context, cli, repoPath, state);
+    }
+    case "instance": {
+      const picked = await pickInstance(cli, repoPath);
+      if (picked === void 0)
+        return;
+      state.instance = picked || void 0;
+      return renderPanel(context, cli, repoPath, state);
+    }
+    case "markdown": {
+      const payload = await cli.runOk(
+        repoPath,
+        renderArgs({ ...state, mode: "document", format: "markdown" })
+      );
+      await openMarkdownPreview(payload.rendered, state.title);
+      return;
+    }
+    case "openEntity":
+      if (m.id && m.kind) {
+        await vscode20.commands.executeCommand("srs.openEntityById", m.id, m.kind, repoPath);
+      }
+      return;
+  }
+}
+async function pickInstance(cli, repoPath) {
+  const payload = await cli.runOk(repoPath, ["record", "list"]);
+  const items = [
+    { label: "$(clear-all) No instance scope", id: "" },
+    ...payload.records.map((r) => ({
+      label: r.displayLabel,
+      description: `${r.record.typeNamespace}/${r.record.typeName}`,
+      detail: r.instanceId,
+      id: r.instanceId
+    }))
+  ];
+  const picked = await vscode20.window.showQuickPick(items, {
+    placeHolder: "Scope this document to a single record",
+    matchOnDetail: true
+  });
+  return picked?.id;
+}
+function documentBodyHtml(state, rendered) {
+  if (!rendered)
+    return '<p class="empty">This composition rendered no content.</p>';
+  return state.format === "html" ? `<div class="srs-document-host">${rendered}</div>` : `<pre class="srs-document-raw">${esc(rendered)}</pre>`;
+}
+function mapProjection(projection, labels) {
+  if (!projection)
+    return [];
+  return [...projection.sections].sort((a, b) => a.order - b.order).map((s) => ({
+    sectionId: s.sectionId,
+    // An untitled section is legal (guide-body-view) — fall back to its id,
+    // which is what the rendered document shows too.
+    heading: s.title ?? s.sectionId,
+    records: (s.records ?? []).map((r) => {
+      const known = labels.get(r.instanceId);
+      return {
+        instanceId: r.instanceId,
+        heading: r.recordHeading ?? known?.label ?? `${r.instanceId.slice(0, 8)}\u2026`,
+        // A tier-0 member carries no typeId; it is a note, and `record get`
+        // would fail on it.
+        kind: known?.kind ?? (r.typeId ? "record" : "note"),
+        typeLabel: r.typeNamespace && r.typeName ? `${r.typeNamespace}/${r.typeName}` : void 0,
+        typeId: r.typeId,
+        typeVersion: r.typeVersion,
+        fields: r.fields ?? {},
+        orderedFieldKeys: r.orderedFieldKeys ?? Object.keys(r.fields ?? {}),
+        relations: r.relations ?? [],
+        properties: r.properties ?? []
+      };
+    })
+  }));
+}
+async function sourceBodyHtml(cli, repoPath, projection) {
+  const labels = await buildLabelMap(cli, repoPath);
+  const sections = mapProjection(projection, labels);
+  if (sections.length === 0)
+    return '<p class="empty">This composition has no sections.</p>';
+  const fieldSets = /* @__PURE__ */ new Map();
+  for (const rec of sections.flatMap((s) => s.records)) {
+    const key = typeKey(rec);
+    if (!key || fieldSets.has(key))
+      continue;
+    try {
+      fieldSets.set(key, await resolveTypeFields(cli, repoPath, rec.typeId, rec.typeVersion));
+    } catch {
+      fieldSets.set(key, []);
+    }
+  }
+  return sections.map(
+    (s) => `<h2>${esc(s.heading)}</h2>
+      ${s.records.length === 0 ? '<p class="empty">No records in this section.</p>' : s.records.map((r) => recordHtml(r, fieldSets.get(typeKey(r) ?? "") ?? [])).join("")}`
+  ).join("");
+}
+function typeKey(rec) {
+  return rec.typeId ? `${rec.typeId}@${rec.typeVersion ?? ""}` : void 0;
+}
+function recordHtml(rec, fields) {
+  const byName = new Map(fields.map((f) => [f.name, f]));
+  const rows = rec.orderedFieldKeys.filter((k) => rec.fields[k] !== void 0 && rec.fields[k] !== null).map(
+    (k) => renderFieldRow(
+      byName.get(k) ?? { name: k, displayLabel: k, order: 0, required: false, kind: "scalar" },
+      rec.fields[k]
+    )
+  ).join("");
+  const props = rec.properties.map((p) => `<span class="tag">${esc(p.label)}: ${esc(String(p.value ?? ""))}</span>`).join("");
+  const relations = rec.relations.map(
+    (rel) => `<div class="relation-row">
+        <span class="rel-arrow">${rel.direction === "inverse" ? "\u2190" : "\u2192"}</span>
+        <span class="rel-type">${esc(rel.label || rel.relationType)}</span>
+        <span>${rel.targets.map(
+      (t) => `<a class="rel-link rec-link" href="#" data-id="${esc(t.instanceId)}" data-kind="record" title="${esc(t.instanceId)}">${esc(t.displayLabel)}</a>`
+    ).join(", ")}</span>
+      </div>`
+  ).join("");
+  return `<div class="src-record">
+    <div class="src-record-head">
+      <a class="rec-link src-heading" href="#" data-id="${esc(rec.instanceId)}" data-kind="${rec.kind}" title="${esc(rec.instanceId)}">${esc(rec.heading)}</a>
+      ${rec.typeLabel ? `<span class="src-type">${esc(rec.typeLabel)}</span>` : ""}
+      ${props}
+    </div>
+    ${relations}
+    ${rows ? `<details><summary>Fields</summary>${rows}</details>` : ""}
+  </div>`;
+}
+var FORMAT_LABELS = {
+  html: "HTML",
+  markdown: "Markdown",
+  text: "Plain text",
+  adoc: "AsciiDoc"
+};
+function toolbarHtml(state) {
+  const modeBtn = (mode, label) => `<button data-mode="${mode}"${state.mode === mode ? ' class="active"' : ""}>${label}</button>`;
+  const options = Object.entries(FORMAT_LABELS).map(
+    ([f, label]) => `<option value="${f}"${state.format === f ? " selected" : ""}>${label}</option>`
+  ).join("");
+  const scope = [
+    state.containerId ? "container" : "",
+    state.themeVariant ? `theme: ${state.themeVariant}` : "",
+    state.instance ? "single instance" : ""
+  ].filter(Boolean).join(" \xB7 ");
+  return `<div class="toolbar">
+    ${modeBtn("document", "Document")}
+    ${modeBtn("source", "Source")}
+    <select id="srs-format"${state.mode === "source" ? " disabled" : ""}>${options}</select>
+    <button data-act="theme">Theme variant\u2026</button>
+    <button data-act="instance">Instance\u2026</button>
+    <button data-act="markdown">Open raw markdown</button>
+    ${scope ? `<span class="meta toolbar-scope">${esc(scope)}</span>` : ""}
+  </div>`;
+}
+function diagnosticsHtml(diagnostics) {
+  if (diagnostics.length === 0)
+    return "";
+  return `<details class="diagnostics">
+    <summary>${diagnostics.length} diagnostic${diagnostics.length === 1 ? "" : "s"}</summary>
+    <ul>${diagnostics.map((d) => `<li>${esc(d)}</li>`).join("")}</ul>
+  </details>`;
+}
+var PANEL_CSS = `<style>
+  .toolbar { display: flex; align-items: center; gap: 0.4em; flex-wrap: wrap; margin-bottom: 1em;
+             padding-bottom: 0.6em; border-bottom: 1px solid var(--vscode-panel-border); }
+  .toolbar button, .toolbar select { font-family: inherit; font-size: 0.85em; padding: 0.25em 0.7em;
+             color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+             background: var(--vscode-button-secondaryBackground, transparent);
+             border: 1px solid var(--vscode-panel-border); border-radius: 3px; cursor: pointer; }
+  .toolbar button.active { color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
+  .toolbar-scope { margin: 0 0 0 auto; }
+  .diagnostics { border-left: 3px solid var(--vscode-editorWarning-foreground, #cca700);
+                 padding: 0.3em 0 0.3em 0.8em; margin-bottom: 1em; font-size: 0.9em; }
+  .diagnostics ul { margin: 0.4em 0 0; padding-left: 1.2em; }
+  .src-record { padding: 0.5em 0; border-bottom: 1px solid var(--vscode-panel-border); }
+  .src-record-head { display: flex; align-items: baseline; gap: 0.6em; flex-wrap: wrap; }
+  .src-heading { color: var(--vscode-textLink-foreground); text-decoration: none; cursor: pointer; font-weight: 600; }
+  .src-heading:hover { text-decoration: underline; }
+  .src-type { font-size: 0.8em; color: var(--vscode-descriptionForeground); }
+  .src-record details { margin-top: 0.4em; }
+  .src-record summary { font-size: 0.85em; color: var(--vscode-descriptionForeground); cursor: pointer; }
+  .srs-document-host table { border-collapse: collapse; margin: 0.6em 0; }
+  .srs-document-host th, .srs-document-host td { padding: 0.3em 0.6em; border: 1px solid var(--vscode-panel-border); text-align: left; }
+  .srs-document-host .srs-record { margin: 0.8em 0; }
+  .srs-document-host .srs-field-label { color: var(--vscode-descriptionForeground); }
+  .srs-document-raw { white-space: pre-wrap; }
+</style>`;
+
+// src/commands/navigatorCommands.ts
+var vscode21 = __toESM(require("vscode"));
 function registerNavigatorCommands(context, navigator) {
   context.subscriptions.push(
-    vscode19.commands.registerCommand(
+    vscode21.commands.registerCommand(
       "srs.navigatorRelations",
       () => setMode(navigator, "relations")
     ),
-    vscode19.commands.registerCommand(
+    vscode21.commands.registerCommand(
       "srs.navigatorCompositions",
       () => setMode(navigator, "compositions")
     ),
-    vscode19.commands.registerCommand(
+    vscode21.commands.registerCommand(
       "srs.navigatorContainers",
       () => setMode(navigator, "containers")
     ),
-    vscode19.commands.registerCommand(
+    vscode21.commands.registerCommand(
       "srs.navigatorRefresh",
       () => navigator.refresh()
     )
@@ -4109,11 +4487,11 @@ function registerNavigatorCommands(context, navigator) {
 }
 function setMode(navigator, mode) {
   navigator.setMode(mode);
-  vscode19.commands.executeCommand("setContext", "srs.navigatorMode", mode);
+  vscode21.commands.executeCommand("setContext", "srs.navigatorMode", mode);
 }
 
 // src/webview/guides/guideEditorCommands.ts
-var vscode20 = __toESM(require("vscode"));
+var vscode22 = __toESM(require("vscode"));
 
 // src/webview/guides/guideTypes.ts
 var TYPE_PREFIX = {
@@ -4340,11 +4718,8 @@ async function saveGuide(cli, repoPath, guide) {
 }
 
 // src/webview/guides/guideForm.ts
-function esc3(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
 function escAttr2(s) {
-  return esc3(s);
+  return esc(s);
 }
 function escText2(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
@@ -4358,10 +4733,10 @@ function textField(label, name, value, opts = {}) {
   const req = opts.required ? ` <span class="required-mark">*</span>` : "";
   const reqAttr = opts.required ? " required" : "";
   const rows = opts.rows ?? 2;
-  const hint = opts.hint ? `<div class="hint">${esc3(opts.hint)}</div>` : "";
+  const hint = opts.hint ? `<div class="hint">${esc(opts.hint)}</div>` : "";
   return `
     <div class="field">
-      <label>${esc3(label)}${req}</label>
+      <label>${esc(label)}${req}</label>
       <textarea name="${escAttr2(name)}" rows="${rows}"${reqAttr}>${escText2(value)}</textarea>
       ${hint}
     </div>`;
@@ -4371,7 +4746,7 @@ function inputField(label, name, value, opts = {}) {
   const reqAttr = opts.required ? " required" : "";
   return `
     <div class="field">
-      <label>${esc3(label)}${req}</label>
+      <label>${esc(label)}${req}</label>
       <input type="text" name="${escAttr2(name)}" value="${escAttr2(value)}"${reqAttr}>
     </div>`;
 }
@@ -4467,7 +4842,7 @@ function sectionBlock(s, i) {
   return `
     <div class="section-block" data-section-index="${i}">
       <div class="section-block-header">
-        <span class="section-type-badge">${esc3(typeLabel)}</span>
+        <span class="section-type-badge">${esc(typeLabel)}</span>
       </div>
       ${inputField("Heading", `s_${i}_heading`, s.heading, { required: true })}
       ${inputField("Slug (id)", `s_${i}_slug`, s.slug)}
@@ -4784,7 +5159,7 @@ function buildGuideForm(guide) {
 // src/webview/guides/guideEditorCommands.ts
 function registerGuideEditorCommands(context, cli, repoProvider, treeProvider) {
   context.subscriptions.push(
-    vscode20.commands.registerCommand(
+    vscode22.commands.registerCommand(
       "srs.editGuide",
       () => cmdEditGuide(context, cli, repoProvider, treeProvider)
     )
@@ -4793,7 +5168,7 @@ function registerGuideEditorCommands(context, cli, repoProvider, treeProvider) {
 async function cmdEditGuide(context, cli, repoProvider, treeProvider) {
   const repoPath = repoProvider.active?.rootPath;
   if (!repoPath) {
-    vscode20.window.showWarningMessage("SRS: No repository selected.");
+    vscode22.window.showWarningMessage("SRS: No repository selected.");
     return;
   }
   let containers;
@@ -4801,27 +5176,27 @@ async function cmdEditGuide(context, cli, repoProvider, treeProvider) {
     const payload = await cli.runOk(repoPath, ["container", "list"]);
     containers = payload.containers.filter((c) => c.containerType === "guide");
   } catch (err) {
-    vscode20.window.showErrorMessage(`SRS: Could not load containers \u2014 ${String(err)}`);
+    vscode22.window.showErrorMessage(`SRS: Could not load containers \u2014 ${String(err)}`);
     return;
   }
   if (containers.length === 0) {
-    vscode20.window.showInformationMessage("SRS: No guide containers found in this repository.");
+    vscode22.window.showInformationMessage("SRS: No guide containers found in this repository.");
     return;
   }
-  const picked = await vscode20.window.showQuickPick(
+  const picked = await vscode22.window.showQuickPick(
     containers.map((c) => ({ label: c.title, description: c.containerId, id: c.containerId })),
     { placeHolder: "Select a guide to edit" }
   );
   if (!picked)
     return;
-  await vscode20.window.withProgress(
-    { location: vscode20.ProgressLocation.Notification, title: `Loading guide: ${picked.label}` },
+  await vscode22.window.withProgress(
+    { location: vscode22.ProgressLocation.Notification, title: `Loading guide: ${picked.label}` },
     async () => {
       let guide;
       try {
         guide = await loadGuide(cli, repoPath, picked.id);
       } catch (err) {
-        vscode20.window.showErrorMessage(`SRS: Failed to load guide \u2014 ${String(err)}`);
+        vscode22.window.showErrorMessage(`SRS: Failed to load guide \u2014 ${String(err)}`);
         return;
       }
       const html = buildGuideForm(guide);
@@ -4833,7 +5208,7 @@ async function cmdEditGuide(context, cli, repoProvider, treeProvider) {
         async (data) => {
           await saveGuide(cli, repoPath, data);
           treeProvider.refresh();
-          vscode20.window.showInformationMessage(`SRS: Guide "${guide.title}" saved.`);
+          vscode22.window.showInformationMessage(`SRS: Guide "${guide.title}" saved.`);
         }
       );
     }
@@ -4841,14 +5216,14 @@ async function cmdEditGuide(context, cli, repoProvider, treeProvider) {
 }
 
 // src/archive/ArchiveManager.ts
-var vscode21 = __toESM(require("vscode"));
+var vscode23 = __toESM(require("vscode"));
 
 // src/archive/workdir.ts
 var crypto = __toESM(require("crypto"));
-var path2 = __toESM(require("path"));
+var path3 = __toESM(require("path"));
 function archiveWorkdirName(archivePath) {
-  const abs = path2.resolve(archivePath);
-  const base = path2.basename(abs, path2.extname(abs));
+  const abs = path3.resolve(archivePath);
+  const base = path3.basename(abs, path3.extname(abs));
   const safe = base.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 40) || "archive";
   const hash = crypto.createHash("sha1").update(abs).digest("hex").slice(0, 12);
   return `${safe}-${hash}`;
@@ -4861,7 +5236,7 @@ var ArchiveManager = class {
     this.cli = cli;
     this.repoProvider = repoProvider;
     this._dirty = false;
-    this._onDidChangeDirty = new vscode21.EventEmitter();
+    this._onDidChangeDirty = new vscode23.EventEmitter();
     this.onDidChangeDirty = this._onDidChangeDirty.event;
     this._disposables = [this._onDidChangeDirty];
     this._disposables.push(
@@ -4881,12 +5256,12 @@ var ArchiveManager = class {
   // Unpack a `.srs` archive into a fresh working copy and activate it.
   async openArchive(archivePath) {
     const workdir = this._workdirFor(archivePath);
-    const archivesRoot = vscode21.Uri.joinPath(
+    const archivesRoot = vscode23.Uri.joinPath(
       this.context.globalStorageUri,
       "archives"
     );
-    await vscode21.workspace.fs.createDirectory(archivesRoot);
-    await this._deleteIfExists(vscode21.Uri.file(workdir));
+    await vscode23.workspace.fs.createDirectory(archivesRoot);
+    await this._deleteIfExists(vscode23.Uri.file(workdir));
     await this.cli.runRawOk([
       "archive",
       "unpack",
@@ -4913,7 +5288,7 @@ var ArchiveManager = class {
   async saveActive() {
     const repo = this.repoProvider.active;
     if (!repo?.archivePath) {
-      vscode21.window.showWarningMessage(
+      vscode23.window.showWarningMessage(
         "SRS: The active repository is not opened from a .srs archive. Use 'SRS: Export Repository to .srs' instead."
       );
       return false;
@@ -4946,15 +5321,15 @@ var ArchiveManager = class {
     ]);
   }
   _workdirFor(archivePath) {
-    return vscode21.Uri.joinPath(
+    return vscode23.Uri.joinPath(
       this.context.globalStorageUri,
       "archives",
       archiveWorkdirName(archivePath)
     ).fsPath;
   }
   _startWatching(workdir) {
-    const watcher = vscode21.workspace.createFileSystemWatcher(
-      new vscode21.RelativePattern(vscode21.Uri.file(workdir), "**/*")
+    const watcher = vscode23.workspace.createFileSystemWatcher(
+      new vscode23.RelativePattern(vscode23.Uri.file(workdir), "**/*")
     );
     const markDirty = () => this._setDirty(true);
     watcher.onDidChange(markDirty);
@@ -4975,7 +5350,7 @@ var ArchiveManager = class {
   }
   async _deleteIfExists(uri) {
     try {
-      await vscode21.workspace.fs.delete(uri, {
+      await vscode23.workspace.fs.delete(uri, {
         recursive: true,
         useTrash: false
       });
@@ -4989,15 +5364,15 @@ var ArchiveManager = class {
 };
 
 // src/archive/ArchiveStatusBarItem.ts
-var vscode22 = __toESM(require("vscode"));
-var path3 = __toESM(require("path"));
+var vscode24 = __toESM(require("vscode"));
+var path4 = __toESM(require("path"));
 var ArchiveStatusBarItem = class {
   constructor(archiveManager, repoProvider) {
     this.archiveManager = archiveManager;
     this.repoProvider = repoProvider;
     this._disposables = [];
-    this._item = vscode22.window.createStatusBarItem(
-      vscode22.StatusBarAlignment.Left,
+    this._item = vscode24.window.createStatusBarItem(
+      vscode24.StatusBarAlignment.Left,
       99
     );
     this._item.command = "srs.saveArchive";
@@ -5014,7 +5389,7 @@ var ArchiveStatusBarItem = class {
       this._item.hide();
       return;
     }
-    const name = path3.basename(archivePath);
+    const name = path4.basename(archivePath);
     if (this.archiveManager.isDirty) {
       this._item.text = `$(archive) \u25CF ${name}`;
       this._item.tooltip = `SRS: ${name} has unsaved changes \u2014 click to save to .srs`;
@@ -5030,26 +5405,26 @@ var ArchiveStatusBarItem = class {
 };
 
 // src/commands/archiveCommands.ts
-var vscode23 = __toESM(require("vscode"));
-var path4 = __toESM(require("path"));
+var vscode25 = __toESM(require("vscode"));
+var path5 = __toESM(require("path"));
 function registerArchiveCommands(context, cli, repoProvider, archiveManager) {
   context.subscriptions.push(
-    vscode23.commands.registerCommand(
+    vscode25.commands.registerCommand(
       "srs.openArchive",
       () => cmdOpenArchive(repoProvider, archiveManager)
     ),
-    vscode23.commands.registerCommand(
+    vscode25.commands.registerCommand(
       "srs.saveArchive",
       () => cmdSaveArchive(archiveManager)
     ),
-    vscode23.commands.registerCommand(
+    vscode25.commands.registerCommand(
       "srs.exportArchive",
       () => cmdExportArchive(repoProvider, archiveManager)
     )
   );
 }
 async function cmdOpenArchive(repoProvider, archiveManager) {
-  const picked = await vscode23.window.showOpenDialog({
+  const picked = await vscode25.window.showOpenDialog({
     canSelectMany: false,
     openLabel: "Open SRS Archive",
     filters: {
@@ -5061,11 +5436,11 @@ async function cmdOpenArchive(repoProvider, archiveManager) {
   if (!picked || picked.length === 0)
     return;
   const fsPath = picked[0].fsPath;
-  const name = path4.basename(fsPath);
-  const isLegacyBundle = path4.extname(fsPath).toLowerCase() === ".srsj";
+  const name = path5.basename(fsPath);
+  const isLegacyBundle = path5.extname(fsPath).toLowerCase() === ".srsj";
   try {
-    await vscode23.window.withProgress(
-      { location: vscode23.ProgressLocation.Window, title: `SRS: Opening ${name}\u2026` },
+    await vscode25.window.withProgress(
+      { location: vscode25.ProgressLocation.Window, title: `SRS: Opening ${name}\u2026` },
       async () => {
         if (isLegacyBundle) {
           const repo = await repoProvider.probe(fsPath);
@@ -5083,65 +5458,65 @@ async function cmdOpenArchive(repoProvider, archiveManager) {
       }
     );
     if (isLegacyBundle) {
-      vscode23.window.showInformationMessage(
+      vscode25.window.showInformationMessage(
         `SRS: Opened legacy bundle ${name}. Use 'SRS: Export Repository to .srs' to save it in the .srs format.`
       );
     }
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
-    vscode23.window.showErrorMessage(`SRS: Failed to open ${name}: ${msg}`);
+    vscode25.window.showErrorMessage(`SRS: Failed to open ${name}: ${msg}`);
   }
 }
 async function cmdSaveArchive(archiveManager) {
-  const name = archiveManager.activeArchivePath ? path4.basename(archiveManager.activeArchivePath) : ".srs";
+  const name = archiveManager.activeArchivePath ? path5.basename(archiveManager.activeArchivePath) : ".srs";
   try {
-    const saved = await vscode23.window.withProgress(
-      { location: vscode23.ProgressLocation.Window, title: `SRS: Saving ${name}\u2026` },
+    const saved = await vscode25.window.withProgress(
+      { location: vscode25.ProgressLocation.Window, title: `SRS: Saving ${name}\u2026` },
       () => archiveManager.saveActive()
     );
     if (saved) {
-      vscode23.window.showInformationMessage(`SRS: Saved ${name}.`);
+      vscode25.window.showInformationMessage(`SRS: Saved ${name}.`);
     }
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
-    vscode23.window.showErrorMessage(`SRS: Failed to save ${name}: ${msg}`);
+    vscode25.window.showErrorMessage(`SRS: Failed to save ${name}: ${msg}`);
   }
 }
 async function cmdExportArchive(repoProvider, archiveManager) {
   const repo = repoProvider.active;
   if (!repo) {
-    vscode23.window.showWarningMessage(
+    vscode25.window.showWarningMessage(
       "SRS: No active repository. Open or select a repository first."
     );
     return;
   }
-  const target = await vscode23.window.showSaveDialog({
+  const target = await vscode25.window.showSaveDialog({
     saveLabel: "Export .srs",
     filters: { "SRS Archive": ["srs"] },
     defaultUri: defaultExportUri(repo.archivePath, repo.title)
   });
   if (!target)
     return;
-  const name = path4.basename(target.fsPath);
+  const name = path5.basename(target.fsPath);
   try {
-    const payload = await vscode23.window.withProgress(
-      { location: vscode23.ProgressLocation.Window, title: `SRS: Exporting ${name}\u2026` },
+    const payload = await vscode25.window.withProgress(
+      { location: vscode25.ProgressLocation.Window, title: `SRS: Exporting ${name}\u2026` },
       () => archiveManager.exportActive(target.fsPath)
     );
-    vscode23.window.showInformationMessage(
+    vscode25.window.showInformationMessage(
       `SRS: Exported ${name} (${formatBytes(payload.fileSizeBytes)}).`
     );
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
-    vscode23.window.showErrorMessage(`SRS: Failed to export ${name}: ${msg}`);
+    vscode25.window.showErrorMessage(`SRS: Failed to export ${name}: ${msg}`);
   }
 }
 function defaultExportUri(archivePath, title) {
   if (archivePath)
-    return vscode23.Uri.file(archivePath);
+    return vscode25.Uri.file(archivePath);
   const safe = title.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "repository";
-  const folder = vscode23.workspace.workspaceFolders?.[0];
-  return folder ? vscode23.Uri.joinPath(folder.uri, `${safe}.srs`) : vscode23.Uri.file(`${safe}.srs`);
+  const folder = vscode25.workspace.workspaceFolders?.[0];
+  return folder ? vscode25.Uri.joinPath(folder.uri, `${safe}.srs`) : vscode25.Uri.file(`${safe}.srs`);
 }
 function formatBytes(bytes) {
   if (bytes < 1024)
@@ -5152,20 +5527,20 @@ function formatBytes(bytes) {
 }
 
 // src/commands/attachmentCommands.ts
-var vscode24 = __toESM(require("vscode"));
+var vscode26 = __toESM(require("vscode"));
 var fs = __toESM(require("fs/promises"));
-var path5 = __toESM(require("path"));
+var path6 = __toESM(require("path"));
 function registerAttachmentCommands(context, cli, repoProvider) {
   context.subscriptions.push(
-    vscode24.commands.registerCommand(
+    vscode26.commands.registerCommand(
       "srs.attachmentAdd",
       () => cmdAttachmentAdd(cli, repoProvider)
     ),
-    vscode24.commands.registerCommand(
+    vscode26.commands.registerCommand(
       "srs.attachmentList",
       () => cmdAttachmentList(cli, repoProvider)
     ),
-    vscode24.commands.registerCommand(
+    vscode26.commands.registerCommand(
       "srs.attachmentExport",
       () => cmdAttachmentExport(cli, repoProvider)
     )
@@ -5174,7 +5549,7 @@ function registerAttachmentCommands(context, cli, repoProvider) {
 function requireActiveRepo2(repoProvider) {
   const repo = repoProvider.active;
   if (!repo) {
-    vscode24.window.showWarningMessage(
+    vscode26.window.showWarningMessage(
       "SRS: No active repository. Run 'SRS: Select Repository' first."
     );
     return void 0;
@@ -5185,21 +5560,21 @@ async function cmdAttachmentAdd(cli, repoProvider) {
   const repo = requireActiveRepo2(repoProvider);
   if (!repo)
     return;
-  const picked = await vscode24.window.showOpenDialog({
+  const picked = await vscode26.window.showOpenDialog({
     canSelectMany: false,
     openLabel: "Add Attachment"
   });
   if (!picked || picked.length === 0)
     return;
   const fsPath = picked[0].fsPath;
-  const title = await vscode24.window.showInputBox({
+  const title = await vscode26.window.showInputBox({
     title: "SRS: Add Attachment",
     prompt: "Title (optional \u2014 leave blank to derive from filename)",
-    placeHolder: path5.basename(fsPath)
+    placeHolder: path6.basename(fsPath)
   });
   if (title === void 0)
     return;
-  const subdir = await vscode24.window.showInputBox({
+  const subdir = await vscode26.window.showInputBox({
     title: "SRS: Add Attachment",
     prompt: "Subdirectory within source-documents/ (optional)"
   });
@@ -5211,16 +5586,16 @@ async function cmdAttachmentAdd(cli, repoProvider) {
   if (subdir.trim())
     args.push("--subdir", subdir.trim());
   try {
-    const payload = await vscode24.window.withProgress(
-      { location: vscode24.ProgressLocation.Window, title: "SRS: Adding attachment\u2026" },
+    const payload = await vscode26.window.withProgress(
+      { location: vscode26.ProgressLocation.Window, title: "SRS: Adding attachment\u2026" },
       () => cli.runOk(repo.rootPath, args)
     );
-    vscode24.window.showInformationMessage(
+    vscode26.window.showInformationMessage(
       `SRS: Attachment added (${payload.contentPath}).`
     );
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
-    vscode24.window.showErrorMessage(`SRS: Failed to add attachment: ${msg}`);
+    vscode26.window.showErrorMessage(`SRS: Failed to add attachment: ${msg}`);
   }
 }
 async function cmdAttachmentList(cli, repoProvider) {
@@ -5235,21 +5610,21 @@ async function cmdAttachmentList(cli, repoProvider) {
     ]);
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
-    vscode24.window.showErrorMessage(`SRS: Failed to list attachments: ${msg}`);
+    vscode26.window.showErrorMessage(`SRS: Failed to list attachments: ${msg}`);
     return;
   }
   if (payload.entries.length === 0) {
-    vscode24.window.showInformationMessage(
+    vscode26.window.showInformationMessage(
       "SRS: No attachments in this repository."
     );
     return;
   }
   const items = payload.entries.map((e) => ({
-    label: e.title ?? path5.basename(e.path),
+    label: e.title ?? path6.basename(e.path),
     description: e.path,
     detail: e.sizeBytes != null ? formatBytes2(e.sizeBytes) : void 0
   }));
-  await vscode24.window.showQuickPick(items, {
+  await vscode26.window.showQuickPick(items, {
     placeHolder: `${payload.entries.length} attachment(s) in ${payload.sourceDocumentsPath}/`,
     matchOnDescription: true
   });
@@ -5266,48 +5641,48 @@ async function cmdAttachmentExport(cli, repoProvider) {
     ]);
   } catch (err) {
     const msg = err instanceof CliError ? err.message : String(err);
-    vscode24.window.showErrorMessage(`SRS: Failed to list attachments: ${msg}`);
+    vscode26.window.showErrorMessage(`SRS: Failed to list attachments: ${msg}`);
     return;
   }
   if (payload.entries.length === 0) {
-    vscode24.window.showInformationMessage("SRS: No attachments to export.");
+    vscode26.window.showInformationMessage("SRS: No attachments to export.");
     return;
   }
   const items = payload.entries.map((e) => ({
-    label: e.title ?? path5.basename(e.path),
+    label: e.title ?? path6.basename(e.path),
     description: e.path,
     detail: e.sizeBytes != null ? formatBytes2(e.sizeBytes) : void 0,
     entry: e
   }));
-  const picked = await vscode24.window.showQuickPick(items, {
+  const picked = await vscode26.window.showQuickPick(items, {
     placeHolder: "Select an attachment to export",
     matchOnDescription: true
   });
   if (!picked)
     return;
-  const sourcePath = path5.join(
+  const sourcePath = path6.join(
     repo.rootPath,
     payload.sourceDocumentsPath,
     picked.entry.path
   );
-  const defaultName = path5.basename(picked.entry.path);
-  const target = await vscode24.window.showSaveDialog({
+  const defaultName = path6.basename(picked.entry.path);
+  const target = await vscode26.window.showSaveDialog({
     saveLabel: "Export Attachment",
-    defaultUri: vscode24.Uri.file(defaultName)
+    defaultUri: vscode26.Uri.file(defaultName)
   });
   if (!target)
     return;
   try {
-    await vscode24.window.withProgress(
+    await vscode26.window.withProgress(
       {
-        location: vscode24.ProgressLocation.Window,
+        location: vscode26.ProgressLocation.Window,
         title: `SRS: Exporting ${defaultName}\u2026`
       },
       () => fs.copyFile(sourcePath, target.fsPath)
     );
-    vscode24.window.showInformationMessage(`SRS: Exported ${defaultName}.`);
+    vscode26.window.showInformationMessage(`SRS: Exported ${defaultName}.`);
   } catch (err) {
-    vscode24.window.showErrorMessage(`SRS: Export failed: ${String(err)}`);
+    vscode26.window.showErrorMessage(`SRS: Export failed: ${String(err)}`);
   }
 }
 function formatBytes2(bytes) {
@@ -5320,13 +5695,14 @@ function formatBytes2(bytes) {
 
 // src/extension.ts
 async function activate(context) {
-  const outputChannel = vscode25.window.createOutputChannel("SRS");
+  const outputChannel = vscode27.window.createOutputChannel("SRS");
   context.subscriptions.push(outputChannel);
   const cli = new CliClient(outputChannel);
   const repoProvider = new RepositoryProvider(cli);
   const attention = new AttentionManager(context.workspaceState, cli);
   const treeProvider = new SrsTreeDataProvider(cli, repoProvider, attention);
   const navigatorProvider = new NavigatorTreeDataProvider(cli, repoProvider);
+  const compositionsProvider = new CompositionsTreeDataProvider(cli, repoProvider);
   const statusBarItem = new ContainerStatusBarItem(attention);
   const schemaProvider = new SchemaProvider(context.extensionUri);
   const entityDocProvider = new EntityDocumentProvider(cli, repoProvider);
@@ -5337,6 +5713,7 @@ async function activate(context) {
     repoProvider,
     treeProvider,
     navigatorProvider,
+    compositionsProvider,
     attention,
     statusBarItem,
     schemaProvider,
@@ -5344,24 +5721,29 @@ async function activate(context) {
     diagnosticsProvider,
     archiveManager,
     archiveStatusBarItem,
-    vscode25.workspace.registerTextDocumentContentProvider(
+    vscode27.workspace.registerTextDocumentContentProvider(
       ENTITY_SCHEME,
       entityDocProvider
     )
   );
-  const treeView = vscode25.window.createTreeView("srsRepositoryTree", {
+  const compositionsView = vscode27.window.createTreeView("srsCompositions", {
+    treeDataProvider: compositionsProvider
+  });
+  context.subscriptions.push(compositionsView);
+  const treeView = vscode27.window.createTreeView("srsRepositoryTree", {
     treeDataProvider: treeProvider,
     showCollapseAll: true
   });
   context.subscriptions.push(treeView);
-  const navigatorView = vscode25.window.createTreeView("srsNavigatorTree", {
+  const navigatorView = vscode27.window.createTreeView("srsNavigatorTree", {
     treeDataProvider: navigatorProvider,
     showCollapseAll: true
   });
   context.subscriptions.push(navigatorView);
-  vscode25.commands.executeCommand("setContext", "srs.navigatorMode", "relations");
+  vscode27.commands.executeCommand("setContext", "srs.navigatorMode", "relations");
   repoProvider.onDidChangeActive((repo) => {
     treeView.title = repo ? `SRS: ${repo.title}` : "SRS Repository";
+    compositionsView.title = repo ? `Compositions: ${repo.title}` : "SRS Compositions";
     if (repo) {
       statusBarItem.show();
     } else {
@@ -5370,11 +5752,11 @@ async function activate(context) {
     }
   });
   context.subscriptions.push(
-    vscode25.workspace.onDidSaveTextDocument((doc) => {
+    vscode27.workspace.onDidSaveTextDocument((doc) => {
       const repo = repoProvider.active;
       if (!repo)
         return;
-      const config = vscode25.workspace.getConfiguration("srs");
+      const config = vscode27.workspace.getConfiguration("srs");
       if (!config.get("validate.onSave", true))
         return;
       if (!doc.uri.fsPath.startsWith(repo.rootPath))
@@ -5394,6 +5776,7 @@ async function activate(context) {
   registerContainerCommands(context, cli, repoProvider, attention, treeProvider);
   registerMutationCommands(context, cli, repoProvider, attention, treeProvider);
   registerPreviewCommands(context, cli, repoProvider, attention);
+  registerCompositionCommands(context, cli, repoProvider, compositionsProvider);
   registerEditCommands(context, cli, repoProvider, treeProvider);
   registerGraphCommands(context, cli, repoProvider, entityDocProvider);
   registerNavigatorCommands(context, navigatorProvider);
@@ -5408,7 +5791,7 @@ async function activate(context) {
   }
 }
 async function autoDetectRepository(cli, repoProvider) {
-  const config = vscode25.workspace.getConfiguration("srs");
+  const config = vscode27.workspace.getConfiguration("srs");
   const configuredPath = config.get("repository.path", null);
   if (configuredPath) {
     const repo = await repoProvider.probe(configuredPath);
@@ -5416,12 +5799,12 @@ async function autoDetectRepository(cli, repoProvider) {
       repoProvider.setActive(repo);
     } else {
       const action = "Open Settings";
-      const choice = await vscode25.window.showWarningMessage(
+      const choice = await vscode27.window.showWarningMessage(
         `SRS: Configured path '${configuredPath}' is not a valid SRS repository.`,
         action
       );
       if (choice === action) {
-        vscode25.commands.executeCommand(
+        vscode27.commands.executeCommand(
           "workbench.action.openSettings",
           "srs.repository.path"
         );
@@ -5433,7 +5816,7 @@ async function autoDetectRepository(cli, repoProvider) {
   if (discovered.length === 1) {
     repoProvider.setActive(discovered[0]);
   } else if (discovered.length > 1) {
-    vscode25.window.showInformationMessage(
+    vscode27.window.showInformationMessage(
       `SRS: Found ${discovered.length} repositories in workspace. Use 'SRS: Select Repository' to choose one.`
     );
   }

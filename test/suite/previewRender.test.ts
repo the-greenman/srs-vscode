@@ -25,9 +25,6 @@ class FakeCli {
     if (args[0] === "composition" && args[1] === "list") {
       return this.full as T;
     }
-    if (args[0] === "render") {
-      return { rendered: "# Rendered\n\nbody", diagnostics: [] } as T;
-    }
     throw new Error(`unexpected CLI call: ${args.join(" ")}`);
   }
   cmds(): string[] {
@@ -50,10 +47,20 @@ function invokeRender(cli: FakeCli, attentionActive: unknown, node: unknown): Pr
   return cmd(node);
 }
 
+// cmdPreviewRender hands the chosen composition to the document panel
+// (srs.openComposition), which owns the render call from there.
+function openedComposition(): { compositionId: string; containerId?: string } | undefined {
+  const executed = (vscode as never as { executedCommands: Array<{ id: string; args: unknown[] }> })
+    .executedCommands;
+  const call = executed.find((c) => c.id === "srs.openComposition");
+  return call?.args[0] as { compositionId: string; containerId?: string } | undefined;
+}
+
 describe("cmdPreviewRender", () => {
   beforeEach(() => {
     (vscode.window as never as { quickPickIndex: number }).quickPickIndex = 0;
     (vscode.window as never as { lastQuickPick: unknown }).lastQuickPick = undefined;
+    (vscode as never as { executedCommands: unknown[] }).executedCommands.length = 0;
   });
 
   it("(a) container node: type-filters via list-for-container, falls back to full list when empty, then renders the picked view", async () => {
@@ -80,14 +87,12 @@ describe("cmdPreviewRender", () => {
     assert.strictEqual(capture.options.matchOnDescription, true);
     assert.strictEqual(capture.options.matchOnDetail, true);
 
-    // Renders the picked (index 0) view, WITHOUT injecting --container
-    assert.ok(
-      cmds.includes(`render composition --view ${V1.id}`),
-      `expected plain render of picked view, got: ${JSON.stringify(cmds)}`,
-    );
-    assert.ok(
-      !cmds.some((c) => c.startsWith("render") && c.includes("--container")),
-      "container context must not be injected into the render call",
+    // Opens the picked (index 0) view, WITHOUT injecting a container scope
+    assert.deepStrictEqual(openedComposition()?.compositionId, V1.id);
+    assert.strictEqual(
+      openedComposition()?.containerId,
+      undefined,
+      "container context must not be injected into the render scope",
     );
   });
 
@@ -125,7 +130,7 @@ describe("cmdPreviewRender", () => {
 
     const capture = (vscode.window as never as { lastQuickPick: unknown }).lastQuickPick;
     assert.strictEqual(capture, undefined, "direct render must not show a picker");
-    assert.ok(cli.cmds().includes(`render composition --view ${V1.id}`), "should render the node's view directly");
+    assert.deepStrictEqual(openedComposition()?.compositionId, V1.id, "should open the node's view directly");
   });
 
   it("(b') composition EntityNode (main tree): renders directly with no picker", async () => {
@@ -136,6 +141,6 @@ describe("cmdPreviewRender", () => {
 
     const capture = (vscode.window as never as { lastQuickPick: unknown }).lastQuickPick;
     assert.strictEqual(capture, undefined, "direct render must not show a picker");
-    assert.ok(cli.cmds().includes(`render composition --view ${V2.id}`), "should render the node's view directly");
+    assert.deepStrictEqual(openedComposition()?.compositionId, V2.id, "should open the node's view directly");
   });
 });

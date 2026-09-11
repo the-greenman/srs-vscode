@@ -38,6 +38,7 @@ const vscode = __importStar(require("vscode"));
 const CliClient_1 = require("../cli/CliClient");
 const GraphPanel_1 = require("../graph/GraphPanel");
 const EntityDocumentProvider_1 = require("../provider/EntityDocumentProvider");
+const repositoryCommands_1 = require("./repositoryCommands");
 function registerGraphCommands(context, cli, repoProvider, entityProvider) {
     context.subscriptions.push(vscode.commands.registerCommand("srs.showRelationGraph", () => cmdShowRelationGraph(context, cli, repoProvider)), vscode.commands.registerCommand("srs.openEntityById", (id, kind, repoPath) => cmdOpenEntityById(id, kind, repoPath, repoProvider, entityProvider)));
 }
@@ -61,6 +62,17 @@ async function cmdOpenEntityById(id, kind, repoPath, repoProvider, entityProvide
         return;
     // repoPath from the graph panel must match the active repo; use its repositoryId for the URI
     const entityKind = kind;
+    // Every webview click lands here — the graph, a record preview's relations, a
+    // composition's Source view. Show the entity as a person reads it, beside
+    // whatever it was clicked from; raw JSON stays on the explicit Open Entity action.
+    if (repositoryCommands_1.PREVIEW_KINDS.has(entityKind)) {
+        await vscode.commands.executeCommand("srs.previewEntity", {
+            entityId: id,
+            entityKind,
+            viewColumn: vscode.ViewColumn.Beside,
+        });
+        return;
+    }
     try {
         const uri = (0, EntityDocumentProvider_1.entityUri)(repo.repositoryId, entityKind, id);
         const doc = await vscode.workspace.openTextDocument(uri);

@@ -1,5 +1,6 @@
 // HTML form builders for SRS entity editors.
 // No vscode dependency — pure string generation.
+import { esc } from "./escape";
 
 // ---- Local payload type mirrors (avoid importing from cli/types to keep this dep-free) ----
 
@@ -47,14 +48,6 @@ export interface TypeFieldData {
 }
 
 // ---- HTML escape ----
-
-function esc(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
 
 function escAttr(s: string): string {
   return esc(s);

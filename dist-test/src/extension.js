@@ -51,6 +51,8 @@ const containerCommands_1 = require("./commands/containerCommands");
 const mutationCommands_1 = require("./commands/mutationCommands");
 const graphCommands_1 = require("./commands/graphCommands");
 const NavigatorTreeDataProvider_1 = require("./tree/NavigatorTreeDataProvider");
+const CompositionsTreeDataProvider_1 = require("./tree/CompositionsTreeDataProvider");
+const compositionCommands_1 = require("./commands/compositionCommands");
 const navigatorCommands_1 = require("./commands/navigatorCommands");
 const guideEditorCommands_1 = require("./webview/guides/guideEditorCommands");
 const ArchiveManager_1 = require("./archive/ArchiveManager");
@@ -65,13 +67,18 @@ async function activate(context) {
     const attention = new AttentionManager_1.AttentionManager(context.workspaceState, cli);
     const treeProvider = new SrsTreeDataProvider_1.SrsTreeDataProvider(cli, repoProvider, attention);
     const navigatorProvider = new NavigatorTreeDataProvider_1.NavigatorTreeDataProvider(cli, repoProvider);
+    const compositionsProvider = new CompositionsTreeDataProvider_1.CompositionsTreeDataProvider(cli, repoProvider);
     const statusBarItem = new ContainerStatusBarItem_1.ContainerStatusBarItem(attention);
     const schemaProvider = new SchemaProvider_1.SchemaProvider(context.extensionUri);
     const entityDocProvider = new EntityDocumentProvider_1.EntityDocumentProvider(cli, repoProvider);
     const diagnosticsProvider = new DiagnosticsProvider_1.DiagnosticsProvider(cli, repoProvider);
     const archiveManager = new ArchiveManager_1.ArchiveManager(context, cli, repoProvider);
     const archiveStatusBarItem = new ArchiveStatusBarItem_1.ArchiveStatusBarItem(archiveManager, repoProvider);
-    context.subscriptions.push(repoProvider, treeProvider, navigatorProvider, attention, statusBarItem, schemaProvider, entityDocProvider, diagnosticsProvider, archiveManager, archiveStatusBarItem, vscode.workspace.registerTextDocumentContentProvider(EntityDocumentProvider_1.ENTITY_SCHEME, entityDocProvider));
+    context.subscriptions.push(repoProvider, treeProvider, navigatorProvider, compositionsProvider, attention, statusBarItem, schemaProvider, entityDocProvider, diagnosticsProvider, archiveManager, archiveStatusBarItem, vscode.workspace.registerTextDocumentContentProvider(EntityDocumentProvider_1.ENTITY_SCHEME, entityDocProvider));
+    const compositionsView = vscode.window.createTreeView("srsCompositions", {
+        treeDataProvider: compositionsProvider,
+    });
+    context.subscriptions.push(compositionsView);
     const treeView = vscode.window.createTreeView("srsRepositoryTree", {
         treeDataProvider: treeProvider,
         showCollapseAll: true,
@@ -87,6 +94,7 @@ async function activate(context) {
     // Keep tree view title in sync with active repository name; clear stale diagnostics on change
     repoProvider.onDidChangeActive((repo) => {
         treeView.title = repo ? `SRS: ${repo.title}` : "SRS Repository";
+        compositionsView.title = repo ? `Compositions: ${repo.title}` : "SRS Compositions";
         if (repo) {
             statusBarItem.show();
         }
@@ -112,6 +120,7 @@ async function activate(context) {
     (0, containerCommands_1.registerContainerCommands)(context, cli, repoProvider, attention, treeProvider);
     (0, mutationCommands_1.registerMutationCommands)(context, cli, repoProvider, attention, treeProvider);
     (0, previewCommands_1.registerPreviewCommands)(context, cli, repoProvider, attention);
+    (0, compositionCommands_1.registerCompositionCommands)(context, cli, repoProvider, compositionsProvider);
     (0, editCommands_1.registerEditCommands)(context, cli, repoProvider, treeProvider);
     (0, graphCommands_1.registerGraphCommands)(context, cli, repoProvider, entityDocProvider);
     (0, navigatorCommands_1.registerNavigatorCommands)(context, navigatorProvider);

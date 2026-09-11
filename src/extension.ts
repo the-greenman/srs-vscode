@@ -14,6 +14,8 @@ import { registerContainerCommands } from "./commands/containerCommands";
 import { registerMutationCommands } from "./commands/mutationCommands";
 import { registerGraphCommands } from "./commands/graphCommands";
 import { NavigatorTreeDataProvider } from "./tree/NavigatorTreeDataProvider";
+import { CompositionsTreeDataProvider } from "./tree/CompositionsTreeDataProvider";
+import { registerCompositionCommands } from "./commands/compositionCommands";
 import { registerNavigatorCommands } from "./commands/navigatorCommands";
 import { registerGuideEditorCommands } from "./webview/guides/guideEditorCommands";
 import { ArchiveManager } from "./archive/ArchiveManager";
@@ -32,6 +34,7 @@ export async function activate(
   const attention = new AttentionManager(context.workspaceState, cli);
   const treeProvider = new SrsTreeDataProvider(cli, repoProvider, attention);
   const navigatorProvider = new NavigatorTreeDataProvider(cli, repoProvider);
+  const compositionsProvider = new CompositionsTreeDataProvider(cli, repoProvider);
   const statusBarItem = new ContainerStatusBarItem(attention);
   const schemaProvider = new SchemaProvider(context.extensionUri);
   const entityDocProvider = new EntityDocumentProvider(cli, repoProvider);
@@ -43,6 +46,7 @@ export async function activate(
     repoProvider,
     treeProvider,
     navigatorProvider,
+    compositionsProvider,
     attention,
     statusBarItem,
     schemaProvider,
@@ -55,6 +59,11 @@ export async function activate(
       entityDocProvider,
     ),
   );
+
+  const compositionsView = vscode.window.createTreeView("srsCompositions", {
+    treeDataProvider: compositionsProvider,
+  });
+  context.subscriptions.push(compositionsView);
 
   const treeView = vscode.window.createTreeView("srsRepositoryTree", {
     treeDataProvider: treeProvider,
@@ -74,6 +83,7 @@ export async function activate(
   // Keep tree view title in sync with active repository name; clear stale diagnostics on change
   repoProvider.onDidChangeActive((repo) => {
     treeView.title = repo ? `SRS: ${repo.title}` : "SRS Repository";
+    compositionsView.title = repo ? `Compositions: ${repo.title}` : "SRS Compositions";
     if (repo) {
       statusBarItem.show();
     } else {
@@ -109,6 +119,7 @@ export async function activate(
 
   registerMutationCommands(context, cli, repoProvider, attention, treeProvider);
   registerPreviewCommands(context, cli, repoProvider, attention);
+  registerCompositionCommands(context, cli, repoProvider, compositionsProvider);
   registerEditCommands(context, cli, repoProvider, treeProvider);
   registerGraphCommands(context, cli, repoProvider, entityDocProvider);
   registerNavigatorCommands(context, navigatorProvider);
