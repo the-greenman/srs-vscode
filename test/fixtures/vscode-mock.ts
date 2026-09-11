@@ -35,7 +35,11 @@ export const workspace = {
   getConfiguration: () => ({
     get: (_key: string, defaultValue: unknown) => defaultValue,
   }),
-  workspaceFolders: [],
+  workspaceFolders: [] as Array<{ uri: { fsPath: string } }>,
+  // Test-controllable findFiles — set `findFilesResult` to the uris to return.
+  findFilesResult: [] as Array<{ fsPath: string }>,
+  findFiles: (_glob: string, _exclude?: string, _max?: number) =>
+    Promise.resolve(workspace.findFilesResult),
   // Used by openMarkdownPreview — return a doc-like object with a uri.
   openTextDocument: (_opts: unknown) =>
     Promise.resolve({ uri: { toString: () => "untitled:preview" } }),

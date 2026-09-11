@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import * as vscode from "vscode";
 import { CliClient } from "../cli/CliClient";
 import type { RepoMapPayload } from "../cli/types";
@@ -42,12 +43,23 @@ export class RepositoryProvider implements vscode.Disposable {
     }
   }
 
-  // Scan all workspace folders concurrently; return those where probe succeeds.
+  // Scan the workspace concurrently; return every directory where probe succeeds.
+  // Workspace-folder roots plus every directory holding a manifest.json, so a
+  // repository nested in a subdirectory is found too (issue #117). The `.srs`
+  // marker directory is empty, so it cannot be located with findFiles.
   async discoverAll(): Promise<DetectedRepository[]> {
-    const folders = vscode.workspace.workspaceFolders ?? [];
-    const results = await Promise.all(
-      folders.map((f) => this.probe(f.uri.fsPath)),
+    const roots = new Set(
+      (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath),
     );
+    const manifests = await vscode.workspace.findFiles(
+      "**/manifest.json",
+      "**/node_modules/**",
+      100,
+    );
+    for (const m of manifests) {
+      roots.add(path.dirname(m.fsPath));
+    }
+    const results = await Promise.all([...roots].map((r) => this.probe(r)));
     return results.filter((r): r is DetectedRepository => r !== undefined);
   }
 
