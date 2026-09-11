@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.GraphPanel = void 0;
 const vscode = __importStar(require("vscode"));
+const labelMap_1 = require("../cli/labelMap");
 class GraphPanel {
     static async show(context, cli, repoPath, repoTitle) {
         const key = `graph:${repoPath}`;
@@ -69,21 +70,10 @@ class GraphPanel {
     async _load(cli, repoPath) {
         this._panel.webview.html = loadingHtml();
         try {
-            const [relPayload, notePayload, recordPayload] = await Promise.all([
+            const [relPayload, entityLabelMap] = await Promise.all([
                 cli.runOk(repoPath, ["relation", "list"]),
-                cli.runOk(repoPath, ["note", "list"]).catch(() => ({ notes: [] })),
-                cli.runOk(repoPath, ["record", "list"]).catch(() => ({ records: [] })),
+                (0, labelMap_1.buildLabelMap)(cli, repoPath),
             ]);
-            const labelMap = new Map();
-            const kindMap = new Map();
-            for (const n of notePayload.notes) {
-                labelMap.set(n.instanceId, n.title);
-                kindMap.set(n.instanceId, "note");
-            }
-            for (const r of recordPayload.records) {
-                labelMap.set(r.instanceId, r.displayLabel);
-                kindMap.set(r.instanceId, "record");
-            }
             const nodeIds = new Set();
             const edges = [];
             for (const r of relPayload.relations) {
@@ -96,11 +86,14 @@ class GraphPanel {
                     label: r.relationType,
                 });
             }
-            const nodes = Array.from(nodeIds).map((id) => ({
-                id,
-                label: labelMap.get(id) ?? id.slice(0, 8),
-                kind: kindMap.get(id) ?? "note",
-            }));
+            const nodes = Array.from(nodeIds).map((id) => {
+                const info = entityLabelMap.get(id);
+                return {
+                    id,
+                    label: info?.label ?? id.slice(0, 8),
+                    kind: info?.kind ?? "note",
+                };
+            });
             this._panel.webview.html = graphHtml(nodes, edges);
         }
         catch (err) {

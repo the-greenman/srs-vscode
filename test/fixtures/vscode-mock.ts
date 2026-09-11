@@ -14,6 +14,7 @@ export class TreeItem {
   contextValue?: string;
   command?: { command: string; title: string; arguments?: unknown[] };
   collapsibleState?: TreeItemCollapsibleState;
+  iconPath?: unknown;
 
   constructor(
     label: string,
@@ -22,6 +23,11 @@ export class TreeItem {
     this.label = label;
     this.collapsibleState = collapsibleState;
   }
+}
+
+// Used by ErrorNode (SrsTreeDataProvider.ts) for its iconPath.
+export class ThemeIcon {
+  constructor(public readonly id: string) {}
 }
 
 // Stub for anything else the code imports from vscode that isn't needed in tests

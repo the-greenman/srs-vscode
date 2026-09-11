@@ -101,8 +101,16 @@ async function loadGuide(cli, repoPath, containerId) {
         "get",
         containerId,
     ]);
-    const { memberInstanceIds, rootInstanceIds } = containerPayload.container;
-    const guideId = rootInstanceIds[0];
+    const { memberInstanceIds, anchorInstanceId, rootInstanceIds } = containerPayload.container;
+    // anchorInstanceId (RFC-013 amended, I-145) is the explicit typing anchor;
+    // rootInstanceIds[0] is only the documented transitional fallback — and
+    // rootInstanceIds itself can be entirely absent (Rust: Option<Vec<String>>),
+    // so indexing it unconditionally was a live `undefined[0]` TypeError on any
+    // anchor-era container.
+    const guideId = anchorInstanceId ?? rootInstanceIds?.[0];
+    if (!guideId) {
+        throw new Error(`Container ${containerId} has no anchorInstanceId or rootInstanceIds — cannot determine the guide record`);
+    }
     // Load all member records in parallel
     const records = await Promise.all(memberInstanceIds.map((id) => cli.runOk(repoPath, ["record", "get", id]).then((p) => p.record)));
     // Build precedes map from relation list

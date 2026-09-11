@@ -108,10 +108,13 @@ function getArgsFor(kind, entityId) {
         case "container": return ["container", "get", entityId];
         case "field": return ["field", "get", entityId];
         case "type": return ["type", "get", entityId];
-        case "extension": return ["extension", "get", entityId];
+        // No "extension get" — `repo extensions list` returns bare strings, not
+        // gettable instances (srs-vscode#119 workstream 3). Falls through to the
+        // "Unknown entity kind" branch below; cmdOpenEntityDefault special-cases
+        // this kind before reaching here anyway (see repositoryCommands.ts).
         case "protocol": return ["protocol", "get", entityId];
         case "view": return ["view", "get", entityId];
-        case "document-view": return ["document-view", "get", entityId];
+        case "composition": return ["composition", "get", entityId];
         case "relation-type": return ["relation-type", "get", entityId];
         default: return undefined;
     }

@@ -64,10 +64,10 @@ describe("EntityNode", () => {
         assert.strictEqual(node.contextValue, "srsEntity.tag");
     });
     it("camelCases kebab-case kinds in the contextValue suffix", () => {
-        // The render menu targets `srsEntity.documentView` / `srsEntity.container`,
-        // so kebab kinds must collapse to a regex-safe camelCase suffix.
-        const dv = new SrsTreeDataProvider_1.EntityNode("id", "document-view", "DV", ["document-view", "get", "id"]);
-        assert.strictEqual(dv.contextValue, "srsEntity.documentView");
+        // The relation-type menu targets `srsEntity.relationType`, so kebab kinds
+        // must collapse to a regex-safe camelCase suffix.
+        const rt = new SrsTreeDataProvider_1.EntityNode("id", "relation-type", "RT", ["relation-type", "get", "id"]);
+        assert.strictEqual(rt.contextValue, "srsEntity.relationType");
         const container = new SrsTreeDataProvider_1.EntityNode("id", "container", "C", ["container", "get", "id"]);
         assert.strictEqual(container.contextValue, "srsEntity.container");
     });
@@ -84,9 +84,32 @@ describe("EntityNode", () => {
         assert.strictEqual(node.command?.command, "srs.openEntityDefault");
         assert.deepStrictEqual(node.command?.arguments, [node]);
     });
-    it("description shows first 8 chars of id", () => {
+    it("description shows first 8 chars of id when no description is given", () => {
         const node = new SrsTreeDataProvider_1.EntityNode("abcdefgh-1234-5678-abcd-ef0123456789", "note", "Title", ["note", "get", "abcdefgh-1234-5678-abcd-ef0123456789"]);
         assert.strictEqual(node.description, "abcdefgh");
+    });
+    it("uses the given description instead of the id stub when provided", () => {
+        const node = new SrsTreeDataProvider_1.EntityNode("abcdefgh-1234-5678-abcd-ef0123456789", "record", "P-74", ["record", "get", "abcdefgh-1234-5678-abcd-ef0123456789"], "com.mudemocracy.argument/problem");
+        assert.strictEqual(node.description, "com.mudemocracy.argument/problem");
+    });
+    it("uses composition (no rename artifacts) as the contextValue suffix", () => {
+        const node = new SrsTreeDataProvider_1.EntityNode("id", "composition", "guide-body-view", ["composition", "get", "id"]);
+        assert.strictEqual(node.contextValue, "srsEntity.composition");
+    });
+    it("extension kind has no uuid8 description — entityId IS the label", () => {
+        // `repo extensions list` returns bare strings, not instances with an
+        // instanceId; slicing one like a UUID would produce a meaningless stub.
+        const node = new SrsTreeDataProvider_1.EntityNode("ext:lifecycle", "extension", "ext:lifecycle", ["repo", "extensions", "list"]);
+        assert.strictEqual(node.description, undefined);
+        assert.strictEqual(node.tooltip, "ext:lifecycle");
+    });
+});
+describe("ErrorNode", () => {
+    it("carries the message as label and tooltip under the srsError contextValue", () => {
+        const node = new SrsTreeDataProvider_1.ErrorNode("Failed to load record: boom");
+        assert.strictEqual(node.label, "Failed to load record: boom");
+        assert.strictEqual(node.tooltip, "Failed to load record: boom");
+        assert.strictEqual(node.contextValue, "srsError");
     });
 });
 //# sourceMappingURL=SrsTreeDataProvider.test.js.map

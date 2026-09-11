@@ -234,8 +234,10 @@ async function editRecord(
   // Panel title is the record's own resolved label (payload.displayLabel), not
   // the type — ten Problems in the editor otherwise all read the same
   // "com.mudemocracy.argument/problem v1" title. The type moves to a meta line.
-  const panelTitle = payload.displayLabel;
   const typeLabel = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
+  // Fall back to the type label if displayLabel is somehow absent (e.g. a
+  // pre-RFC-039 CLI) rather than crashing esc() on undefined.
+  const panelTitle = payload.displayLabel ?? typeLabel;
   const metaHtml = `<div class="meta">${esc(typeLabel)}</div>`;
   const html = formWrapHtml(panelTitle, metaHtml + buildRecordForm(recordData, fieldData));
 

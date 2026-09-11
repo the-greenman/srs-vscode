@@ -406,8 +406,10 @@ async function previewRecord(
   // The record's own resolved label (payload.displayLabel), not the type — ten
   // Problems previewed one after another otherwise all show the same
   // "com.mudemocracy.argument/problem v1" heading. The type moves to the meta line.
-  const title = payload.displayLabel;
   const typeLabel = `${record.typeNamespace}/${record.typeName} v${record.typeVersion}`;
+  // Fall back to the type label if displayLabel is somehow absent (e.g. a
+  // pre-RFC-039 CLI) rather than rendering an empty <h1>.
+  const title = payload.displayLabel ?? typeLabel;
 
   // A resolveTypeFields failure (stale CLI binary, or a typeVersion the package no
   // longer resolves) must not render as an empty-looking record — fall back to the
