@@ -23,6 +23,9 @@ exports.workspace = {
         get: (_key, defaultValue) => defaultValue,
     }),
     workspaceFolders: [],
+    // Test-controllable findFiles — set `findFilesResult` to the uris to return.
+    findFilesResult: [],
+    findFiles: (_glob, _exclude, _max) => Promise.resolve(exports.workspace.findFilesResult),
     // Used by openMarkdownPreview — return a doc-like object with a uri.
     openTextDocument: (_opts) => Promise.resolve({ uri: { toString: () => "untitled:preview" } }),
 };

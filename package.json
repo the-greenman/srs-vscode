@@ -19,7 +19,8 @@
     "workspaceContains:.srs",
     "workspaceContains:manifest.json",
     "workspaceContains:*.srsj",
-    "workspaceContains:**/*.srs"
+    "workspaceContains:**/*.srs",
+    "workspaceContains:**/manifest.json"
   ],
   "main": "./dist/extension.js",
   "contributes": {
