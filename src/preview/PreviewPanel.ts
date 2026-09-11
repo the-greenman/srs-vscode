@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { esc } from "../webview/escape";
 
 /**
  * A single, reusable webview panel keyed by a stable string id.
@@ -16,11 +17,12 @@ export class PreviewPanel implements vscode.Disposable {
     options?: {
       enableScripts?: boolean;
       onMessage?: (msg: unknown) => void;
+      viewColumn?: vscode.ViewColumn;
     },
   ): PreviewPanel {
     const existing = PreviewPanel._panels.get(id);
     if (existing) {
-      existing._panel.reveal(vscode.ViewColumn.Active);
+      existing._panel.reveal(options?.viewColumn ?? vscode.ViewColumn.Active);
       existing._panel.title = title;
       existing._update(html);
       if (options?.onMessage) {
@@ -41,12 +43,16 @@ export class PreviewPanel implements vscode.Disposable {
     private readonly _id: string,
     title: string,
     html: string,
-    options?: { enableScripts?: boolean; onMessage?: (msg: unknown) => void },
+    options?: {
+      enableScripts?: boolean;
+      onMessage?: (msg: unknown) => void;
+      viewColumn?: vscode.ViewColumn;
+    },
   ) {
     this._panel = vscode.window.createWebviewPanel(
       "srsPreview",
       title,
-      { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
+      { viewColumn: options?.viewColumn ?? vscode.ViewColumn.Active, preserveFocus: false },
       {
         enableScripts: options?.enableScripts ?? false,
         localResourceRoots: [],
@@ -140,11 +146,5 @@ export function wrapHtml(title: string, body: string, options?: { enableScripts?
   return `<!DOCTYPE html><html><head><meta charset="UTF-8">${csp}${CSS}<title>${esc(title)}</title></head><body>${body}</body></html>`;
 }
 
-export function esc(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+export { esc } from "../webview/escape";
 

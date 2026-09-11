@@ -8,6 +8,7 @@ import { PreviewPanel, wrapHtml, esc } from "../preview/PreviewPanel";
 import { resolveTypeFields, ResolvedField } from "../cli/typeFields";
 import { buildLabelMap } from "../cli/labelMap";
 import type {
+  EntityKind,
   CompositionListPayload,
   ContainerListPayload,
   ContainerResolveViewPayload,
@@ -44,11 +45,6 @@ interface RecordPayload {
   };
 }
 
-interface RenderPayload {
-  rendered: string;
-  diagnostics: string[];
-}
-
 // ---- Registration ----
 
 export function registerPreviewCommands(
@@ -71,26 +67,56 @@ export function registerPreviewCommands(
 
 // ---- Dispatch ----
 
+/**
+ * What a preview needs to know about its target. A tree node supplies it, and so
+ * does a webview click (`srs.openEntityById`), which has only an id + kind and
+ * wants the preview beside the document it was clicked from.
+ */
+export interface EntityRef {
+  entityId: string;
+  entityKind: EntityKind;
+  label?: string;
+  viewColumn?: vscode.ViewColumn;
+}
+
+function asEntityRef(node: unknown): EntityRef | undefined {
+  if (node instanceof EntityNode) {
+    return { entityId: node.entityId, entityKind: node.entityKind, label: String(node.label) };
+  }
+  const n = node as Partial<EntityRef> | undefined;
+  if (typeof n?.entityId === "string" && typeof n?.entityKind === "string") {
+    return { entityId: n.entityId, entityKind: n.entityKind, label: n.label, viewColumn: n.viewColumn };
+  }
+  return undefined;
+}
+
 async function cmdPreviewEntity(
   context: vscode.ExtensionContext,
   cli: CliClient,
   repoProvider: RepositoryProvider,
   node: unknown,
 ): Promise<void> {
-  if (!(node instanceof EntityNode)) return;
+  const ref = asEntityRef(node);
+  if (!ref) return;
   const repo = repoProvider.active;
   if (!repo) return;
+  const column = ref.viewColumn;
 
   try {
-    switch (node.entityKind) {
-      case "note":      return await previewNote(context, cli, repo.rootPath, node.entityId);
-      case "record":    return await previewRecord(context, cli, repo.rootPath, node.entityId);
-      case "container": return await previewContainer(context, cli, repo.rootPath, node.entityId);
-      case "protocol":  return await previewProtocol(context, cli, repo.rootPath, node.entityId);
-      case "blueprint": return await previewBlueprint(context, cli, repo.rootPath, node.entityId);
+    switch (ref.entityKind) {
+      case "note":      return await previewNote(context, cli, repo.rootPath, ref.entityId, column);
+      case "record":    return await previewRecord(context, cli, repo.rootPath, ref.entityId, column);
+      case "container": return await previewContainer(context, cli, repo.rootPath, ref.entityId, column);
+      case "protocol":  return await previewProtocol(context, cli, repo.rootPath, ref.entityId, column);
+      case "blueprint": return await previewBlueprint(context, cli, repo.rootPath, ref.entityId, column);
+      // A composition's preview IS its document panel — go through the render
+      // path so the container picker (for container-typed compositions) applies.
+      case "composition":
+        await vscode.commands.executeCommand("srs.previewRender", node);
+        return;
       default:
         vscode.window.showInformationMessage(
-          `SRS: No preview available for '${node.entityKind}'. Use Open Entity for raw JSON.`,
+          `SRS: No preview available for '${ref.entityKind}'. Use Open Entity for raw JSON.`,
         );
     }
   } catch (err) {
@@ -120,8 +146,9 @@ function directRenderTarget(node: unknown): { viewId: string; viewLabel: string 
   if (node instanceof CompositionNode) {
     return { viewId: node.compositionId, viewLabel: String(node.label) };
   }
-  if (node instanceof EntityNode && node.entityKind === "composition") {
-    return { viewId: node.entityId, viewLabel: String(node.label) };
+  const ref = asEntityRef(node);
+  if (ref?.entityKind === "composition") {
+    return { viewId: ref.entityId, viewLabel: ref.label ?? ref.entityId };
   }
   return undefined;
 }
@@ -243,15 +270,13 @@ async function cmdPreviewRender(
     containerId = picked.id;
   }
 
-  try {
-    const args = ["render", "composition", "--view", viewId];
-    if (containerId) args.push("--container", containerId);
-    const payload = await cli.runOk<RenderPayload>(repo.rootPath, args);
-    await openMarkdownPreview(payload.rendered, viewLabel ?? viewId);
-  } catch (err) {
-    const msg = err instanceof CliError ? err.message : String(err);
-    vscode.window.showErrorMessage(`SRS: Render failed: ${msg}`);
-  }
+  // The document panel owns the render call from here — it needs to re-issue it
+  // per format / mode toggle, and to surface payload.diagnostics either way.
+  await vscode.commands.executeCommand("srs.openComposition", {
+    compositionId: viewId,
+    title: viewLabel ?? viewId,
+    containerId,
+  });
 }
 
 // ---- Note preview ----
@@ -261,6 +286,7 @@ async function previewNote(
   cli: CliClient,
   repoPath: string,
   id: string,
+  column?: vscode.ViewColumn,
 ): Promise<void> {
   const payload = await cli.runOk<NotePayload>(repoPath, ["note", "get", id]);
   const { note } = payload;
@@ -280,7 +306,7 @@ async function previewNote(
     .filter(Boolean)
     .join("\n\n");
 
-  await openMarkdownPreview(md, note.title);
+  await openMarkdownPreview(md, note.title, column);
 }
 
 // ---- Record preview ----
@@ -296,7 +322,7 @@ function stringifyFieldValue(v: unknown): string {
 // Recurses into composite/list-composite fields (mirroring forms.ts's renderField)
 // instead of dumping their value as raw JSON — the same ResolvedField.children the
 // edit form uses to build nested inputs is used here to build nested read-only rows.
-function renderFieldRow(f: ResolvedField, value: unknown): string {
+export function renderFieldRow(f: ResolvedField, value: unknown): string {
   const isText = f.isMarkdown ?? false;
   let valueHtml: string;
 
@@ -356,6 +382,7 @@ async function previewRecord(
   cli: CliClient,
   repoPath: string,
   id: string,
+  column?: vscode.ViewColumn,
 ): Promise<void> {
   const payload = await cli.runOk<RecordPayload>(repoPath, ["record", "get", id]);
   const { record } = payload;
@@ -465,6 +492,7 @@ async function previewRecord(
 
   PreviewPanel.show(context, `record:${id}`, title, html, {
     enableScripts: true,
+    viewColumn: column,
     onMessage: (msg: unknown) => {
       const m = msg as { type?: string; id?: string; kind?: string };
       if (m.type === "openEntity" && m.id && m.kind) {
@@ -481,6 +509,7 @@ async function previewContainer(
   cli: CliClient,
   repoPath: string,
   id: string,
+  column?: vscode.ViewColumn,
 ): Promise<void> {
   // Use container resolve-view for structured column output (RFC-020, ADR-023).
   // Falls back to a flat member list when resolve-view is unavailable.
@@ -589,13 +618,14 @@ async function previewContainer(
 
   PreviewPanel.show(context, `container:${id}`, title, html, columns.length > 0 ? {
     enableScripts: true,
+    viewColumn: column,
     onMessage: (msg: unknown) => {
       const m = msg as { type?: string; id?: string; kind?: string };
       if (m.type === "openEntity" && m.id && m.kind) {
         vscode.commands.executeCommand("srs.openEntityById", m.id, m.kind, repoPath);
       }
     },
-  } : undefined);
+  } : { viewColumn: column });
 }
 
 // ---- Protocol preview ----
@@ -618,6 +648,7 @@ async function previewProtocol(
   cli: CliClient,
   repoPath: string,
   id: string,
+  column?: vscode.ViewColumn,
 ): Promise<void> {
   const [getResult, stagesResult] = await Promise.allSettled([
     cli.runOk<ProtocolGetPayload>(repoPath, ["protocol", "get", id]),
@@ -665,7 +696,7 @@ async function previewProtocol(
     ${stagesHtml}
   `);
 
-  PreviewPanel.show(context, `protocol:${id}`, title, html);
+  PreviewPanel.show(context, `protocol:${id}`, title, html, { viewColumn: column });
 }
 
 // ---- Blueprint preview ----
@@ -687,6 +718,7 @@ async function previewBlueprint(
   cli: CliClient,
   repoPath: string,
   id: string,
+  column?: vscode.ViewColumn,
 ): Promise<void> {
   const [getResult, structureResult, typeListResult] = await Promise.allSettled([
     cli.runOk<BlueprintGetPayload>(repoPath, ["blueprint", "get", id]),
@@ -737,7 +769,7 @@ async function previewBlueprint(
     ${specsHtml}
   `);
 
-  PreviewPanel.show(context, `blueprint:${id}`, title, html);
+  PreviewPanel.show(context, `blueprint:${id}`, title, html, { viewColumn: column });
 }
 
 // ---- Markdown helper ----
@@ -748,14 +780,18 @@ async function previewBlueprint(
  * markdown.showPreview so the full VS Code markdown renderer handles it —
  * syntax-highlighted code blocks, proper heading structure, tables, etc.
  */
-async function openMarkdownPreview(markdown: string, _title: string): Promise<void> {
+export async function openMarkdownPreview(
+  markdown: string,
+  _title: string,
+  column?: vscode.ViewColumn,
+): Promise<void> {
   const doc = await vscode.workspace.openTextDocument({
     content: markdown,
     language: "markdown",
   });
   // Show the source document first (needed so showPreview has a URI to work with)
   await vscode.window.showTextDocument(doc, {
-    viewColumn: vscode.ViewColumn.Active,
+    viewColumn: column ?? vscode.ViewColumn.Active,
     preview: true,
     preserveFocus: false,
   });

@@ -165,6 +165,69 @@ export interface CompositionListPayload {
   }>;
 }
 
+// repo presentation list  → payload.presentations
+// manifest.renderedPresentations (RFC-015): which composition a conformant viewer
+// should open. `isDefault` is nullable — no entry marked true means "the first one".
+export interface RepoPresentationListPayload {
+  presentations: Array<{
+    compositionId: string;
+    format?: string;
+    outputPath?: string;
+    isDefault?: boolean | null;
+  }>;
+}
+
+// render composition  → payload
+// `rendered` and `projection` are mutually exclusive by construction
+// (srs-rust render_service.rs): --view-format json yields the projection and an
+// empty `rendered`; every other format yields `rendered` and no projection.
+export interface RenderCompositionPayload {
+  rendered: string;
+  diagnostics: string[];
+  projection?: CompositionProjection;
+}
+
+export interface CompositionProjection {
+  compositionId: string;
+  containerTitle?: string;
+  preamble?: string;
+  sections: ProjectionSection[];
+}
+
+export interface ProjectionSection {
+  sectionId: string;
+  title?: string;
+  order: number;
+  records: ProjectionRecord[];
+}
+
+export interface ProjectionRecord {
+  instanceId: string;
+  typeId?: string;
+  typeVersion?: number;
+  typeNamespace?: string;
+  typeName?: string;
+  /** Core-resolved heading — never re-derive one client-side (ADR-001). */
+  recordHeading?: string;
+  fields?: FieldValues;
+  orderedFieldKeys?: string[];
+  relations?: ProjectionRelation[];
+  properties?: ProjectionProperty[];
+}
+
+export interface ProjectionRelation {
+  relationType: string;
+  direction: string;
+  label: string;
+  targets: Array<{ instanceId: string; displayLabel: string }>;
+}
+
+export interface ProjectionProperty {
+  property: string;
+  label: string;
+  value: unknown;
+}
+
 // relation-type list  → payload.relationTypeDefinitions
 export interface RelationTypeListPayload {
   relationTypeDefinitions: Array<{

@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { CliClient } from "../cli/CliClient";
 import { buildLabelMap } from "../cli/labelMap";
+import { esc } from "../webview/escape";
 import type { RelationListPayload } from "../cli/types";
 
 interface GraphNode {
@@ -120,7 +121,7 @@ function loadingHtml(): string {
 }
 
 function errorHtml(msg: string): string {
-  const safe = msg.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const safe = esc(msg);
   return `<!DOCTYPE html><html><head><meta charset="UTF-8">
   <style>body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);
   background:var(--vscode-editor-background);padding:2em}</style>

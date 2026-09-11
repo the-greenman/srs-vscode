@@ -171,8 +171,9 @@ async function cmdOpenRepositoryMap(
   }
 }
 
-// Kinds with a rich preview webview
-const PREVIEW_KINDS = new Set(["note", "record", "container"]);
+// Kinds with a rich preview webview. A composition's preview is its document
+// panel (srs.openComposition), reached through srs.previewRender.
+export const PREVIEW_KINDS = new Set(["note", "record", "container", "composition"]);
 // Kinds with a form editor
 const EDIT_KINDS = new Set(["note", "tag", "record"]);
 
