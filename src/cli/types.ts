@@ -199,6 +199,8 @@ export interface ProjectionSection {
   title?: string;
   order: number;
   records: ProjectionRecord[];
+  /** Nested sections; omitted when empty (srs-rust#1261). */
+  sections?: ProjectionSection[];
 }
 
 export interface ProjectionRecord {
@@ -213,6 +215,10 @@ export interface ProjectionRecord {
   orderedFieldKeys?: string[];
   relations?: ProjectionRelation[];
   properties?: ProjectionProperty[];
+  /** Effective arrangement depth, present only when above 0 (RFC-043; srs-rust#1261). */
+  depth?: number;
+  /** Nested records; omitted when empty (srs-rust#1261). */
+  children?: ProjectionRecord[];
 }
 
 export interface ProjectionRelation {
@@ -360,8 +366,8 @@ export type EntityKind =
   | "relation-type";
 
 // ── discovery (`find`, `find --similar`) — srs-rust#1219/#1237/#1239/#1243 ──────────────
-// The golden `find` schema embeds `result` opaquely (`"result": true`), so these types and
-// test/suite/payload-contracts.test.ts (live-binary shape check) are the only gate on it.
+// The golden `find` schema (srs-rust#1258) now types `result` in full; the payload-contract
+// test validates fixtures and live binary output against it.
 export interface FacetValue { value: string; count: number }
 export interface FacetCounts { values: FacetValue[]; other?: number }
 export interface FieldFacet extends FacetCounts { field: string }
@@ -397,7 +403,7 @@ export interface FindPayload { result: DiscoveryResult }
 // agent-index (`repo agent-index`) entry point — srs-rust#1237
 export interface AgentEntryPoint { path: string; instanceId?: string; uri?: string }
 
-// `relation neighbours` — srs-rust#1234 (golden schema embeds `result` opaquely too)
+// `relation neighbours` — srs-rust#1234
 export interface NeighbourEdge {
   direction: "out" | "in";
   relationId: string;
