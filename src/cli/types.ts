@@ -217,7 +217,7 @@ export interface ProjectionRecord {
 
 export interface ProjectionRelation {
   relationType: string;
-  direction: string;
+  direction: "out" | "in";
   label: string;
   targets: Array<{ instanceId: string; displayLabel: string }>;
 }
@@ -399,7 +399,7 @@ export interface AgentEntryPoint { path: string; instanceId?: string; uri?: stri
 
 // `relation neighbours` — srs-rust#1234 (golden schema embeds `result` opaquely too)
 export interface NeighbourEdge {
-  direction: string;
+  direction: "out" | "in";
   relationId: string;
   relationType: string;
   neighbour: { instanceId: string; uri: string; label?: string; typeNamespace?: string; typeName?: string };

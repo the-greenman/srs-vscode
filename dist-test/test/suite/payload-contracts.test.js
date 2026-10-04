@@ -339,10 +339,10 @@ describe("payload contracts", () => {
                 }
                 assert.ok(Array.isArray(hit.containerIds));
                 assert.strictEqual(typeof hit.score, "number", "--rank must populate score");
-                if (id) {
-                    const sim = run(repo, ["find", "--similar", id]).payload;
-                    assert.deepStrictEqual(keys(sim.result).sort(), [...known].sort());
-                }
+                assert.ok(id, "note create payload carried no instance id");
+                const sim = run(repo, ["find", "--similar", id]).payload;
+                assert.deepStrictEqual(keys(sim.result).sort(), [...known].sort());
+                assert.ok(Array.isArray(sim.result.hits));
             }
             finally {
                 fs.rmSync(repo, { recursive: true, force: true });
