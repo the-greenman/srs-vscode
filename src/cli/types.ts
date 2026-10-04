@@ -217,7 +217,7 @@ export interface ProjectionRecord {
 
 export interface ProjectionRelation {
   relationType: string;
-  direction: "out" | "in";
+  direction: string;
   label: string;
   targets: Array<{ instanceId: string; displayLabel: string }>;
 }
