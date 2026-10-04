@@ -28,6 +28,9 @@ import * as assert from "assert";
 import * as fs from "fs";
 import * as path from "path";
 import Ajv from "ajv";
+import { execFileSync } from "child_process";
+import * as os from "os";
+import type { FindPayload, NeighboursPayload } from "../../src/cli/types";
 
 const SCHEMA_DIR = path.join(__dirname, "../../../schemas/payload");
 
@@ -286,6 +289,84 @@ describe("payload contracts", () => {
           typeCount: 2,
         },
       ],
+    });
+  });
+
+  // ── find / similar / neighbours (srs-rust#1241) ────────────────────────────
+  // The golden schemas embed `result` opaquely, so the schema check alone passes
+  // anything. Typed fixtures (compile-time) plus the live-binary check below are
+  // the real gate on the shape.
+
+  it("find-payload fixture with facets, uri, typeId, containerIds and score validates", () => {
+    const payload: FindPayload = {
+      result: {
+        hits: [{
+          instanceId: "i1", uri: "srs://r/record/i1", label: "L", typeId: "t1",
+          containerIds: ["c1"], typeNamespace: "ns", typeName: "n", score: 1.5,
+          matchedFields: ["title"],
+        }],
+        total: 1,
+        facets: { byType: { values: [{ value: "ns/n", count: 1 }] }, notes: 0,
+          tags: { values: [], other: 2 }, fields: [{ field: "kind", values: [{ value: "a", count: 1 }] }] },
+        diagnostics: [],
+      },
+    };
+    makeValidator("find")(payload);
+  });
+
+  it("neighbours payload fixture validates", () => {
+    const payload: NeighboursPayload = { result: { instanceId: "i1", total: 0, neighbours: [] } };
+    makeValidator("relation-neighbours")(payload);
+  });
+
+  it("repo-agent-index golden schema is mirrored", () => {
+    makeValidator("repo-agent-index")({ agentIndex: {}, rendered: "" });
+  });
+
+  describe("live srs binary (find shape)", () => {
+    function srsOnPath(): boolean {
+      try { execFileSync("srs", ["--version"], { stdio: "pipe" }); return true; } catch { return false; }
+    }
+    const run = (repo: string, args: string[], input?: string) =>
+      JSON.parse(execFileSync("srs", [...args, "--repo", repo], { encoding: "utf-8", input }));
+
+    it("find facets / hit fields / similar match the declared types", function () {
+      if (!srsOnPath()) { this.skip(); } // CI installs the latest release binary
+      const repo = fs.mkdtempSync(path.join(os.tmpdir(), "srs-find-"));
+      try {
+        run(repo, ["repo", "create", "--namespace", "com.example.t"]);
+        const note = run(repo, ["note", "create"], JSON.stringify({
+          instanceId: "7d1c2b0e-5a3f-4c8e-9b1a-2f6e8d4c0a11", title: "hello facets",
+          sections: [{ name: "body", content: "hello facets world", label: "Body" }],
+          tags: [], createdAt: new Date().toISOString(),
+        }));
+        assert.ok(note.ok, JSON.stringify(note));
+        const id = note.payload.instanceId ?? note.payload.note?.instanceId;
+        const keys = (o: object) => Object.keys(o);
+        const known = ["hits", "total", "facets", "diagnostics"];
+
+        const map = run(repo, ["find", "--limit", "0"]).payload as FindPayload;
+        assert.deepStrictEqual(keys(map.result).sort(), [...known].sort());
+        assert.strictEqual(map.result.hits.length, 0);
+        assert.ok(map.result.facets && typeof map.result.facets === "object");
+        assert.ok(typeof map.result.facets.notes === "number" && map.result.facets.notes >= 1);
+
+        const found = run(repo, ["find", "--text", "hello", "--rank"]).payload as FindPayload;
+        const hit = found.result.hits[0];
+        assert.ok(hit, "expected a hit");
+        for (const k of ["instanceId", "uri", "label", "containerIds", "matchedFields"]) {
+          assert.ok(k in hit, `hit missing ${k}`);
+        }
+        assert.ok(Array.isArray(hit.containerIds));
+        assert.strictEqual(typeof hit.score, "number", "--rank must populate score");
+
+        assert.ok(id, "note create payload carried no instance id");
+        const sim = run(repo, ["find", "--similar", id]).payload as FindPayload;
+        assert.deepStrictEqual(keys(sim.result).sort(), [...known].sort());
+        assert.ok(Array.isArray(sim.result.hits));
+      } finally {
+        fs.rmSync(repo, { recursive: true, force: true });
+      }
     });
   });
 });

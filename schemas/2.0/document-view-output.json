@@ -75,6 +75,13 @@
           "items": {
             "$ref": "#/$defs/ProjectedRecord"
           }
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProjectedSection"
+          },
+          "description": "RFC-042 Revision 5 [R25]. Nested sections produced by a container-subset source with containerScope 'subtree': one entry per declared child container of this section's container, in the order [R22] fixes, each carrying its own records and, recursively, its own nested sections. Omitted when the section renders no nested section. A renderer MUST NOT flatten nested sections into this section's records."
         }
       }
     },
@@ -109,6 +116,11 @@
         },
         "typeName": {
           "type": "string"
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "RFC-043 [R11]. The effective nesting depth of this record in an arranged section, in sequence, so a consumer can rebuild the outline from the flat list. Present only when above 0; absent for depth 0 and for every flat arrangement."
         },
         "recordHeading": {
           "type": "string",
