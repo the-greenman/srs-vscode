@@ -323,12 +323,14 @@ describe("payload contracts", () => {
       const validate = new Ajv({ strict: false, formats: { uint: true, int64: true } }).compile(loadSchema(name));
       assert.strictEqual(validate(payload), false, `${name} accepted ${JSON.stringify(payload)}`);
     };
+    const nb = { direction: "out", relationId: "r", relationType: "t", neighbour: { instanceId: "i", uri: "u" } };
     const hit = { instanceId: "i", uri: "u", label: "L", containerIds: [], matchedFields: [] };
     const find = (h: object) => ({ result: { hits: [h], total: 1, facets: {}, diagnostics: [] } });
+    makeValidator("find")(find(hit)); // baselines are valid, so each rejection is for the corruption
+    makeValidator("relation-neighbours")({ result: { instanceId: "i", total: 1, neighbours: [nb] } });
     rejects("find", find({ ...hit, uri: 5 }));
     rejects("find", find({ ...hit, matchedFields: undefined }));
     rejects("find", { result: { hits: [], total: "1", facets: {}, diagnostics: [] } });
-    const nb = { direction: "out", relationId: "r", relationType: "t", neighbour: { instanceId: "i", uri: "u" } };
     const neighbours = (e: object) => ({ result: { instanceId: "i", total: 1, neighbours: [e] } });
     rejects("relation-neighbours", neighbours({ ...nb, direction: "sideways" }));
     rejects("relation-neighbours", neighbours({ ...nb, neighbour: { instanceId: "i" } }));
