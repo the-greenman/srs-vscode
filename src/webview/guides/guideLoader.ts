@@ -109,11 +109,10 @@ export async function loadGuide(
     "get",
     containerId,
   ]);
-  const { memberInstanceIds, anchorInstanceId } = containerPayload.container;
+  const { memberInstanceIds, anchorInstanceId: guideId } = containerPayload.container;
   // anchorInstanceId is the explicit typing anchor (RFC-013 amended, I-145).
   // At dataModelRevision 8 the rootInstanceIds[0] positional fallback is
   // withdrawn (RFC-043 [R4]) — never guess the guide record by position.
-  const guideId = anchorInstanceId;
   if (!guideId) {
     throw new Error(
       `Container ${containerId} has no anchorInstanceId, so the guide record cannot be determined. ` +
