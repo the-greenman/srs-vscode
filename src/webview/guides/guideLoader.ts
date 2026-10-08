@@ -109,15 +109,16 @@ export async function loadGuide(
     "get",
     containerId,
   ]);
-  const { memberInstanceIds, anchorInstanceId, rootInstanceIds } = containerPayload.container;
-  // anchorInstanceId (RFC-013 amended, I-145) is the explicit typing anchor;
-  // rootInstanceIds[0] is only the documented transitional fallback — and
-  // rootInstanceIds itself can be entirely absent (Rust: Option<Vec<String>>),
-  // so indexing it unconditionally was a live `undefined[0]` TypeError on any
-  // anchor-era container.
-  const guideId = anchorInstanceId ?? rootInstanceIds?.[0];
+  const { memberInstanceIds, anchorInstanceId } = containerPayload.container;
+  // anchorInstanceId is the explicit typing anchor (RFC-013 amended, I-145).
+  // At dataModelRevision 8 the rootInstanceIds[0] positional fallback is
+  // withdrawn (RFC-043 [R4]) — never guess the guide record by position.
+  const guideId = anchorInstanceId;
   if (!guideId) {
-    throw new Error(`Container ${containerId} has no anchorInstanceId or rootInstanceIds — cannot determine the guide record`);
+    throw new Error(
+      `Container ${containerId} has no anchorInstanceId, so the guide record cannot be determined. ` +
+        `Set the container's typing anchor to its guide record (the container may predate dataModelRevision 8 — run the SRS migration).`,
+    );
   }
 
   // Load all member records in parallel
