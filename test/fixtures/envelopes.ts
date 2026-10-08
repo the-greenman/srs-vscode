@@ -81,6 +81,23 @@ export const ERR_NOTE_GET = JSON.stringify({
   diagnostics: ["Note with id 'bad-id' not found"],
 });
 
+// Matches the srs-rust ADR-053 wire shape (`errors[]` aligned 1:1 with
+// `diagnostics`) for a field/type delete refused because it is still in use
+// (srs-vscode#131).
+export const ERR_CANNOT_DELETE_IN_USE = JSON.stringify({
+  command: "field delete",
+  ok: false,
+  version: "0.1.0",
+  diagnostics: ["cannot delete field 'f-1': still referenced by [t-1]"],
+  errors: [
+    {
+      code: "cannot-delete-in-use",
+      message: "cannot delete field 'f-1': still referenced by [t-1]",
+      details: { entityType: "field", id: "f-1", usedBy: ["t-1"] },
+    },
+  ],
+});
+
 export const MALFORMED_NOT_JSON = "this is not json { at all";
 export const EMPTY_STDOUT = "";
 export const MISSING_OK_FIELD = JSON.stringify({

@@ -57,6 +57,19 @@ describe("parseEnvelope", () => {
     );
   });
 
+  it("parses ok:false envelope's structured errors[] (ADR-053)", () => {
+    const envelope = parseEnvelope<never>(
+      fixtures.ERR_CANNOT_DELETE_IN_USE,
+      "field delete",
+    );
+    assert.strictEqual(envelope.ok, false);
+    if (!envelope.ok) {
+      assert.ok(envelope.errors);
+      assert.strictEqual(envelope.errors![0].code, "cannot-delete-in-use");
+      assert.deepStrictEqual(envelope.errors![0].details?.usedBy, ["t-1"]);
+    }
+  });
+
   it("CliError carries the command hint", () => {
     try {
       parseEnvelope(fixtures.EMPTY_STDOUT, "note get");
