@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 const assert = __importStar(require("assert"));
 const envelope_1 = require("../../src/cli/envelope");
+const errors_1 = require("../../src/cli/errors");
 const fixtures = __importStar(require("../fixtures/envelopes"));
 describe("parseEnvelope", () => {
     it("parses ok:true envelope and returns typed result", () => {
@@ -83,6 +84,36 @@ describe("parseEnvelope", () => {
             assert.ok(err instanceof envelope_1.CliError);
             assert.strictEqual(err.command, "note get");
         }
+    });
+    it("parses the structured errors[] array alongside diagnostics (srs-vscode#131)", () => {
+        const envelope = (0, envelope_1.parseEnvelope)(fixtures.ERR_DELETE_IN_USE, "type delete");
+        assert.strictEqual(envelope.ok, false);
+        if (!envelope.ok) {
+            assert.strictEqual(envelope.errors?.[0].code, "cannot-delete-in-use");
+        }
+    });
+});
+describe("hasErrorCode (srs-vscode#131)", () => {
+    it("matches on the structured code, not message substrings", () => {
+        // Real srs-rust Display text post-ADR-053 ("still referenced by […]") contains
+        // neither "CannotDeleteInUse" nor "used by" — the old substring check this
+        // replaces would silently miss it and fall through to the generic error path.
+        const err = new envelope_1.CliError("srs type delete failed: cannot delete type 'x': still referenced by [a]", ["cannot delete type 'x': still referenced by [a]"], "type delete", [{ code: "cannot-delete-in-use", message: "cannot delete type 'x': still referenced by [a]" }]);
+        assert.ok(!err.diagnostics.some((d) => d.includes("CannotDeleteInUse") || d.includes("used by")));
+        assert.ok((0, errors_1.hasErrorCode)(err, "cannot-delete-in-use"));
+    });
+    it("is false when the code does not match", () => {
+        const err = new envelope_1.CliError("boom", ["boom"], "note delete", [
+            { code: "instance-not-found", message: "boom" },
+        ]);
+        assert.ok(!(0, errors_1.hasErrorCode)(err, "cannot-delete-in-use"));
+    });
+    it("is false when the envelope carried no errors[] (older CLI binary)", () => {
+        const err = new envelope_1.CliError("boom", ["boom"], "note delete");
+        assert.ok(!(0, errors_1.hasErrorCode)(err, "cannot-delete-in-use"));
+    });
+    it("is false for a non-CliError value", () => {
+        assert.ok(!(0, errors_1.hasErrorCode)(new Error("boom"), "cannot-delete-in-use"));
     });
 });
 describe("buildArgv", () => {

@@ -2,7 +2,7 @@
 // Canned CLI envelope strings matching real srs output shapes.
 // Used in unit tests to avoid spawning a real subprocess.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MISSING_OK_FIELD = exports.EMPTY_STDOUT = exports.MALFORMED_NOT_JSON = exports.ERR_NOTE_GET = exports.OK_REPO_VALIDATE_WITH_ERRORS = exports.OK_REPO_VALIDATE_CLEAN = exports.OK_TAG_LIST = exports.OK_NOTE_LIST = exports.OK_REPO_MAP = void 0;
+exports.MISSING_OK_FIELD = exports.EMPTY_STDOUT = exports.MALFORMED_NOT_JSON = exports.ERR_DELETE_IN_USE = exports.ERR_NOTE_GET = exports.OK_REPO_VALIDATE_WITH_ERRORS = exports.OK_REPO_VALIDATE_CLEAN = exports.OK_TAG_LIST = exports.OK_NOTE_LIST = exports.OK_REPO_MAP = void 0;
 exports.OK_REPO_MAP = JSON.stringify({
     command: "repo map",
     ok: true,
@@ -76,6 +76,28 @@ exports.ERR_NOTE_GET = JSON.stringify({
     ok: false,
     version: "0.1.0",
     diagnostics: ["Note with id 'bad-id' not found"],
+});
+// Matches real srs-rust output post-ADR-053: the Display text drops the old
+// "CannotDeleteInUse"/"used by" wording entirely, and the structured code is
+// carried in errors[] (srs-rust#1338, srs-vscode#131).
+exports.ERR_DELETE_IN_USE = JSON.stringify({
+    command: "type delete",
+    ok: false,
+    version: "0.1.0",
+    diagnostics: [
+        "cannot delete type 'com.example/widget': still referenced by [rec-001, rec-002]",
+    ],
+    errors: [
+        {
+            code: "cannot-delete-in-use",
+            message: "cannot delete type 'com.example/widget': still referenced by [rec-001, rec-002]",
+            details: {
+                entityType: "type",
+                id: "com.example/widget",
+                usedBy: ["rec-001", "rec-002"],
+            },
+        },
+    ],
 });
 exports.MALFORMED_NOT_JSON = "this is not json { at all";
 exports.EMPTY_STDOUT = "";
