@@ -392,7 +392,9 @@ describe("payload contracts", () => {
         assert.strictEqual(typeof hit.score, "number", "--rank must populate score");
 
         assert.ok(id, "note create payload carried no instance id");
-        const sim = run(repo, ["find", "--similar", id]).payload as FindPayload;
+        // srs-rust#1286: facets default to included only on the --limit 0 repository-map
+        // call; opt in explicitly here to keep asserting on their shape.
+        const sim = run(repo, ["find", "--similar", id, "--facets"]).payload as FindPayload;
         validateFind(sim);
         assert.deepStrictEqual(keys(sim.result).sort(), [...known].sort());
         assert.ok(Array.isArray(sim.result.hits));
