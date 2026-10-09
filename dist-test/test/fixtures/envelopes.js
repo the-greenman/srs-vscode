@@ -2,7 +2,7 @@
 // Canned CLI envelope strings matching real srs output shapes.
 // Used in unit tests to avoid spawning a real subprocess.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MISSING_OK_FIELD = exports.EMPTY_STDOUT = exports.MALFORMED_NOT_JSON = exports.ERR_NOTE_GET = exports.OK_REPO_VALIDATE_WITH_ERRORS = exports.OK_REPO_VALIDATE_CLEAN = exports.OK_TAG_LIST = exports.OK_NOTE_LIST = exports.OK_REPO_MAP = void 0;
+exports.MISSING_OK_FIELD = exports.EMPTY_STDOUT = exports.MALFORMED_NOT_JSON = exports.ERR_CANNOT_DELETE_IN_USE = exports.ERR_NOTE_GET = exports.OK_REPO_VALIDATE_WITH_ERRORS = exports.OK_REPO_VALIDATE_CLEAN = exports.OK_TAG_LIST = exports.OK_NOTE_LIST = exports.OK_REPO_MAP = void 0;
 exports.OK_REPO_MAP = JSON.stringify({
     command: "repo map",
     ok: true,
@@ -76,6 +76,22 @@ exports.ERR_NOTE_GET = JSON.stringify({
     ok: false,
     version: "0.1.0",
     diagnostics: ["Note with id 'bad-id' not found"],
+});
+// Real shape of a `type delete`/`theme delete`/`view delete` refusal (ADR-053,
+// srs-rust#1338): the Display message says "referenced by", never "used by" or
+// "CannotDeleteInUse" — those only ever matched the old, pre-#1338 output.
+exports.ERR_CANNOT_DELETE_IN_USE = JSON.stringify({
+    command: "theme delete",
+    ok: false,
+    version: "0.1.0",
+    diagnostics: ["cannot delete theme 'theme-1': still referenced by [comp-1]"],
+    errors: [
+        {
+            code: "cannot-delete-in-use",
+            message: "cannot delete theme 'theme-1': still referenced by [comp-1]",
+            details: { entityType: "theme", id: "theme-1", usedBy: ["comp-1"] },
+        },
+    ],
 });
 exports.MALFORMED_NOT_JSON = "this is not json { at all";
 exports.EMPTY_STDOUT = "";

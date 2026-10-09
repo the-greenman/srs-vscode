@@ -81,6 +81,23 @@ export const ERR_NOTE_GET = JSON.stringify({
   diagnostics: ["Note with id 'bad-id' not found"],
 });
 
+// Real shape of a `type delete`/`theme delete`/`view delete` refusal (ADR-053,
+// srs-rust#1338): the Display message says "referenced by", never "used by" or
+// "CannotDeleteInUse" — those only ever matched the old, pre-#1338 output.
+export const ERR_CANNOT_DELETE_IN_USE = JSON.stringify({
+  command: "theme delete",
+  ok: false,
+  version: "0.1.0",
+  diagnostics: ["cannot delete theme 'theme-1': still referenced by [comp-1]"],
+  errors: [
+    {
+      code: "cannot-delete-in-use",
+      message: "cannot delete theme 'theme-1': still referenced by [comp-1]",
+      details: { entityType: "theme", id: "theme-1", usedBy: ["comp-1"] },
+    },
+  ],
+});
+
 export const MALFORMED_NOT_JSON = "this is not json { at all";
 export const EMPTY_STDOUT = "";
 export const MISSING_OK_FIELD = JSON.stringify({

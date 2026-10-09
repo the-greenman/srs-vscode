@@ -42,13 +42,17 @@ var vscode = __toESM(require("vscode"));
 
 // src/cli/errors.ts
 var CliError = class extends Error {
-  constructor(message, diagnostics, command) {
+  constructor(message, diagnostics, command, errors) {
     super(message);
     this.diagnostics = diagnostics;
     this.command = command;
+    this.errors = errors;
     this.name = "CliError";
   }
 };
+function isCannotDeleteInUse(err) {
+  return (err.errors ?? []).some((e) => e.code === "cannot-delete-in-use");
+}
 
 // src/cli/envelope.ts
 function parseEnvelope(stdout, commandHint) {
@@ -213,7 +217,8 @@ var CliClient = class _CliClient {
       throw new CliError(
         `srs ${subcommandArgs.join(" ")} failed: ${envelope.diagnostics.join("; ")}`,
         envelope.diagnostics,
-        subcommandArgs[0] ?? "unknown"
+        subcommandArgs[0] ?? "unknown",
+        envelope.errors
       );
     }
     return envelope.payload;
@@ -3599,9 +3604,7 @@ async function cmdDeleteEntity(cli, repoProvider, treeProvider, node) {
       `SRS: ${node.entityKind} deleted.`
     );
   } catch (err) {
-    if (err instanceof CliError && err.diagnostics.some(
-      (d) => d.includes("CannotDeleteInUse") || d.includes("used by")
-    )) {
+    if (err instanceof CliError && isCannotDeleteInUse(err)) {
       vscode16.window.showErrorMessage(
         `SRS: Cannot delete ${node.entityKind} '${node.label}' \u2014 it is referenced by other entities. Remove those references first.
 

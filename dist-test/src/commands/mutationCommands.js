@@ -38,6 +38,7 @@ exports.cmdAddToContainer = cmdAddToContainer;
 exports.cmdRemoveFromContainer = cmdRemoveFromContainer;
 const vscode = __importStar(require("vscode"));
 const CliClient_1 = require("../cli/CliClient");
+const errors_1 = require("../cli/errors");
 const SrsTreeDataProvider_1 = require("../tree/SrsTreeDataProvider");
 function registerMutationCommands(context, cli, repoProvider, attention, treeProvider) {
     context.subscriptions.push(vscode.commands.registerCommand("srs.createNote", () => cmdCreateNote(cli, repoProvider, attention, treeProvider)), vscode.commands.registerCommand("srs.createRecord", () => cmdCreateRecord(cli, repoProvider, attention, treeProvider)), vscode.commands.registerCommand("srs.deleteEntity", (node) => cmdDeleteEntity(cli, repoProvider, treeProvider, node)));
@@ -167,8 +168,7 @@ async function cmdDeleteEntity(cli, repoProvider, treeProvider, node) {
         vscode.window.showInformationMessage(`SRS: ${node.entityKind} deleted.`);
     }
     catch (err) {
-        if (err instanceof CliClient_1.CliError &&
-            err.diagnostics.some((d) => d.includes("CannotDeleteInUse") || d.includes("used by"))) {
+        if (err instanceof CliClient_1.CliError && (0, errors_1.isCannotDeleteInUse)(err)) {
             vscode.window.showErrorMessage(`SRS: Cannot delete ${node.entityKind} '${node.label}' — it is referenced by other entities. Remove those references first.\n\nDetails: ${err.diagnostics.join("\n")}`, { modal: true });
         }
         else {

@@ -329,7 +329,9 @@ describe("payload contracts", () => {
     makeValidator("find")(find(hit)); // baselines are valid, so each rejection is for the corruption
     makeValidator("relation-neighbours")({ result: { instanceId: "i", total: 1, neighbours: [nb] } });
     rejects("find", find({ ...hit, uri: 5 }));
-    rejects("find", find({ ...hit, matchedFields: undefined }));
+    // matchedFields/containerIds are `full` projection only (srs-rust#1286) — absent is
+    // valid, but present-and-wrong-type still is not.
+    rejects("find", find({ ...hit, matchedFields: "not-an-array" }));
     rejects("find", { result: { hits: [], total: "1", facets: {}, diagnostics: [] } });
     const neighbours = (e: object) => ({ result: { instanceId: "i", total: 1, neighbours: [e] } });
     rejects("relation-neighbours", neighbours({ ...nb, direction: "sideways" }));
@@ -390,7 +392,9 @@ describe("payload contracts", () => {
         assert.strictEqual(typeof hit.score, "number", "--rank must populate score");
 
         assert.ok(id, "note create payload carried no instance id");
-        const sim = run(repo, ["find", "--similar", id]).payload as FindPayload;
+        // srs-rust#1286: facets default to included only on the --limit 0 repository-map
+        // call; opt in explicitly here to keep asserting on their shape.
+        const sim = run(repo, ["find", "--similar", id, "--facets"]).payload as FindPayload;
         validateFind(sim);
         assert.deepStrictEqual(keys(sim.result).sort(), [...known].sort());
         assert.ok(Array.isArray(sim.result.hits));

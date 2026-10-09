@@ -1,8 +1,24 @@
+// One entry of the top-level `errors[]` on an `ok:false` envelope (ADR-053, srs-rust#1338).
+// Aligned 1:1 with `diagnostics`: `errors[i].message === diagnostics[i]`. Absent on an older
+// CLI build that predates ADR-053 — callers must treat it as optional.
+export interface ErrorReportPayload {
+  code: string;
+  message: string;
+  details?: unknown;
+}
+
 // JSON envelope shapes returned by every srs CLI command.
-// ok:true responses carry a typed payload; ok:false carry a string[] diagnostics array.
+// ok:true responses carry a typed payload; ok:false carry a string[] diagnostics array
+// plus the optional structured `errors[]` (ADR-053).
 export type SrsEnvelope<T> =
   | { ok: true; command: string; version: string; payload: T }
-  | { ok: false; command: string; version: string; diagnostics: string[] };
+  | {
+      ok: false;
+      command: string;
+      version: string;
+      diagnostics: string[];
+      errors?: ErrorReportPayload[];
+    };
 
 // A Record's field-value carrier (RFC-039): a JSON object keyed by `Field.name` verbatim,
 // recursive over scalar / list / inline-composite shapes. `fieldId` is not stored in the
