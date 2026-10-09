@@ -42,10 +42,11 @@ var vscode = __toESM(require("vscode"));
 
 // src/cli/errors.ts
 var CliError = class extends Error {
-  constructor(message, diagnostics, command) {
+  constructor(message, diagnostics, command, errors) {
     super(message);
     this.diagnostics = diagnostics;
     this.command = command;
+    this.errors = errors;
     this.name = "CliError";
   }
 };
@@ -213,7 +214,8 @@ var CliClient = class _CliClient {
       throw new CliError(
         `srs ${subcommandArgs.join(" ")} failed: ${envelope.diagnostics.join("; ")}`,
         envelope.diagnostics,
-        subcommandArgs[0] ?? "unknown"
+        subcommandArgs[0] ?? "unknown",
+        envelope.errors
       );
     }
     return envelope.payload;
@@ -3599,13 +3601,14 @@ async function cmdDeleteEntity(cli, repoProvider, treeProvider, node) {
       `SRS: ${node.entityKind} deleted.`
     );
   } catch (err) {
-    if (err instanceof CliError && err.diagnostics.some(
-      (d) => d.includes("CannotDeleteInUse") || d.includes("used by")
-    )) {
-      vscode16.window.showErrorMessage(
-        `SRS: Cannot delete ${node.entityKind} '${node.label}' \u2014 it is referenced by other entities. Remove those references first.
+    const inUse = err instanceof CliError && err.errors?.find((e) => e.code === "cannot-delete-in-use");
+    if (inUse) {
+      const usedBy = inUse.details?.usedBy;
+      const usedByLine = usedBy?.length ? `
 
-Details: ${err.diagnostics.join("\n")}`,
+Referenced by: ${usedBy.join(", ")}` : "";
+      vscode16.window.showErrorMessage(
+        `SRS: Cannot delete ${node.entityKind} '${node.label}' \u2014 it is referenced by other entities. Remove those references first.${usedByLine}`,
         { modal: true }
       );
     } else {

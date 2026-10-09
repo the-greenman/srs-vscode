@@ -167,9 +167,12 @@ async function cmdDeleteEntity(cli, repoProvider, treeProvider, node) {
         vscode.window.showInformationMessage(`SRS: ${node.entityKind} deleted.`);
     }
     catch (err) {
-        if (err instanceof CliClient_1.CliError &&
-            err.diagnostics.some((d) => d.includes("CannotDeleteInUse") || d.includes("used by"))) {
-            vscode.window.showErrorMessage(`SRS: Cannot delete ${node.entityKind} '${node.label}' — it is referenced by other entities. Remove those references first.\n\nDetails: ${err.diagnostics.join("\n")}`, { modal: true });
+        const inUse = err instanceof CliClient_1.CliError &&
+            err.errors?.find((e) => e.code === "cannot-delete-in-use");
+        if (inUse) {
+            const usedBy = inUse.details?.usedBy;
+            const usedByLine = usedBy?.length ? `\n\nReferenced by: ${usedBy.join(", ")}` : "";
+            vscode.window.showErrorMessage(`SRS: Cannot delete ${node.entityKind} '${node.label}' — it is referenced by other entities. Remove those references first.${usedByLine}`, { modal: true });
         }
         else {
             const msg = err instanceof CliClient_1.CliError ? err.message : String(err);
