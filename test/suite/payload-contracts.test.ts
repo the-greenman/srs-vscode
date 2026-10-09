@@ -329,7 +329,9 @@ describe("payload contracts", () => {
     makeValidator("find")(find(hit)); // baselines are valid, so each rejection is for the corruption
     makeValidator("relation-neighbours")({ result: { instanceId: "i", total: 1, neighbours: [nb] } });
     rejects("find", find({ ...hit, uri: 5 }));
-    rejects("find", find({ ...hit, matchedFields: undefined }));
+    // matchedFields/containerIds are optional since srs-rust#1286 (full
+    // projection only) — a wrong *type* is still a corruption; absence isn't.
+    rejects("find", find({ ...hit, matchedFields: "not-an-array" }));
     rejects("find", { result: { hits: [], total: "1", facets: {}, diagnostics: [] } });
     const neighbours = (e: object) => ({ result: { instanceId: "i", total: 1, neighbours: [e] } });
     rejects("relation-neighbours", neighbours({ ...nb, direction: "sideways" }));
