@@ -1,8 +1,25 @@
+// One entry of the top-level `errors[]` on an `ok:false` envelope (srs-rust ADR-053).
+// `code` is the stable kebab-case identifier to branch on (ADR-048 rule 6) — never
+// match on `message`, which is prose and carries no stability guarantee.
+export interface ErrorReport {
+  code: string;
+  message: string;
+  details?: unknown;
+}
+
 // JSON envelope shapes returned by every srs CLI command.
-// ok:true responses carry a typed payload; ok:false carry a string[] diagnostics array.
+// ok:true responses carry a typed payload; ok:false carry a string[] diagnostics array
+// 1:1 aligned with `errors[]` (errors[i].message === diagnostics[i]) when the CLI is
+// new enough to emit it — older binaries omit `errors` entirely.
 export type SrsEnvelope<T> =
   | { ok: true; command: string; version: string; payload: T }
-  | { ok: false; command: string; version: string; diagnostics: string[] };
+  | {
+      ok: false;
+      command: string;
+      version: string;
+      diagnostics: string[];
+      errors?: ErrorReport[];
+    };
 
 // A Record's field-value carrier (RFC-039): a JSON object keyed by `Field.name` verbatim,
 // recursive over scalar / list / inline-composite shapes. `fieldId` is not stored in the

@@ -81,6 +81,30 @@ export const ERR_NOTE_GET = JSON.stringify({
   diagnostics: ["Note with id 'bad-id' not found"],
 });
 
+// Matches real srs-rust output post-ADR-053: the Display text drops the old
+// "CannotDeleteInUse"/"used by" wording entirely, and the structured code is
+// carried in errors[] (srs-rust#1338, srs-vscode#131).
+export const ERR_DELETE_IN_USE = JSON.stringify({
+  command: "type delete",
+  ok: false,
+  version: "0.1.0",
+  diagnostics: [
+    "cannot delete type 'com.example/widget': still referenced by [rec-001, rec-002]",
+  ],
+  errors: [
+    {
+      code: "cannot-delete-in-use",
+      message:
+        "cannot delete type 'com.example/widget': still referenced by [rec-001, rec-002]",
+      details: {
+        entityType: "type",
+        id: "com.example/widget",
+        usedBy: ["rec-001", "rec-002"],
+      },
+    },
+  ],
+});
+
 export const MALFORMED_NOT_JSON = "this is not json { at all";
 export const EMPTY_STDOUT = "";
 export const MISSING_OK_FIELD = JSON.stringify({

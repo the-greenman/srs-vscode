@@ -1,5 +1,6 @@
 import * as assert from "assert";
 import { parseEnvelope, buildArgv, CliError } from "../../src/cli/envelope";
+import { hasErrorCode } from "../../src/cli/errors";
 import * as fixtures from "../fixtures/envelopes";
 
 describe("parseEnvelope", () => {
@@ -65,6 +66,49 @@ describe("parseEnvelope", () => {
       assert.ok(err instanceof CliError);
       assert.strictEqual(err.command, "note get");
     }
+  });
+
+  it("parses the structured errors[] array alongside diagnostics (srs-vscode#131)", () => {
+    const envelope = parseEnvelope<never>(
+      fixtures.ERR_DELETE_IN_USE,
+      "type delete",
+    );
+    assert.strictEqual(envelope.ok, false);
+    if (!envelope.ok) {
+      assert.strictEqual(envelope.errors?.[0].code, "cannot-delete-in-use");
+    }
+  });
+});
+
+describe("hasErrorCode (srs-vscode#131)", () => {
+  it("matches on the structured code, not message substrings", () => {
+    // Real srs-rust Display text post-ADR-053 ("still referenced by […]") contains
+    // neither "CannotDeleteInUse" nor "used by" — the old substring check this
+    // replaces would silently miss it and fall through to the generic error path.
+    const err = new CliError(
+      "srs type delete failed: cannot delete type 'x': still referenced by [a]",
+      ["cannot delete type 'x': still referenced by [a]"],
+      "type delete",
+      [{ code: "cannot-delete-in-use", message: "cannot delete type 'x': still referenced by [a]" }],
+    );
+    assert.ok(!err.diagnostics.some((d) => d.includes("CannotDeleteInUse") || d.includes("used by")));
+    assert.ok(hasErrorCode(err, "cannot-delete-in-use"));
+  });
+
+  it("is false when the code does not match", () => {
+    const err = new CliError("boom", ["boom"], "note delete", [
+      { code: "instance-not-found", message: "boom" },
+    ]);
+    assert.ok(!hasErrorCode(err, "cannot-delete-in-use"));
+  });
+
+  it("is false when the envelope carried no errors[] (older CLI binary)", () => {
+    const err = new CliError("boom", ["boom"], "note delete");
+    assert.ok(!hasErrorCode(err, "cannot-delete-in-use"));
+  });
+
+  it("is false for a non-CliError value", () => {
+    assert.ok(!hasErrorCode(new Error("boom"), "cannot-delete-in-use"));
   });
 });
 
