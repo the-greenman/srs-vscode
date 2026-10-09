@@ -371,12 +371,15 @@ describe("payload contracts", () => {
         assert.ok(note.ok, JSON.stringify(note));
         const id = note.payload.instanceId ?? note.payload.note?.instanceId;
         const keys = (o: object) => Object.keys(o);
-        const known = ["hits", "total", "facets", "diagnostics"];
+        // facets are opt-in since srs-rust#1286: present by default only for
+        // the `--limit 0` map query, absent otherwise unless `--facets` is passed.
+        const known = ["hits", "total", "diagnostics"];
+        const knownWithFacets = [...known, "facets"];
 
         const validateFind = makeValidator("find");
         const map = run(repo, ["find", "--limit", "0"]).payload as FindPayload;
         validateFind(map);
-        assert.deepStrictEqual(keys(map.result).sort(), [...known].sort());
+        assert.deepStrictEqual(keys(map.result).sort(), [...knownWithFacets].sort());
         assert.strictEqual(map.result.hits.length, 0);
         assert.ok(map.result.facets && typeof map.result.facets === "object");
         assert.ok(typeof map.result.facets.notes === "number" && map.result.facets.notes >= 1);
