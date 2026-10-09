@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 const assert = __importStar(require("assert"));
 const envelope_1 = require("../../src/cli/envelope");
+const errors_1 = require("../../src/cli/errors");
 const fixtures = __importStar(require("../fixtures/envelopes"));
 describe("parseEnvelope", () => {
     it("parses ok:true envelope and returns typed result", () => {
@@ -83,6 +84,35 @@ describe("parseEnvelope", () => {
             assert.ok(err instanceof envelope_1.CliError);
             assert.strictEqual(err.command, "note get");
         }
+    });
+    it("parses the structured errors[] alongside diagnostics on ok:false", () => {
+        const envelope = (0, envelope_1.parseEnvelope)(fixtures.ERR_CANNOT_DELETE_IN_USE, "theme delete");
+        assert.strictEqual(envelope.ok, false);
+        if (!envelope.ok) {
+            assert.strictEqual(envelope.errors?.[0].code, "cannot-delete-in-use");
+            assert.strictEqual(envelope.errors?.[0].message, envelope.diagnostics[0]);
+        }
+    });
+});
+describe("isCannotDeleteInUse", () => {
+    it("matches the structured cannot-delete-in-use code", () => {
+        const envelope = (0, envelope_1.parseEnvelope)(fixtures.ERR_CANNOT_DELETE_IN_USE, "theme delete");
+        assert.strictEqual(envelope.ok, false);
+        const err = new envelope_1.CliError("srs theme delete failed", !envelope.ok ? envelope.diagnostics : [], "theme delete", !envelope.ok ? envelope.errors : undefined);
+        assert.ok((0, errors_1.isCannotDeleteInUse)(err));
+    });
+    it("does not match on the real refusal text alone (no errors[])", () => {
+        // Regression for srs-vscode#131: the engine's Display message says
+        // "referenced by", never "used by" or "CannotDeleteInUse" — a substring
+        // check on diagnostics never matched, even before errors[] existed.
+        const err = new envelope_1.CliError("srs theme delete failed", ["cannot delete theme 'theme-1': still referenced by [comp-1]"], "theme delete");
+        assert.strictEqual((0, errors_1.isCannotDeleteInUse)(err), false);
+    });
+    it("does not match an unrelated error", () => {
+        const err = new envelope_1.CliError("srs note get failed", ["not found"], "note get", [
+            { code: "note-not-found", message: "not found" },
+        ]);
+        assert.strictEqual((0, errors_1.isCannotDeleteInUse)(err), false);
     });
 });
 describe("buildArgv", () => {

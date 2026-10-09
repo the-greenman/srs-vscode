@@ -1,5 +1,6 @@
 import * as assert from "assert";
 import { parseEnvelope, buildArgv, CliError } from "../../src/cli/envelope";
+import { isCannotDeleteInUse } from "../../src/cli/errors";
 import * as fixtures from "../fixtures/envelopes";
 
 describe("parseEnvelope", () => {
@@ -65,6 +66,54 @@ describe("parseEnvelope", () => {
       assert.ok(err instanceof CliError);
       assert.strictEqual(err.command, "note get");
     }
+  });
+
+  it("parses the structured errors[] alongside diagnostics on ok:false", () => {
+    const envelope = parseEnvelope<never>(
+      fixtures.ERR_CANNOT_DELETE_IN_USE,
+      "theme delete",
+    );
+    assert.strictEqual(envelope.ok, false);
+    if (!envelope.ok) {
+      assert.strictEqual(envelope.errors?.[0].code, "cannot-delete-in-use");
+      assert.strictEqual(envelope.errors?.[0].message, envelope.diagnostics[0]);
+    }
+  });
+});
+
+describe("isCannotDeleteInUse", () => {
+  it("matches the structured cannot-delete-in-use code", () => {
+    const envelope = parseEnvelope<never>(
+      fixtures.ERR_CANNOT_DELETE_IN_USE,
+      "theme delete",
+    );
+    assert.strictEqual(envelope.ok, false);
+    const err = new CliError(
+      "srs theme delete failed",
+      !envelope.ok ? envelope.diagnostics : [],
+      "theme delete",
+      !envelope.ok ? envelope.errors : undefined,
+    );
+    assert.ok(isCannotDeleteInUse(err));
+  });
+
+  it("does not match on the real refusal text alone (no errors[])", () => {
+    // Regression for srs-vscode#131: the engine's Display message says
+    // "referenced by", never "used by" or "CannotDeleteInUse" — a substring
+    // check on diagnostics never matched, even before errors[] existed.
+    const err = new CliError(
+      "srs theme delete failed",
+      ["cannot delete theme 'theme-1': still referenced by [comp-1]"],
+      "theme delete",
+    );
+    assert.strictEqual(isCannotDeleteInUse(err), false);
+  });
+
+  it("does not match an unrelated error", () => {
+    const err = new CliError("srs note get failed", ["not found"], "note get", [
+      { code: "note-not-found", message: "not found" },
+    ]);
+    assert.strictEqual(isCannotDeleteInUse(err), false);
   });
 });
 

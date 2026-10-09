@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { CliClient, CliError } from "../cli/CliClient";
+import { isCannotDeleteInUse } from "../cli/errors";
 import { RepositoryProvider } from "../repository/RepositoryProvider";
 import { AttentionManager } from "../container/AttentionManager";
 import { SrsTreeDataProvider, EntityNode } from "../tree/SrsTreeDataProvider";
@@ -204,12 +205,7 @@ async function cmdDeleteEntity(
       `SRS: ${node.entityKind} deleted.`,
     );
   } catch (err) {
-    if (
-      err instanceof CliError &&
-      err.diagnostics.some(
-        (d) => d.includes("CannotDeleteInUse") || d.includes("used by"),
-      )
-    ) {
+    if (err instanceof CliError && isCannotDeleteInUse(err)) {
       vscode.window.showErrorMessage(
         `SRS: Cannot delete ${node.entityKind} '${node.label}' — it is referenced by other entities. Remove those references first.\n\nDetails: ${err.diagnostics.join("\n")}`,
         { modal: true },
