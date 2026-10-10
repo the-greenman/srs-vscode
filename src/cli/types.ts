@@ -1,8 +1,24 @@
 // JSON envelope shapes returned by every srs CLI command.
-// ok:true responses carry a typed payload; ok:false carry a string[] diagnostics array.
+// ok:true responses carry a typed payload; ok:false carry a string[] diagnostics array
+// plus, since srs-rust#1338 (ADR-053), a 1:1-aligned `errors[]` of structured reports.
 export type SrsEnvelope<T> =
   | { ok: true; command: string; version: string; payload: T }
-  | { ok: false; command: string; version: string; diagnostics: string[] };
+  | {
+      ok: false;
+      command: string;
+      version: string;
+      diagnostics: string[];
+      errors?: ErrorReportPayload[];
+    };
+
+// One entry of the `errors[]` array on an `ok:false` envelope (ADR-053).
+// `code` is the stable kebab-case identifier clients should branch on —
+// never the prose `message`, which is display-only and can change wording.
+export interface ErrorReportPayload {
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+}
 
 // A Record's field-value carrier (RFC-039): a JSON object keyed by `Field.name` verbatim,
 // recursive over scalar / list / inline-composite shapes. `fieldId` is not stored in the

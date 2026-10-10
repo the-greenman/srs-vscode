@@ -139,7 +139,7 @@ class CliClient {
     }
     static _assertOk(envelope, subcommandArgs) {
         if (!envelope.ok) {
-            throw new errors_1.CliError(`srs ${subcommandArgs.join(" ")} failed: ${envelope.diagnostics.join("; ")}`, envelope.diagnostics, subcommandArgs[0] ?? "unknown");
+            throw new errors_1.CliError(`srs ${subcommandArgs.join(" ")} failed: ${envelope.diagnostics.join("; ")}`, envelope.diagnostics, subcommandArgs[0] ?? "unknown", envelope.errors ?? []);
         }
         return envelope.payload;
     }
