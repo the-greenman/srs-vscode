@@ -52,18 +52,23 @@ describe("resolveTypeFields — label fallback", () => {
         const fields = await (0, typeFields_1.resolveTypeFields)(cli, "/repo", "type-1");
         assert.strictEqual(fields[0].displayLabel, "Room");
     });
-    it("falls back to the field name when `title` is a long description sentence, not a real label", async () => {
-        // srs-rust's title fallback is displayLabel ?? description, never the field
-        // name — a field with no displayLabel and a long description would otherwise
-        // show that whole sentence, uppercased, as its form/preview/table-header label.
-        const cli = new FakeCli({
-            ratified_at: {
-                type: "string",
-                title: "The date the decision was ratified by the assembly and formally recorded",
-            },
-        });
+    it("shows the field name when there is no title", async () => {
+        const cli = new FakeCli({ ratified_at: { type: "string" } });
         const fields = await (0, typeFields_1.resolveTypeFields)(cli, "/repo", "type-1");
         assert.strictEqual(fields[0].displayLabel, "ratified_at");
+    });
+    it("keeps a long authored label unchanged", async () => {
+        const label = "Date the assembly ratified and formally recorded the decision";
+        const cli = new FakeCli({ ratified_at: { type: "string", title: label } });
+        const fields = await (0, typeFields_1.resolveTypeFields)(cli, "/repo", "type-1");
+        assert.strictEqual(fields[0].displayLabel, label);
+    });
+    it("reads help from x-srs-description, not the aiGuidance description", async () => {
+        const cli = new FakeCli({
+            room: { type: "string", description: "Fill with the room name.", "x-srs-description": "Where the meeting is held." },
+        });
+        const fields = await (0, typeFields_1.resolveTypeFields)(cli, "/repo", "type-1");
+        assert.strictEqual(fields[0].description, "Where the meeting is held.");
     });
 });
 //# sourceMappingURL=typeFields.test.js.map
