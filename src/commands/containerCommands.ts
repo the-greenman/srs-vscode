@@ -155,7 +155,6 @@ async function cmdCreateContainer(
     title: title.trim(),
     containerType: containerType?.trim() || undefined,
     memberInstanceIds: [],
-    rootInstanceIds: [],
     createdAt: now,
   });
 
