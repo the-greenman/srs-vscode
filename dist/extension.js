@@ -1479,14 +1479,13 @@ function parseFields(properties, required) {
   const fields = Object.entries(properties).map(([name, node]) => parseField(name, node, requiredSet.has(name)));
   return fields.sort((a, b) => a.order - b.order);
 }
-function looksLikeShortLabel(t) {
-  return t.length <= 50 && t.trim().split(/\s+/).length <= 6;
-}
 function parseField(name, node, required) {
   const base = {
     name,
-    displayLabel: node.title && looksLikeShortLabel(node.title) ? node.title : name,
-    description: node.description,
+    // `title` is only ever the authored displayLabel (ADR-026, srs-rust#1382).
+    displayLabel: node.title ?? name,
+    // The field's own description; `description` is the aiGuidance purpose.
+    description: node["x-srs-description"],
     order: node["x-srs-order"] ?? 0,
     required,
     widget: node["x-srs-widget"],

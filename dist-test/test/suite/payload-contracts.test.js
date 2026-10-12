@@ -273,9 +273,8 @@ describe("payload contracts", () => {
         });
     });
     // ── find / similar / neighbours (srs-rust#1241) ────────────────────────────
-    // The golden schemas embed `result` opaquely, so the schema check alone passes
-    // anything. Typed fixtures (compile-time) plus the live-binary check below are
-    // the real gate on the shape.
+    // srs-rust#1258: the golden schemas now type `result` in full, so these fixtures and
+    // the live-binary checks below are validated against the real schema (srs-vscode#127).
     it("find-payload fixture with facets, uri, typeId, containerIds and score validates", () => {
         const payload = {
             result: {
@@ -295,6 +294,31 @@ describe("payload contracts", () => {
     it("neighbours payload fixture validates", () => {
         const payload = { result: { instanceId: "i1", total: 0, neighbours: [] } };
         makeValidator("relation-neighbours")(payload);
+    });
+    it("find and neighbours schemas reject corrupted payloads", () => {
+        const rejects = (name, payload) => {
+            const validate = new ajv_1.default({ strict: false, formats: { uint: true, int64: true } }).compile(loadSchema(name));
+            assert.strictEqual(validate(payload), false, `${name} accepted ${JSON.stringify(payload)}`);
+        };
+        const nb = { direction: "out", relationId: "r", relationType: "t", neighbour: { instanceId: "i", uri: "u" } };
+        const hit = { instanceId: "i", uri: "u", label: "L", containerIds: [], matchedFields: [] };
+        const find = (h) => ({ result: { hits: [h], total: 1, facets: {}, diagnostics: [] } });
+        makeValidator("find")(find(hit)); // baselines are valid, so each rejection is for the corruption
+        makeValidator("relation-neighbours")({ result: { instanceId: "i", total: 1, neighbours: [nb] } });
+        rejects("find", find({ ...hit, uri: 5 }));
+        rejects("find", find({ ...hit, matchedFields: undefined }));
+        rejects("find", { result: { hits: [], total: "1", facets: {}, diagnostics: [] } });
+        const neighbours = (e) => ({ result: { instanceId: "i", total: 1, neighbours: [e] } });
+        rejects("relation-neighbours", neighbours({ ...nb, direction: "sideways" }));
+        rejects("relation-neighbours", neighbours({ ...nb, neighbour: { instanceId: "i" } }));
+        rejects("relation-neighbours", { result: { instanceId: "i", neighbours: [] } });
+    });
+    it("render-composition accepts a projection record without children/depth, and with depth", () => {
+        const check = makeValidator("render-composition");
+        const sec = (r) => ({ rendered: "", diagnostics: [], projection: { $schema: "x", compositionId: "c", containerTitle: "T", generatedAt: "2026-01-01T00:00:00Z", sections: [{ sectionId: "s", order: 0, records: [r] }] } });
+        const rec = { instanceId: "i", fields: {}, orderedFieldKeys: [], typeId: "t", typeName: "n", typeNamespace: "ns", typeVersion: 1, recordHeading: "h" };
+        check(sec(rec));
+        check(sec({ ...rec, depth: 1 }));
     });
     it("repo-agent-index golden schema is mirrored", () => {
         makeValidator("repo-agent-index")({ agentIndex: {}, rendered: "" });
@@ -326,12 +350,15 @@ describe("payload contracts", () => {
                 const id = note.payload.instanceId ?? note.payload.note?.instanceId;
                 const keys = (o) => Object.keys(o);
                 const known = ["hits", "total", "facets", "diagnostics"];
+                const validateFind = makeValidator("find");
                 const map = run(repo, ["find", "--limit", "0"]).payload;
+                validateFind(map);
                 assert.deepStrictEqual(keys(map.result).sort(), [...known].sort());
                 assert.strictEqual(map.result.hits.length, 0);
                 assert.ok(map.result.facets && typeof map.result.facets === "object");
                 assert.ok(typeof map.result.facets.notes === "number" && map.result.facets.notes >= 1);
                 const found = run(repo, ["find", "--text", "hello", "--rank"]).payload;
+                validateFind(found);
                 const hit = found.result.hits[0];
                 assert.ok(hit, "expected a hit");
                 for (const k of ["instanceId", "uri", "label", "containerIds", "matchedFields"]) {
@@ -341,8 +368,41 @@ describe("payload contracts", () => {
                 assert.strictEqual(typeof hit.score, "number", "--rank must populate score");
                 assert.ok(id, "note create payload carried no instance id");
                 const sim = run(repo, ["find", "--similar", id]).payload;
+                validateFind(sim);
                 assert.deepStrictEqual(keys(sim.result).sort(), [...known].sort());
                 assert.ok(Array.isArray(sim.result.hits));
+            }
+            finally {
+                fs.rmSync(repo, { recursive: true, force: true });
+            }
+        });
+        it("relation neighbours output validates against the real schema", function () {
+            if (!srsOnPath()) {
+                this.skip();
+            }
+            const repo = fs.mkdtempSync(path.join(os.tmpdir(), "srs-nb-"));
+            try {
+                run(repo, ["repo", "create", "--namespace", "com.example.t"]);
+                const mk = (instanceId, title) => {
+                    const r = run(repo, ["note", "create"], JSON.stringify({
+                        instanceId, title, sections: [{ name: "body", content: title, label: "Body" }],
+                        tags: [], createdAt: new Date().toISOString(),
+                    }));
+                    assert.ok(r.ok, JSON.stringify(r));
+                };
+                const a = "7d1c2b0e-5a3f-4c8e-9b1a-2f6e8d4c0a11";
+                const b = "8e2d3c1f-6b4a-4d9f-8c2b-3a7f9e5d1b22";
+                mk(a, "alpha");
+                mk(b, "beta");
+                const rel = run(repo, ["relation", "create"], JSON.stringify({
+                    relationId: "9f3e4d2a-7c5b-4eaa-9d3c-4b8a0f6e2c33", relationType: "precedes",
+                    sourceInstanceId: a, targetInstanceId: b, createdAt: new Date().toISOString(),
+                }));
+                assert.ok(rel.ok, JSON.stringify(rel));
+                const out = run(repo, ["relation", "neighbours", a]).payload;
+                makeValidator("relation-neighbours")(out);
+                assert.strictEqual(out.result.total, 1);
+                assert.strictEqual(out.result.neighbours[0].neighbour.instanceId, b);
             }
             finally {
                 fs.rmSync(repo, { recursive: true, force: true });
