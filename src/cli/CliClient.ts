@@ -170,6 +170,7 @@ export class CliClient {
         `srs ${subcommandArgs.join(" ")} failed: ${envelope.diagnostics.join("; ")}`,
         envelope.diagnostics,
         subcommandArgs[0] ?? "unknown",
+        envelope.errors ?? [],
       );
     }
     return envelope.payload;

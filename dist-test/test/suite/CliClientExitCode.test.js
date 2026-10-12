@@ -98,6 +98,24 @@ describe("CliClient — exit code / stderr surfacing", () => {
             assert.deepStrictEqual(envelope.diagnostics, ["not found"]);
         }
     });
+    it("runOk rejects with a CliError whose hasErrorCode('cannot-delete-in-use') is true for the real engine envelope shape (srs-vscode#131)", async () => {
+        // Regression for #131: the engine emits "cannot delete X 'id': still
+        // referenced by [...]" (srs-rust error.rs) plus a structured errors[]
+        // entry with code "cannot-delete-in-use" (ADR-053) — never the
+        // "CannotDeleteInUse"/"used by" substrings the old check matched on.
+        installFakeSrs("#!/bin/sh\n" +
+            "echo '{\"ok\":false,\"command\":\"field delete\",\"version\":\"0.1.0\"," +
+            "\"diagnostics\":[\"cannot delete field '\\''f-1'\\'': still referenced by [t-1]\"]," +
+            "\"errors\":[{\"code\":\"cannot-delete-in-use\",\"message\":\"cannot delete field " +
+            "'\\''f-1'\\'': still referenced by [t-1]\",\"details\":{\"entityType\":\"field\"," +
+            "\"id\":\"f-1\",\"usedBy\":[\"t-1\"]}}]}'\nexit 0\n");
+        const cli = new CliClient_1.CliClient(fakeOutputChannel());
+        await assert.rejects(() => cli.runOk("/repo", ["field", "delete", "f-1"]), (err) => {
+            assert.ok(err instanceof errors_1.CliError, "expected a CliError");
+            assert.ok(err.hasErrorCode("cannot-delete-in-use"), `expected hasErrorCode('cannot-delete-in-use') to be true, got errors: ${JSON.stringify(err.errors)}`);
+            return true;
+        });
+    });
     it("still parses a valid ok:true envelope on a zero exit", async () => {
         installFakeSrs("#!/bin/sh\necho '{\"ok\":true,\"command\":\"note list\",\"version\":\"0.1.0\",\"payload\":{\"notes\":[]}}'\nexit 0\n");
         const cli = new CliClient_1.CliClient(fakeOutputChannel());
