@@ -35,13 +35,10 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 const assert = __importStar(require("assert"));
 const guideLoader_1 = require("../../src/webview/guides/guideLoader");
-// Regression coverage for loadGuide's anchor resolution (srs-vscode#119
-// workstream 4): guideLoader.ts used to destructure `rootInstanceIds` as a
-// required string[] and index [0] unconditionally. Rust's
-// Container.root_instance_ids is Option<Vec<String>> — an anchor-era
-// container can omit it entirely, which was a live `undefined[0]`
-// TypeError. anchorInstanceId (RFC-013 amended, I-145) is now read first,
-// with rootInstanceIds?.[0] only as the documented transitional fallback.
+// Coverage for loadGuide's anchor resolution. anchorInstanceId (RFC-013
+// amended, I-145) is the only source of the guide record: the
+// rootInstanceIds[0] positional fallback is withdrawn at dataModelRevision 8
+// (RFC-043 [R4]), so a container without an anchor is an error, never a guess.
 const GUIDE_ID = "guide-1";
 const CONTAINER_ID = "c-1";
 class FakeCli {
@@ -72,33 +69,20 @@ class FakeCli {
     }
 }
 describe("loadGuide — anchor resolution", () => {
-    it("uses anchorInstanceId directly when rootInstanceIds is entirely absent", async () => {
+    it("uses anchorInstanceId", async () => {
         const cli = new FakeCli({ memberInstanceIds: [GUIDE_ID], anchorInstanceId: GUIDE_ID });
         const doc = await (0, guideLoader_1.loadGuide)(cli, "/repo", CONTAINER_ID);
         assert.strictEqual(doc.guideInstanceId, GUIDE_ID);
     });
-    it("falls back to rootInstanceIds[0] when anchorInstanceId is absent (transitional)", async () => {
-        const cli = new FakeCli({ memberInstanceIds: [GUIDE_ID], rootInstanceIds: [GUIDE_ID, "other"] });
-        const doc = await (0, guideLoader_1.loadGuide)(cli, "/repo", CONTAINER_ID);
-        assert.strictEqual(doc.guideInstanceId, GUIDE_ID);
-    });
-    it("prefers anchorInstanceId over rootInstanceIds[0] when both are present", async () => {
-        // "stale-root" is deliberately NOT a container member — if the code took
-        // rootInstanceIds[0] here it would fail with "Guide record ... not found
-        // in container members" rather than silently succeed on the wrong id.
+    it("throws a clear error, with no positional fallback, when anchorInstanceId is absent", async () => {
+        // A stale pre-revision-8 rootInstanceIds must be ignored, not used.
         const cli = new FakeCli({
             memberInstanceIds: [GUIDE_ID],
-            anchorInstanceId: GUIDE_ID,
-            rootInstanceIds: ["stale-root"],
+            rootInstanceIds: [GUIDE_ID],
         });
-        const doc = await (0, guideLoader_1.loadGuide)(cli, "/repo", CONTAINER_ID);
-        assert.strictEqual(doc.guideInstanceId, GUIDE_ID);
-    });
-    it("throws a clear error instead of an undefined[0] TypeError when neither is present", async () => {
-        const cli = new FakeCli({ memberInstanceIds: [GUIDE_ID] });
         await assert.rejects(() => (0, guideLoader_1.loadGuide)(cli, "/repo", CONTAINER_ID), (err) => {
             assert.ok(err instanceof Error);
-            assert.match(err.message, /no anchorInstanceId or rootInstanceIds/);
+            assert.match(err.message, /has no anchorInstanceId/);
             return true;
         });
     });

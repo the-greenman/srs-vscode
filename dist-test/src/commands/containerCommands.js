@@ -132,7 +132,6 @@ async function cmdCreateContainer(cli, repoProvider, attention, treeProvider) {
         title: title.trim(),
         containerType: containerType?.trim() || undefined,
         memberInstanceIds: [],
-        rootInstanceIds: [],
         createdAt: now,
     });
     try {
