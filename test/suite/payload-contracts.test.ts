@@ -107,7 +107,7 @@ describe("payload contracts", () => {
   it("validates repo-validate payload (clean) against golden schema", () => {
     const check = makeValidator("repo-validate");
     check({
-      summary: { checked: 100, errors: 0, warnings: 0 },
+      summary: { checked: 100, errors: 0, warnings: 0, advisories: 0 },
       diagnostics: [],
     });
   });
@@ -115,7 +115,7 @@ describe("payload contracts", () => {
   it("validates repo-validate payload (with errors) against golden schema", () => {
     const check = makeValidator("repo-validate");
     check({
-      summary: { checked: 50, errors: 2, warnings: 1 },
+      summary: { checked: 50, errors: 2, warnings: 1, advisories: 0 },
       diagnostics: [
         { severity: "error", path: "records/foo.json", message: "invalid field value" },
       ],
