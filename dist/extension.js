@@ -3430,7 +3430,6 @@ async function cmdCreateContainer(cli, repoProvider, attention, treeProvider) {
     title: title.trim(),
     containerType: containerType?.trim() || void 0,
     memberInstanceIds: [],
-    rootInstanceIds: [],
     createdAt: now
   });
   try {
@@ -4595,10 +4594,11 @@ async function loadGuide(cli, repoPath, containerId2) {
     "get",
     containerId2
   ]);
-  const { memberInstanceIds, anchorInstanceId, rootInstanceIds } = containerPayload.container;
-  const guideId = anchorInstanceId ?? rootInstanceIds?.[0];
+  const { memberInstanceIds, anchorInstanceId: guideId } = containerPayload.container;
   if (!guideId) {
-    throw new Error(`Container ${containerId2} has no anchorInstanceId or rootInstanceIds \u2014 cannot determine the guide record`);
+    throw new Error(
+      `Container ${containerId2} has no anchorInstanceId, so the guide record cannot be determined. Set the container's typing anchor to its guide record (the container may predate dataModelRevision 8 \u2014 run the SRS migration).`
+    );
   }
   const records = await Promise.all(
     memberInstanceIds.map(
