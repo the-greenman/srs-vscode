@@ -48,7 +48,7 @@ export const OK_REPO_VALIDATE_CLEAN = JSON.stringify({
   ok: true,
   version: "0.1.0",
   payload: {
-    summary: { checked: 100, errors: 0, warnings: 0 },
+    summary: { checked: 100, errors: 0, warnings: 0, advisories: 0 },
     diagnostics: [],
   },
 });
@@ -58,7 +58,7 @@ export const OK_REPO_VALIDATE_WITH_ERRORS = JSON.stringify({
   ok: true,
   version: "0.1.0",
   payload: {
-    summary: { checked: 50, errors: 2, warnings: 1 },
+    summary: { checked: 50, errors: 2, warnings: 1, advisories: 0 },
     diagnostics: [
       {
         severity: "error",
