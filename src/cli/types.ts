@@ -55,7 +55,7 @@ export interface RepoValidateDiagnostic {
 }
 
 export interface RepoValidatePayload {
-  summary: { checked: number; errors: number; warnings: number };
+  summary: { checked: number; errors: number; warnings: number; advisories: number };
   diagnostics: RepoValidateDiagnostic[];
 }
 
