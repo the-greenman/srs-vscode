@@ -122,14 +122,14 @@ describe("payload contracts", () => {
     it("validates repo-validate payload (clean) against golden schema", () => {
         const check = makeValidator("repo-validate");
         check({
-            summary: { checked: 100, errors: 0, warnings: 0 },
+            summary: { checked: 100, errors: 0, warnings: 0, advisories: 0 },
             diagnostics: [],
         });
     });
     it("validates repo-validate payload (with errors) against golden schema", () => {
         const check = makeValidator("repo-validate");
         check({
-            summary: { checked: 50, errors: 2, warnings: 1 },
+            summary: { checked: 50, errors: 2, warnings: 1, advisories: 0 },
             diagnostics: [
                 { severity: "error", path: "records/foo.json", message: "invalid field value" },
             ],
@@ -306,7 +306,9 @@ describe("payload contracts", () => {
         makeValidator("find")(find(hit)); // baselines are valid, so each rejection is for the corruption
         makeValidator("relation-neighbours")({ result: { instanceId: "i", total: 1, neighbours: [nb] } });
         rejects("find", find({ ...hit, uri: 5 }));
-        rejects("find", find({ ...hit, matchedFields: undefined }));
+        // matchedFields/containerIds are optional since srs-rust#1286 (full
+        // projection only) — a wrong *type* is still a corruption; absence isn't.
+        rejects("find", find({ ...hit, matchedFields: "not-an-array" }));
         rejects("find", { result: { hits: [], total: "1", facets: {}, diagnostics: [] } });
         const neighbours = (e) => ({ result: { instanceId: "i", total: 1, neighbours: [e] } });
         rejects("relation-neighbours", neighbours({ ...nb, direction: "sideways" }));
@@ -349,11 +351,14 @@ describe("payload contracts", () => {
                 assert.ok(note.ok, JSON.stringify(note));
                 const id = note.payload.instanceId ?? note.payload.note?.instanceId;
                 const keys = (o) => Object.keys(o);
-                const known = ["hits", "total", "facets", "diagnostics"];
+                // facets are opt-in since srs-rust#1286: present by default only for
+                // the `--limit 0` map query, absent otherwise unless `--facets` is passed.
+                const known = ["hits", "total", "diagnostics"];
+                const knownWithFacets = [...known, "facets"];
                 const validateFind = makeValidator("find");
                 const map = run(repo, ["find", "--limit", "0"]).payload;
                 validateFind(map);
-                assert.deepStrictEqual(keys(map.result).sort(), [...known].sort());
+                assert.deepStrictEqual(keys(map.result).sort(), [...knownWithFacets].sort());
                 assert.strictEqual(map.result.hits.length, 0);
                 assert.ok(map.result.facets && typeof map.result.facets === "object");
                 assert.ok(typeof map.result.facets.notes === "number" && map.result.facets.notes >= 1);
