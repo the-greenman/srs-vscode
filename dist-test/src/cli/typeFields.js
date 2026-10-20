@@ -8,20 +8,13 @@ function parseFields(properties, required) {
     const fields = Object.entries(properties).map(([name, node]) => parseField(name, node, requiredSet.has(name)));
     return fields.sort((a, b) => a.order - b.order);
 }
-// The CLI's `title` falls back to Field.description when no displayLabel was set
-// (srs-rust type_schema_service.rs: display_label ?? description), never to
-// Field.name — so a field with a long description and no explicit displayLabel would
-// otherwise show that whole sentence, uppercased, as its form/preview/table-header
-// label. A real displayLabel is short; treat anything else as "probably a
-// description" and fall back to the field name instead.
-function looksLikeShortLabel(t) {
-    return t.length <= 50 && t.trim().split(/\s+/).length <= 6;
-}
 function parseField(name, node, required) {
     const base = {
         name,
-        displayLabel: node.title && looksLikeShortLabel(node.title) ? node.title : name,
-        description: node.description,
+        // `title` is only ever the authored displayLabel (ADR-026, srs-rust#1382).
+        displayLabel: node.title ?? name,
+        // The field's own description; `description` is the aiGuidance purpose.
+        description: node["x-srs-description"],
         order: node["x-srs-order"] ?? 0,
         required,
         widget: node["x-srs-widget"],
