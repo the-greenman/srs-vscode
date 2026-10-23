@@ -410,7 +410,7 @@ export interface DiscoveryHit {
 export interface DiscoveryResult {
   hits: DiscoveryHit[];
   total: number;
-  facets: DiscoveryFacets;
+  facets?: DiscoveryFacets;     // opt-in since srs-rust#1286 (default only for `--limit 0`)
   diagnostics: string[];
 }
 // `find` and `find --similar` share this payload.
