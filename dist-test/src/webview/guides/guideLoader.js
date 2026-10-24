@@ -14,20 +14,6 @@ function strArray(v) {
         return [];
     return v.map((x) => (typeof x === "string" ? x : x === null || x === undefined ? "" : String(x)));
 }
-function sortByPrecedes(ids, precedesMap) {
-    const hasIncoming = new Set(ids.filter((id) => [...precedesMap.values()].includes(id)));
-    const result = [];
-    let cur = ids.find((id) => !hasIncoming.has(id));
-    while (cur && result.length <= ids.length) {
-        result.push(cur);
-        cur = precedesMap.get(cur);
-    }
-    for (const id of ids) {
-        if (!result.includes(id))
-            result.push(id);
-    }
-    return result;
-}
 function sectionTypeFromPrefix(typeId) {
     const p = typeId.slice(0, 8);
     if (p === guideTypes_1.TYPE_PREFIX.sectionText)
@@ -111,20 +97,13 @@ async function loadGuide(cli, repoPath, containerId) {
     }
     // Load all member records in parallel
     const records = await Promise.all(memberInstanceIds.map((id) => cli.runOk(repoPath, ["record", "get", id]).then((p) => p.record)));
-    // Build precedes map from relation list
-    const relPayload = await cli.runOk(repoPath, ["relation", "list"]);
-    const precedesMap = new Map();
-    for (const rel of relPayload.relations) {
-        if (rel.relationType === "precedes") {
-            precedesMap.set(rel.sourceId, rel.targetId);
-        }
-    }
     const guideRecord = records.find((r) => r.instanceId === guideId);
     if (!guideRecord) {
         throw new Error(`Guide record ${guideId} not found in container members`);
     }
-    const sectionIds = memberInstanceIds.filter((id) => id !== guideId);
-    const sortedSectionIds = sortByPrecedes(sectionIds, precedesMap);
+    // Section order is the container's entry order (RFC-043, R6): `precedes` is
+    // semantic, never presentation, so it is not read here.
+    const sortedSectionIds = memberInstanceIds.filter((id) => id !== guideId);
     const recordById = new Map(records.map((r) => [r.instanceId, r]));
     const sections = sortedSectionIds.map((id) => {
         const r = recordById.get(id);

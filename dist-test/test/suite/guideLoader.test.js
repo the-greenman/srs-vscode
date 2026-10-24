@@ -54,16 +54,15 @@ class FakeCli {
             return {
                 record: {
                     instanceId,
-                    typeId: "8f138dd6-11d2-42a5-99ec-3d6e23bed54f",
+                    typeId: instanceId.startsWith("sec-")
+                        ? "4408a98e-0000-0000-0000-000000000000"
+                        : "8f138dd6-11d2-42a5-99ec-3d6e23bed54f",
                     typeName: "guide",
                     typeNamespace: "com.mudemocracy",
                     typeVersion: 1,
                     fieldValues: { title: "My Guide", slug: "my-guide", subtitle: "", body: "" },
                 },
             };
-        }
-        if (args[0] === "relation" && args[1] === "list") {
-            return { relations: [] };
         }
         throw new Error(`unexpected CLI call: ${args.join(" ")}`);
     }
@@ -85,6 +84,15 @@ describe("loadGuide — anchor resolution", () => {
             assert.match(err.message, /has no anchorInstanceId/);
             return true;
         });
+    });
+});
+describe("loadGuide — section order", () => {
+    it("keeps the container's entry order and never reads relations", async () => {
+        // FakeCli throws on any `relation list` call, so a precedes read fails the test.
+        const members = ["sec-c", GUIDE_ID, "sec-a", "sec-b"];
+        const cli = new FakeCli({ memberInstanceIds: members, anchorInstanceId: GUIDE_ID });
+        const doc = await (0, guideLoader_1.loadGuide)(cli, "/repo", CONTAINER_ID);
+        assert.deepStrictEqual(doc.sections.map((s) => s.instanceId), ["sec-c", "sec-a", "sec-b"]);
     });
 });
 //# sourceMappingURL=guideLoader.test.js.map
