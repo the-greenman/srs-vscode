@@ -3,7 +3,7 @@ import * as path from "path";
 
 // Maps file glob patterns to their SRS JSON schema file (relative to extension root).
 // The extension.ts will resolve these to absolute URIs and register them with vscode.
-const SCHEMA_ASSOCIATIONS: Array<{ glob: string; schema: string }> = [
+export const SCHEMA_ASSOCIATIONS: Array<{ glob: string; schema: string }> = [
   { glob: "**/manifest.json",              schema: "schemas/2.0/manifest.json" },
   // Instance files are always `.json`. `**` after the folder matches tier-nested
   // layouts too (e.g. an unpacked archive's records/tier-2/*.json). `.srsj`/`.srs`
@@ -17,7 +17,13 @@ const SCHEMA_ASSOCIATIONS: Array<{ glob: string; schema: string }> = [
   // RFC-038 Change E: one Relation per file at relations/<relationId>.json — the
   // former single relations.json collection is retired.
   { glob: "**/relations/**/*.json",        schema: "schemas/2.0/relation.json" },
+  // Revision <= 10: one Container per file at containers/<containerId>.json.
   { glob: "**/containers/*.json",          schema: "schemas/2.0/container.json" },
+  // RFC-051 [R1] (revision 11): containers/<containerId>/container.json is the
+  // head (container.json with no memberInstanceIds), and each member is
+  // entries/<instanceId>.json. The entry glob maps to stored-container-entry.json
+  // once the mirror carries it (srs-vscode#144); until then it is left unmapped.
+  { glob: "**/containers/*/container.json", schema: "schemas/2.0/container.json" },
   { glob: "**/*.meta.json",               schema: "schemas/2.0/source-document-meta.json" },
 ];
 

@@ -696,7 +696,13 @@ var SCHEMA_ASSOCIATIONS = [
   // RFC-038 Change E: one Relation per file at relations/<relationId>.json — the
   // former single relations.json collection is retired.
   { glob: "**/relations/**/*.json", schema: "schemas/2.0/relation.json" },
+  // Revision <= 10: one Container per file at containers/<containerId>.json.
   { glob: "**/containers/*.json", schema: "schemas/2.0/container.json" },
+  // RFC-051 [R1] (revision 11): containers/<containerId>/container.json is the
+  // head (container.json with no memberInstanceIds), and each member is
+  // entries/<instanceId>.json. The entry glob maps to stored-container-entry.json
+  // once the mirror carries it (srs-vscode#144); until then it is left unmapped.
+  { glob: "**/containers/*/container.json", schema: "schemas/2.0/container.json" },
   { glob: "**/*.meta.json", schema: "schemas/2.0/source-document-meta.json" }
 ];
 var SchemaProvider = class {
@@ -4513,20 +4519,6 @@ function strArray(v) {
     return [];
   return v.map((x) => typeof x === "string" ? x : x === null || x === void 0 ? "" : String(x));
 }
-function sortByPrecedes(ids, precedesMap) {
-  const hasIncoming = new Set(ids.filter((id) => [...precedesMap.values()].includes(id)));
-  const result = [];
-  let cur = ids.find((id) => !hasIncoming.has(id));
-  while (cur && result.length <= ids.length) {
-    result.push(cur);
-    cur = precedesMap.get(cur);
-  }
-  for (const id of ids) {
-    if (!result.includes(id))
-      result.push(id);
-  }
-  return result;
-}
 function sectionTypeFromPrefix(typeId) {
   const p = typeId.slice(0, 8);
   if (p === TYPE_PREFIX.sectionText)
@@ -4605,19 +4597,11 @@ async function loadGuide(cli, repoPath, containerId2) {
       (id) => cli.runOk(repoPath, ["record", "get", id]).then((p) => p.record)
     )
   );
-  const relPayload = await cli.runOk(repoPath, ["relation", "list"]);
-  const precedesMap = /* @__PURE__ */ new Map();
-  for (const rel of relPayload.relations) {
-    if (rel.relationType === "precedes") {
-      precedesMap.set(rel.sourceId, rel.targetId);
-    }
-  }
   const guideRecord = records.find((r) => r.instanceId === guideId);
   if (!guideRecord) {
     throw new Error(`Guide record ${guideId} not found in container members`);
   }
-  const sectionIds = memberInstanceIds.filter((id) => id !== guideId);
-  const sortedSectionIds = sortByPrecedes(sectionIds, precedesMap);
+  const sortedSectionIds = memberInstanceIds.filter((id) => id !== guideId);
   const recordById = new Map(records.map((r) => [r.instanceId, r]));
   const sections = sortedSectionIds.map((id) => {
     const r = recordById.get(id);
