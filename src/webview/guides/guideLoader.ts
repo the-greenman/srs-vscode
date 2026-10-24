@@ -1,5 +1,4 @@
 import { CliClient } from "../../cli/CliClient";
-import { RelationListPayload } from "../../cli/types";
 import {
   TYPE_PREFIX,
   GuideDoc,
@@ -21,20 +20,6 @@ function str(record: RawRecord, name: string): string {
 function strArray(v: unknown): string[] {
   if (!Array.isArray(v)) return [];
   return v.map((x) => (typeof x === "string" ? x : x === null || x === undefined ? "" : String(x)));
-}
-
-function sortByPrecedes(ids: string[], precedesMap: Map<string, string>): string[] {
-  const hasIncoming = new Set(ids.filter((id) => [...precedesMap.values()].includes(id)));
-  const result: string[] = [];
-  let cur: string | undefined = ids.find((id) => !hasIncoming.has(id));
-  while (cur && result.length <= ids.length) {
-    result.push(cur);
-    cur = precedesMap.get(cur);
-  }
-  for (const id of ids) {
-    if (!result.includes(id)) result.push(id);
-  }
-  return result;
 }
 
 function sectionTypeFromPrefix(typeId: string) {
@@ -127,22 +112,14 @@ export async function loadGuide(
     ),
   );
 
-  // Build precedes map from relation list
-  const relPayload = await cli.runOk<RelationListPayload>(repoPath, ["relation", "list"]);
-  const precedesMap = new Map<string, string>();
-  for (const rel of relPayload.relations) {
-    if (rel.relationType === "precedes") {
-      precedesMap.set(rel.sourceId, rel.targetId);
-    }
-  }
-
   const guideRecord = records.find((r) => r.instanceId === guideId);
   if (!guideRecord) {
     throw new Error(`Guide record ${guideId} not found in container members`);
   }
 
-  const sectionIds = memberInstanceIds.filter((id) => id !== guideId);
-  const sortedSectionIds = sortByPrecedes(sectionIds, precedesMap);
+  // Section order is the container's entry order (RFC-043, R6): `precedes` is
+  // semantic, never presentation, so it is not read here.
+  const sortedSectionIds = memberInstanceIds.filter((id) => id !== guideId);
 
   const recordById = new Map(records.map((r) => [r.instanceId, r]));
 
