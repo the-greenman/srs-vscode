@@ -53,11 +53,11 @@ exports.SCHEMA_ASSOCIATIONS = [
     { glob: "**/relations/**/*.json", schema: "schemas/2.0/relation.json" },
     // Revision <= 10: one Container per file at containers/<containerId>.json.
     { glob: "**/containers/*.json", schema: "schemas/2.0/container.json" },
-    // RFC-051 [R1] (revision 11): containers/<containerId>/container.json is the
-    // head (container.json with no memberInstanceIds), and each member is
-    // entries/<instanceId>.json. The entry glob maps to stored-container-entry.json
-    // once the mirror carries it (srs-vscode#144); until then it is left unmapped.
+    // RFC-051 [R1]/[R2] (revision 11): containers/<containerId>/container.json is
+    // the head (container.json with no memberInstanceIds), and each member is
+    // entries/<instanceId>.json, a stored-container-entry.json.
     { glob: "**/containers/*/container.json", schema: "schemas/2.0/container.json" },
+    { glob: "**/containers/*/entries/*.json", schema: "schemas/2.0/stored-container-entry.json" },
     { glob: "**/*.meta.json", schema: "schemas/2.0/source-document-meta.json" },
 ];
 class SchemaProvider {
