@@ -34,6 +34,8 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 const assert = __importStar(require("assert"));
+const fs = __importStar(require("fs"));
+const path = __importStar(require("path"));
 const SchemaProvider_1 = require("../../src/schema/SchemaProvider");
 const schemaFor = (glob) => SchemaProvider_1.SCHEMA_ASSOCIATIONS.find((a) => a.glob === glob)?.schema;
 describe("SchemaProvider container globs (RFC-051)", () => {
@@ -43,8 +45,13 @@ describe("SchemaProvider container globs (RFC-051)", () => {
     it("maps the revision-11 container head", () => {
         assert.strictEqual(schemaFor("**/containers/*/container.json"), "schemas/2.0/container.json");
     });
-    it("leaves the revision-11 entry glob unmapped until the mirror carries its schema (#144)", () => {
-        assert.strictEqual(schemaFor("**/containers/*/entries/*.json"), undefined);
+    it("maps the revision-11 container entries (#144)", () => {
+        assert.strictEqual(schemaFor("**/containers/*/entries/*.json"), "schemas/2.0/stored-container-entry.json");
+    });
+    it("points every glob at a schema the mirror carries", () => {
+        for (const { schema } of SchemaProvider_1.SCHEMA_ASSOCIATIONS) {
+            assert.ok(fs.existsSync(path.join(__dirname, "../../..", schema)), schema);
+        }
     });
 });
 //# sourceMappingURL=schemaProvider.test.js.map
