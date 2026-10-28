@@ -27,12 +27,23 @@
 import * as assert from "assert";
 import * as fs from "fs";
 import * as path from "path";
-import Ajv from "ajv";
+import Ajv from "ajv/dist/2020";
 import { execFileSync } from "child_process";
 import * as os from "os";
 import type { FindPayload, NeighboursPayload } from "../../src/cli/types";
 
 const SCHEMA_DIR = path.join(__dirname, "../../../schemas/payload");
+
+// Payload schemas $ref the spec-level schemas by $id; register the vendored mirror.
+const SPEC_SCHEMA_DIR = path.join(__dirname, "../../../schemas/2.0");
+function newAjv(): Ajv {
+  const ajv = new Ajv({ strict: false, formats: { uint: true, int64: true } });
+  ajv.addMetaSchema(require("ajv/dist/refs/json-schema-draft-07.json")); // payload schemas are draft-07, spec schemas 2020-12
+  for (const f of fs.readdirSync(SPEC_SCHEMA_DIR).filter((f) => f.endsWith(".json"))) {
+    ajv.addSchema(JSON.parse(fs.readFileSync(path.join(SPEC_SCHEMA_DIR, f), "utf-8")));
+  }
+  return ajv;
+}
 
 function loadSchema(name: string): object {
   const schemaPath = path.join(SCHEMA_DIR, `${name}.json`);
@@ -52,7 +63,7 @@ function loadSchema(name: string): object {
 
 function makeValidator(schemaName: string): (payload: unknown) => void {
   const schema = loadSchema(schemaName);
-  const ajv = new Ajv({ strict: false, formats: { uint: true, int64: true } });
+  const ajv = newAjv();
   const validate = ajv.compile(schema);
   return (payload: unknown) => {
     const valid = validate(payload);
@@ -93,7 +104,7 @@ describe("payload contracts", () => {
 
   it("rejects note-list payload missing required 'notes' key", () => {
     const schema = loadSchema("note-list");
-    const ajv = new Ajv({ strict: false, formats: { uint: true, int64: true } });
+    const ajv = newAjv();
     const validate = ajv.compile(schema);
     assert.strictEqual(
       validate({ notez: [] }),
@@ -124,7 +135,7 @@ describe("payload contracts", () => {
 
   it("rejects repo-validate payload missing summary.checked", () => {
     const schema = loadSchema("repo-validate");
-    const ajv = new Ajv({ strict: false, formats: { uint: true, int64: true } });
+    const ajv = newAjv();
     const validate = ajv.compile(schema);
     // summary.checked is required by RepoValidateSummary
     assert.strictEqual(
@@ -186,7 +197,7 @@ describe("payload contracts", () => {
 
   it("rejects composition-list payload missing required 'compositions' key", () => {
     const schema = loadSchema("composition-list");
-    const ajv = new Ajv({ strict: false, formats: { uint: true, int64: true } });
+    const ajv = newAjv();
     const validate = ajv.compile(schema);
     assert.strictEqual(
       validate({ documentViews: [] }),
@@ -199,11 +210,14 @@ describe("payload contracts", () => {
     const check = makeValidator("composition-get");
     check({
       composition: {
+        $schema: "https://srs.semanticops.com/schema/2.0/composition.json",
         id: "2aba4d85-317b-44e1-a600-d38a743b4cb4",
         namespace: "com.mudemocracy",
         name: "guide-body-view",
         version: 1,
+        description: "Guide body.",
         sections: [],
+        createdAt: "2026-01-01T00:00:00Z",
       },
     });
   });
@@ -264,7 +278,7 @@ describe("payload contracts", () => {
 
   it("rejects repo-extensions-list payload with object entries instead of plain strings", () => {
     const schema = loadSchema("repo-extensions-list");
-    const ajv = new Ajv({ strict: false, formats: { uint: true, int64: true } });
+    const ajv = newAjv();
     const validate = ajv.compile(schema);
     assert.strictEqual(
       validate({ extensions: [{ instanceId: "x", extensionId: "ext:lifecycle" }] }),
@@ -320,7 +334,7 @@ describe("payload contracts", () => {
 
   it("find and neighbours schemas reject corrupted payloads", () => {
     const rejects = (name: string, payload: unknown) => {
-      const validate = new Ajv({ strict: false, formats: { uint: true, int64: true } }).compile(loadSchema(name));
+      const validate = newAjv().compile(loadSchema(name));
       assert.strictEqual(validate(payload), false, `${name} accepted ${JSON.stringify(payload)}`);
     };
     const nb = { direction: "out", relationId: "r", relationType: "t", neighbour: { instanceId: "i", uri: "u" } };
