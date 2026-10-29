@@ -69,6 +69,9 @@ export class DiagnosticsProvider implements vscode.Disposable {
         severity,
       );
       diag.source = REPO_DIAGNOSTIC_SOURCE;
+      if (d.code) {
+        diag.code = d.code;
+      }
 
       if (!byUri.has(uri)) {
         byUri.set(uri, []);

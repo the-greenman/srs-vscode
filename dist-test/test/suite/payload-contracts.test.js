@@ -64,10 +64,20 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const assert = __importStar(require("assert"));
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
-const ajv_1 = __importDefault(require("ajv"));
+const _2020_1 = __importDefault(require("ajv/dist/2020"));
 const child_process_1 = require("child_process");
 const os = __importStar(require("os"));
 const SCHEMA_DIR = path.join(__dirname, "../../../schemas/payload");
+// Payload schemas $ref the spec-level schemas by $id; register the vendored mirror.
+const SPEC_SCHEMA_DIR = path.join(__dirname, "../../../schemas/2.0");
+function newAjv() {
+    const ajv = new _2020_1.default({ strict: false, formats: { uint: true, int64: true } });
+    ajv.addMetaSchema(require("ajv/dist/refs/json-schema-draft-07.json")); // payload schemas are draft-07, spec schemas 2020-12
+    for (const f of fs.readdirSync(SPEC_SCHEMA_DIR).filter((f) => f.endsWith(".json"))) {
+        ajv.addSchema(JSON.parse(fs.readFileSync(path.join(SPEC_SCHEMA_DIR, f), "utf-8")));
+    }
+    return ajv;
+}
 function loadSchema(name) {
     const schemaPath = path.join(SCHEMA_DIR, `${name}.json`);
     if (!fs.existsSync(schemaPath)) {
@@ -83,7 +93,7 @@ function loadSchema(name) {
 }
 function makeValidator(schemaName) {
     const schema = loadSchema(schemaName);
-    const ajv = new ajv_1.default({ strict: false, formats: { uint: true, int64: true } });
+    const ajv = newAjv();
     const validate = ajv.compile(schema);
     return (payload) => {
         const valid = validate(payload);
@@ -114,7 +124,7 @@ describe("payload contracts", () => {
     });
     it("rejects note-list payload missing required 'notes' key", () => {
         const schema = loadSchema("note-list");
-        const ajv = new ajv_1.default({ strict: false, formats: { uint: true, int64: true } });
+        const ajv = newAjv();
         const validate = ajv.compile(schema);
         assert.strictEqual(validate({ notez: [] }), false, "Expected validation to fail for wrong key name");
     });
@@ -137,7 +147,7 @@ describe("payload contracts", () => {
     });
     it("rejects repo-validate payload missing summary.checked", () => {
         const schema = loadSchema("repo-validate");
-        const ajv = new ajv_1.default({ strict: false, formats: { uint: true, int64: true } });
+        const ajv = newAjv();
         const validate = ajv.compile(schema);
         // summary.checked is required by RepoValidateSummary
         assert.strictEqual(validate({ summary: { errors: 0, warnings: 0 }, diagnostics: [] }), false, "Expected validation to fail for missing summary.checked");
@@ -188,7 +198,7 @@ describe("payload contracts", () => {
     });
     it("rejects composition-list payload missing required 'compositions' key", () => {
         const schema = loadSchema("composition-list");
-        const ajv = new ajv_1.default({ strict: false, formats: { uint: true, int64: true } });
+        const ajv = newAjv();
         const validate = ajv.compile(schema);
         assert.strictEqual(validate({ documentViews: [] }), false, "Expected validation to fail for the retired documentViews key name");
     });
@@ -196,11 +206,14 @@ describe("payload contracts", () => {
         const check = makeValidator("composition-get");
         check({
             composition: {
+                $schema: "https://srs.semanticops.com/schema/2.0/composition.json",
                 id: "2aba4d85-317b-44e1-a600-d38a743b4cb4",
                 namespace: "com.mudemocracy",
                 name: "guide-body-view",
                 version: 1,
+                description: "Guide body.",
                 sections: [],
+                createdAt: "2026-01-01T00:00:00Z",
             },
         });
     });
@@ -251,7 +264,7 @@ describe("payload contracts", () => {
     });
     it("rejects repo-extensions-list payload with object entries instead of plain strings", () => {
         const schema = loadSchema("repo-extensions-list");
-        const ajv = new ajv_1.default({ strict: false, formats: { uint: true, int64: true } });
+        const ajv = newAjv();
         const validate = ajv.compile(schema);
         assert.strictEqual(validate({ extensions: [{ instanceId: "x", extensionId: "ext:lifecycle" }] }), false, "Expected validation to fail for the retired object-shaped extension entries");
     });
@@ -297,7 +310,7 @@ describe("payload contracts", () => {
     });
     it("find and neighbours schemas reject corrupted payloads", () => {
         const rejects = (name, payload) => {
-            const validate = new ajv_1.default({ strict: false, formats: { uint: true, int64: true } }).compile(loadSchema(name));
+            const validate = newAjv().compile(loadSchema(name));
             assert.strictEqual(validate(payload), false, `${name} accepted ${JSON.stringify(payload)}`);
         };
         const nb = { direction: "out", relationId: "r", relationType: "t", neighbour: { instanceId: "i", uri: "u" } };

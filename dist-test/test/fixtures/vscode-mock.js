@@ -2,7 +2,7 @@
 // Minimal vscode API stub for running unit tests outside the extension host.
 // Only covers the surface used by the files under test.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ViewColumn = exports.ProgressLocation = exports.EventEmitter = exports.commands = exports.executedCommands = exports.window = exports.workspace = exports.ThemeIcon = exports.TreeItem = exports.TreeItemCollapsibleState = void 0;
+exports.languages = exports.MockDiagnosticCollection = exports.Uri = exports.Diagnostic = exports.Range = exports.DiagnosticSeverity = exports.ViewColumn = exports.ProgressLocation = exports.EventEmitter = exports.commands = exports.executedCommands = exports.window = exports.workspace = exports.ThemeIcon = exports.TreeItem = exports.TreeItemCollapsibleState = void 0;
 exports.getRegisteredCommand = getRegisteredCommand;
 var TreeItemCollapsibleState;
 (function (TreeItemCollapsibleState) {
@@ -114,4 +114,58 @@ var ViewColumn;
     ViewColumn[ViewColumn["Beside"] = -2] = "Beside";
     ViewColumn[ViewColumn["Active"] = -1] = "Active";
 })(ViewColumn || (exports.ViewColumn = ViewColumn = {}));
+var DiagnosticSeverity;
+(function (DiagnosticSeverity) {
+    DiagnosticSeverity[DiagnosticSeverity["Error"] = 0] = "Error";
+    DiagnosticSeverity[DiagnosticSeverity["Warning"] = 1] = "Warning";
+    DiagnosticSeverity[DiagnosticSeverity["Information"] = 2] = "Information";
+    DiagnosticSeverity[DiagnosticSeverity["Hint"] = 3] = "Hint";
+})(DiagnosticSeverity || (exports.DiagnosticSeverity = DiagnosticSeverity = {}));
+class Range {
+    constructor(startLine, startCharacter, endLine, endCharacter) {
+        this.startLine = startLine;
+        this.startCharacter = startCharacter;
+        this.endLine = endLine;
+        this.endCharacter = endCharacter;
+    }
+}
+exports.Range = Range;
+class Diagnostic {
+    constructor(range, message, severity) {
+        this.range = range;
+        this.message = message;
+        this.severity = severity;
+    }
+}
+exports.Diagnostic = Diagnostic;
+exports.Uri = {
+    file: (fsPath) => ({
+        fsPath,
+        toString: () => `file://${fsPath}`,
+    }),
+    parse: (value) => ({
+        fsPath: value.replace(/^file:\/\//, ""),
+        toString: () => value,
+    }),
+};
+class MockDiagnosticCollection {
+    constructor() {
+        this.entries = new Map();
+    }
+    clear() {
+        this.entries.clear();
+    }
+    set(uri, diags) {
+        this.entries.set(uri.toString(), diags);
+    }
+    dispose() { }
+}
+exports.MockDiagnosticCollection = MockDiagnosticCollection;
+exports.languages = {
+    lastCollection: undefined,
+    createDiagnosticCollection: (_name) => {
+        exports.languages.lastCollection = new MockDiagnosticCollection();
+        return exports.languages.lastCollection;
+    },
+};
 //# sourceMappingURL=vscode-mock.js.map
