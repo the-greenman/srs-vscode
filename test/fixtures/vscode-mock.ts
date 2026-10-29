@@ -147,3 +147,59 @@ export enum ViewColumn {
   Beside = -2,
   Active = -1,
 }
+
+export enum DiagnosticSeverity {
+  Error = 0,
+  Warning = 1,
+  Information = 2,
+  Hint = 3,
+}
+
+export class Range {
+  constructor(
+    public startLine: number,
+    public startCharacter: number,
+    public endLine: number,
+    public endCharacter: number,
+  ) {}
+}
+
+export class Diagnostic {
+  source?: string;
+  code?: string | number;
+  constructor(
+    public range: Range,
+    public message: string,
+    public severity?: DiagnosticSeverity,
+  ) {}
+}
+
+export const Uri = {
+  file: (fsPath: string) => ({
+    fsPath,
+    toString: () => `file://${fsPath}`,
+  }),
+  parse: (value: string) => ({
+    fsPath: value.replace(/^file:\/\//, ""),
+    toString: () => value,
+  }),
+};
+
+export class MockDiagnosticCollection {
+  entries = new Map<string, Diagnostic[]>();
+  clear(): void {
+    this.entries.clear();
+  }
+  set(uri: { toString(): string }, diags: Diagnostic[]): void {
+    this.entries.set(uri.toString(), diags);
+  }
+  dispose(): void {}
+}
+
+export const languages = {
+  lastCollection: undefined as MockDiagnosticCollection | undefined,
+  createDiagnosticCollection: (_name?: string) => {
+    languages.lastCollection = new MockDiagnosticCollection();
+    return languages.lastCollection;
+  },
+};

@@ -78,6 +78,9 @@ class DiagnosticsProvider {
             const severity = severityFor(d.severity);
             const diag = new vscode.Diagnostic(new vscode.Range(0, 0, 0, 0), d.message, severity);
             diag.source = REPO_DIAGNOSTIC_SOURCE;
+            if (d.code) {
+                diag.code = d.code;
+            }
             if (!byUri.has(uri)) {
                 byUri.set(uri, []);
             }

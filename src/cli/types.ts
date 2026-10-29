@@ -51,6 +51,7 @@ export interface RepoValidateDiagnostic {
   severity: "error" | "warning";  // lowercase — Rust: #[serde(rename_all = "lowercase")]
   path: string;                    // renamed — Rust: #[serde(rename = "path")]
   schemaId?: string;
+  code?: string;                   // stable rule identifier; absent from older binaries and from sites that name none
   message: string;
 }
 
