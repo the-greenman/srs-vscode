@@ -234,8 +234,8 @@ describe("payload contracts", () => {
 
   it("validates render-composition payload against golden schema", () => {
     const check = makeValidator("render-composition");
-    check({ rendered: "# My Document\n...", diagnostics: [] });
-    check({ rendered: "", diagnostics: ["warning: empty view"] });
+    check({ rendered: "# My Document\n...", diagnostics: [], diagnosticsStructured: [] });
+    check({ rendered: "", diagnostics: ["warning: empty view"], diagnosticsStructured: [{ severity: "warning", code: "empty-view", message: "warning: empty view" }] });
   });
 
   // ── container resolve-view ────────────────────────────────────────────────
@@ -322,6 +322,7 @@ describe("payload contracts", () => {
         facets: { byType: { values: [{ value: "ns/n", count: 1 }] }, notes: 0,
           tags: { values: [], other: 2 }, fields: [{ field: "kind", values: [{ value: "a", count: 1 }] }] },
         diagnostics: [],
+        diagnosticsStructured: [],
       },
     };
     makeValidator("find")(payload);
@@ -339,14 +340,14 @@ describe("payload contracts", () => {
     };
     const nb = { direction: "out", relationId: "r", relationType: "t", neighbour: { instanceId: "i", uri: "u" } };
     const hit = { instanceId: "i", uri: "u", label: "L", containerIds: [], matchedFields: [] };
-    const find = (h: object) => ({ result: { hits: [h], total: 1, facets: {}, diagnostics: [] } });
+    const find = (h: object) => ({ result: { hits: [h], total: 1, facets: {}, diagnostics: [], diagnosticsStructured: [] } });
     makeValidator("find")(find(hit)); // baselines are valid, so each rejection is for the corruption
     makeValidator("relation-neighbours")({ result: { instanceId: "i", total: 1, neighbours: [nb] } });
     rejects("find", find({ ...hit, uri: 5 }));
     // matchedFields/containerIds are optional since srs-rust#1286 (full
     // projection only) — a wrong *type* is still a corruption; absence isn't.
     rejects("find", find({ ...hit, matchedFields: "not-an-array" }));
-    rejects("find", { result: { hits: [], total: "1", facets: {}, diagnostics: [] } });
+    rejects("find", { result: { hits: [], total: "1", facets: {}, diagnostics: [], diagnosticsStructured: [] } });
     const neighbours = (e: object) => ({ result: { instanceId: "i", total: 1, neighbours: [e] } });
     rejects("relation-neighbours", neighbours({ ...nb, direction: "sideways" }));
     rejects("relation-neighbours", neighbours({ ...nb, neighbour: { instanceId: "i" } }));
@@ -355,7 +356,7 @@ describe("payload contracts", () => {
 
   it("render-composition accepts a projection record without children/depth, and with depth", () => {
     const check = makeValidator("render-composition");
-    const sec = (r: object) => ({ rendered: "", diagnostics: [], projection: { $schema: "x", compositionId: "c", containerTitle: "T", generatedAt: "2026-01-01T00:00:00Z", sections: [{ sectionId: "s", order: 0, records: [r] }] } });
+    const sec = (r: object) => ({ rendered: "", diagnostics: [], diagnosticsStructured: [], projection: { $schema: "x", compositionId: "c", containerTitle: "T", generatedAt: "2026-01-01T00:00:00Z", sections: [{ sectionId: "s", order: 0, records: [r] }] } });
     const rec = { instanceId: "i", fields: {}, orderedFieldKeys: [], typeId: "t", typeName: "n", typeNamespace: "ns", typeVersion: 1, recordHeading: "h" };
     check(sec(rec));
     check(sec({ ...rec, depth: 1 }));
@@ -387,7 +388,7 @@ describe("payload contracts", () => {
         const keys = (o: object) => Object.keys(o);
         // facets are opt-in since srs-rust#1286: present by default only for
         // the `--limit 0` map query, absent otherwise unless `--facets` is passed.
-        const known = ["hits", "total", "diagnostics"];
+        const known = ["hits", "total", "diagnostics", "diagnosticsStructured"];
         const knownWithFacets = [...known, "facets"];
 
         const validateFind = makeValidator("find");

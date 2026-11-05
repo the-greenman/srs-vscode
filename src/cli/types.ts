@@ -198,9 +198,18 @@ export interface RepoPresentationListPayload {
 // `rendered` and `projection` are mutually exclusive by construction
 // (srs-rust render_service.rs): --view-format json yields the projection and an
 // empty `rendered`; every other format yields `rendered` and no projection.
+// One structured finding beside a text `diagnostics` list — srs-rust#1491
+export interface DiagnosticEntry {
+  severity: "error" | "warning" | "info";
+  code: string;
+  message: string;
+  instanceId?: string | null;
+}
+
 export interface RenderCompositionPayload {
   rendered: string;
   diagnostics: string[];
+  diagnosticsStructured: DiagnosticEntry[];
   projection?: CompositionProjection;
 }
 
@@ -413,6 +422,7 @@ export interface DiscoveryResult {
   total: number;
   facets?: DiscoveryFacets;     // opt-in since srs-rust#1286 (default only for `--limit 0`)
   diagnostics: string[];
+  diagnosticsStructured: DiagnosticEntry[];
 }
 // `find` and `find --similar` share this payload.
 export interface FindPayload { result: DiscoveryResult }
