@@ -3,6 +3,7 @@ import { CliClient } from "../cli/CliClient";
 import { RepositoryProvider } from "../repository/RepositoryProvider";
 import { EntityNode } from "./SrsTreeDataProvider";
 import { buildLabelMap } from "../cli/labelMap";
+import { normalizeRelationList } from "../cli/relations";
 import type {
   RelationListPayload,
   RecordListPayload,
@@ -236,7 +237,7 @@ export class NavigatorTreeDataProvider
     if (relations.length === 0) return [new EmptyNode("No relations in this repository")];
 
     // Collect all source IDs (nodes with outgoing edges) — these are the roots
-    const rootIds = new Set(relations.map((r) => r.sourceId));
+    const rootIds = new Set(relations.map((r) => r.sourceInstanceId));
 
     return Array.from(rootIds).map((id) => {
       const info = labelMap.get(id);
@@ -306,16 +307,16 @@ export class NavigatorTreeDataProvider
     const incoming = new Map<string, Array<{ id: string; kind: EntityKind; label: string }>>();
 
     for (const r of relations) {
-      if (r.sourceId === entityId) {
-        const info = labelMap.get(r.targetId);
-        const entry = { id: r.targetId, kind: (info?.kind ?? "record") as EntityKind, label: info?.label ?? r.targetId.slice(0, 8) };
+      if (r.sourceInstanceId === entityId) {
+        const info = labelMap.get(r.targetInstanceId);
+        const entry = { id: r.targetInstanceId, kind: (info?.kind ?? "record") as EntityKind, label: info?.label ?? r.targetInstanceId.slice(0, 8) };
         const list = outgoing.get(r.relationType) ?? [];
         list.push(entry);
         outgoing.set(r.relationType, list);
       }
-      if (r.targetId === entityId) {
-        const info = labelMap.get(r.sourceId);
-        const entry = { id: r.sourceId, kind: (info?.kind ?? "record") as EntityKind, label: info?.label ?? r.sourceId.slice(0, 8) };
+      if (r.targetInstanceId === entityId) {
+        const info = labelMap.get(r.sourceInstanceId);
+        const entry = { id: r.sourceInstanceId, kind: (info?.kind ?? "record") as EntityKind, label: info?.label ?? r.sourceInstanceId.slice(0, 8) };
         const list = incoming.get(r.relationType) ?? [];
         list.push(entry);
         incoming.set(r.relationType, list);
@@ -410,7 +411,9 @@ export class NavigatorTreeDataProvider
     repoPath: string,
   ): Promise<[RelationListPayload["relations"], Map<string, { label: string; kind: EntityKind }>]> {
     if (!this._relations) {
-      const payload = await this.cli.runOk<RelationListPayload>(repoPath, ["relation", "list"]);
+      const payload = normalizeRelationList(
+        await this.cli.runOk<RelationListPayload>(repoPath, ["relation", "list"]),
+      );
       this._relations = payload.relations;
     }
     const labelMap = await this._ensureLabelMap(repoPath);

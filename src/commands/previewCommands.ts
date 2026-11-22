@@ -7,6 +7,7 @@ import { CompositionNode } from "../tree/NavigatorTreeDataProvider";
 import { PreviewPanel, wrapHtml, esc } from "../preview/PreviewPanel";
 import { resolveTypeFields, ResolvedField } from "../cli/typeFields";
 import { buildLabelMap } from "../cli/labelMap";
+import { normalizeRelationList } from "../cli/relations";
 import type {
   EntityKind,
   CompositionListPayload,
@@ -393,7 +394,7 @@ async function previewRecord(
 
   const [typeResult, relResult, labelMap] = await Promise.allSettled([
     resolveTypeFields(cli, repoPath, record.typeId, record.typeVersion),
-    cli.runOk<RelationListPayload>(repoPath, ["relation", "list"]),
+    cli.runOk<RelationListPayload>(repoPath, ["relation", "list"]).then(normalizeRelationList),
     buildLabelMap(cli, repoPath),
   ]);
 
@@ -406,24 +407,24 @@ async function previewRecord(
     const peerLabelMap = labelMap.status === "fulfilled" ? labelMap.value : new Map<string, { label: string; kind: string }>();
 
     for (const rel of relResult.value.relations) {
-      if (rel.sourceId === id) {
-        const peer = peerLabelMap.get(rel.targetId);
+      if (rel.sourceInstanceId === id) {
+        const peer = peerLabelMap.get(rel.targetInstanceId);
         relatedItems.push({
           relationId: rel.relationId,
           relationType: rel.relationType,
           direction: "outgoing",
-          peerId: rel.targetId,
-          peerLabel: peer?.label ?? rel.targetId.slice(0, 8),
+          peerId: rel.targetInstanceId,
+          peerLabel: peer?.label ?? rel.targetInstanceId.slice(0, 8),
           peerKind: peer?.kind ?? "note",
         });
-      } else if (rel.targetId === id) {
-        const peer = peerLabelMap.get(rel.sourceId);
+      } else if (rel.targetInstanceId === id) {
+        const peer = peerLabelMap.get(rel.sourceInstanceId);
         relatedItems.push({
           relationId: rel.relationId,
           relationType: rel.relationType,
           direction: "incoming",
-          peerId: rel.sourceId,
-          peerLabel: peer?.label ?? rel.sourceId.slice(0, 8),
+          peerId: rel.sourceInstanceId,
+          peerLabel: peer?.label ?? rel.sourceInstanceId.slice(0, 8),
           peerKind: peer?.kind ?? "note",
         });
       }
