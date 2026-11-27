@@ -103,8 +103,8 @@ export interface RelationListPayload {
   relations: Array<{
     relationId: string;
     relationType: string;
-    sourceId: string;
-    targetId: string;
+    sourceInstanceId: string;
+    targetInstanceId: string;
   }>;
 }
 

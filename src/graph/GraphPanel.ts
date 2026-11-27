@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { CliClient } from "../cli/CliClient";
 import { buildLabelMap } from "../cli/labelMap";
 import { esc } from "../webview/escape";
+import { normalizeRelationList } from "../cli/relations";
 import type { RelationListPayload } from "../cli/types";
 
 interface GraphNode {
@@ -73,19 +74,19 @@ export class GraphPanel implements vscode.Disposable {
 
     try {
       const [relPayload, entityLabelMap] = await Promise.all([
-        cli.runOk<RelationListPayload>(repoPath, ["relation", "list"]),
+        cli.runOk<RelationListPayload>(repoPath, ["relation", "list"]).then(normalizeRelationList),
         buildLabelMap(cli, repoPath),
       ]);
 
       const nodeIds = new Set<string>();
       const edges: GraphEdge[] = [];
       for (const r of relPayload.relations) {
-        nodeIds.add(r.sourceId);
-        nodeIds.add(r.targetId);
+        nodeIds.add(r.sourceInstanceId);
+        nodeIds.add(r.targetInstanceId);
         edges.push({
           id: r.relationId,
-          source: r.sourceId,
-          target: r.targetId,
+          source: r.sourceInstanceId,
+          target: r.targetInstanceId,
           label: r.relationType,
         });
       }

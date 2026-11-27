@@ -4,6 +4,7 @@ import { CliError } from "../cli/errors";
 import { RepositoryProvider } from "../repository/RepositoryProvider";
 import { AttentionManager } from "../container/AttentionManager";
 import { buildLabelMap } from "../cli/labelMap";
+import { normalizeRelationList } from "../cli/relations";
 import type {
   EntityKind,
   NoteListPayload,
@@ -139,9 +140,9 @@ const ENTITY_SPECS: Record<EntityKind, EntitySpec> = {
   relation: {
     listArgs: ["relation", "list"],
     extractItems: (p) =>
-      (p as RelationListPayload).relations.map((r) => ({
+      normalizeRelationList(p as RelationListPayload).relations.map((r) => ({
         id: r.relationId,
-        label: `${r.relationType}: ${r.sourceId.slice(0, 8)}→${r.targetId.slice(0, 8)}`,
+        label: `${r.relationType}: ${r.sourceInstanceId.slice(0, 8)}→${r.targetInstanceId.slice(0, 8)}`,
       })),
     getArgs: (id) => ["relation", "get", id],
   },
@@ -341,13 +342,13 @@ export class SrsTreeDataProvider implements vscode.TreeDataProvider<SrsTreeNode>
         // uuid8→uuid8 stub extractItems falls back to — this is the "every
         // relation renders as <uuid8>→<uuid8>" bug (srs-vscode#119 workstream 5).
         const [payload, labelMap] = await Promise.all([
-          this.cli.runOk<RelationListPayload>(repoPath, spec.listArgs, { containerId }),
+          this.cli.runOk<RelationListPayload>(repoPath, spec.listArgs, { containerId }).then(normalizeRelationList),
           buildLabelMap(this.cli, repoPath),
         ]);
         return payload.relations.map((r) => {
-          const s = labelMap.get(r.sourceId);
-          const t = labelMap.get(r.targetId);
-          const label = `${r.relationType}: ${s?.label ?? r.sourceId.slice(0, 8)} → ${t?.label ?? r.targetId.slice(0, 8)}`;
+          const s = labelMap.get(r.sourceInstanceId);
+          const t = labelMap.get(r.targetInstanceId);
+          const label = `${r.relationType}: ${s?.label ?? r.sourceInstanceId.slice(0, 8)} → ${t?.label ?? r.targetInstanceId.slice(0, 8)}`;
           return new EntityNode(r.relationId, kind, label, spec.getArgs(r.relationId));
         });
       }
