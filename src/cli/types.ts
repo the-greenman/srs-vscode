@@ -396,7 +396,7 @@ export type EntityKind =
 // test validates fixtures and live binary output against it.
 export interface FacetValue { value: string; count: number }
 export interface FacetCounts { values: FacetValue[]; other?: number }
-export interface FieldFacet extends FacetCounts { field: string }
+export interface FieldFacet extends FacetCounts { field: string; fieldId: string }
 // Every facet key is omitted when empty/zero; `limit: 0` gives hits: [] with full facets.
 export interface DiscoveryFacets {
   byType?: FacetCounts;
@@ -438,5 +438,5 @@ export interface NeighbourEdge {
   neighbour: { instanceId: string; uri: string; label?: string; typeNamespace?: string; typeName?: string };
 }
 export interface NeighboursPayload {
-  result: { instanceId: string; total: number; neighbours: NeighbourEdge[] };
+  result: { instanceId: string; total: number; neighbours: NeighbourEdge[]; diagnostics: string[]; diagnosticsStructured: DiagnosticEntry[] };
 }
