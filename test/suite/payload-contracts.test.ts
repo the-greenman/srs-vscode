@@ -320,7 +320,7 @@ describe("payload contracts", () => {
         }],
         total: 1,
         facets: { byType: { values: [{ value: "ns/n", count: 1 }] }, notes: 0,
-          tags: { values: [], other: 2 }, fields: [{ field: "kind", values: [{ value: "a", count: 1 }] }] },
+          tags: { values: [], other: 2 }, fields: [{ field: "kind", fieldId: "f1", values: [{ value: "a", count: 1 }] }] },
         diagnostics: [],
         diagnosticsStructured: [],
       },
@@ -329,7 +329,7 @@ describe("payload contracts", () => {
   });
 
   it("neighbours payload fixture validates", () => {
-    const payload: NeighboursPayload = { result: { instanceId: "i1", total: 0, neighbours: [] } };
+    const payload: NeighboursPayload = { result: { instanceId: "i1", total: 0, neighbours: [], diagnostics: [], diagnosticsStructured: [] } };
     makeValidator("relation-neighbours")(payload);
   });
 
@@ -342,13 +342,13 @@ describe("payload contracts", () => {
     const hit = { instanceId: "i", uri: "u", label: "L", containerIds: [], matchedFields: [] };
     const find = (h: object) => ({ result: { hits: [h], total: 1, facets: {}, diagnostics: [], diagnosticsStructured: [] } });
     makeValidator("find")(find(hit)); // baselines are valid, so each rejection is for the corruption
-    makeValidator("relation-neighbours")({ result: { instanceId: "i", total: 1, neighbours: [nb] } });
+    makeValidator("relation-neighbours")({ result: { instanceId: "i", total: 1, neighbours: [nb], diagnostics: [], diagnosticsStructured: [] } });
     rejects("find", find({ ...hit, uri: 5 }));
     // matchedFields/containerIds are optional since srs-rust#1286 (full
     // projection only) — a wrong *type* is still a corruption; absence isn't.
     rejects("find", find({ ...hit, matchedFields: "not-an-array" }));
     rejects("find", { result: { hits: [], total: "1", facets: {}, diagnostics: [], diagnosticsStructured: [] } });
-    const neighbours = (e: object) => ({ result: { instanceId: "i", total: 1, neighbours: [e] } });
+    const neighbours = (e: object) => ({ result: { instanceId: "i", total: 1, neighbours: [e], diagnostics: [], diagnosticsStructured: [] } });
     rejects("relation-neighbours", neighbours({ ...nb, direction: "sideways" }));
     rejects("relation-neighbours", neighbours({ ...nb, neighbour: { instanceId: "i" } }));
     rejects("relation-neighbours", { result: { instanceId: "i", neighbours: [] } });
